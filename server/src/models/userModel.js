@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 
 const userSchema = new mongoose.Schema(
     {
@@ -23,6 +25,7 @@ const userSchema = new mongoose.Schema(
             trim: true,
             maxlength: 150,
         },
+        googleId: {type: String, unique: true, sparse: true}, // allows multiple null values
 
         authProvider: {
             type: String,

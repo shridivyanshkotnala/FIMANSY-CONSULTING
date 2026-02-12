@@ -23,7 +23,27 @@ const generateAccessAndRefreshToken = async(userId) =>{
     }
 }
 
+const googleAuthCallback = asynchandler(async (req, res) => {
+    const user = req.user;
 
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
+
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+
+    res
+      .cookie("accessToken", accessToken, {
+        httpOnly: true,
+        secure: true,
+      })
+      .cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        secure: true,
+      })
+      .redirect("http://localhost:5173/dashboard");
+  
+})
 
 const registerUser = asynchandler(async (req, res) => { 
 
@@ -115,12 +135,12 @@ const loginUser = asynchandler (async (req,res)=>{
     .cookie("accessToken",accessToken,{
         httpOnly : true,
         secure : true,
-        maxage : 24 * 60 * 60 * 1000, //1 day in milliseconds
+        maxAge : 24 * 60 * 60 * 1000, //1 day in milliseconds
     })
     .cookie("refreshToken",refreshToken,{
         httpOnly : true,
         secure : true,
-        maxage : 7 * 24 * 60 * 60 * 1000, //7 days in milliseconds
+        maxAge : 7 * 24 * 60 * 60 * 1000, //7 days in milliseconds
     })
     .json(
         new ApiResponse(200,
@@ -251,4 +271,4 @@ const changeUserPassword = asynchandler(async (req, res)=>{
 
 
 
-export { registerUser, loginUser, logoutUser , changeUserPassword, refreshRefreshToken}
+export { registerUser, loginUser, logoutUser , changeUserPassword, refreshRefreshToken, googleAuthCallback}

@@ -1,6 +1,3 @@
-import express from 'express';
-import Joi from 'joi';
-
 const validateUser = (schema) => (req, res, next) =>{
     const { error , value } = schema.validate(req.body, { abortEarly: false })
 
