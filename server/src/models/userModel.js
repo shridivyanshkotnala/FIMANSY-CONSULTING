@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const userSchema = new mongoose.Schema(
@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema(
             trim: true,
             maxlength: 150,
         },
-        googleId: {type: String, unique: true, sparse: true}, // allows multiple null values
+        googleId: { type: String, unique: true, sparse: true }, // allows multiple null values
 
         authProvider: {
             type: String,
@@ -38,6 +38,17 @@ const userSchema = new mongoose.Schema(
             type: String,
             enum: ["founder", "admin"],
             default: "founder",
+        },
+
+        companyName: {
+            type: String,
+            trim: true,
+            default: null
+        },
+
+        isOnboarded: {
+            type: Boolean,
+            default: false
         },
 
         status: {

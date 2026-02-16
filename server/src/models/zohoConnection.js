@@ -40,4 +40,4 @@ const zohoConnectionSchema = new mongoose.Schema(
   }
 );
 
-export default mongoose.model("ZohoConnection", zohoConnectionSchema);
+export const ZohoConnection = mongoose.model("ZohoConnection", zohoConnectionSchema);
