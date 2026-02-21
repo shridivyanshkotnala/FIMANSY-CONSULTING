@@ -54,7 +54,9 @@ export function PillarSidebar() {
 
   const zohoConnectionHandler = () => {
     if (!zoho?.connected) {
-      window.location.href = "/api/zoho/connect";
+      const activeOrg = localStorage.getItem("activeOrgId");
+      const url = activeOrg ? `/api/zoho/connect?org=${activeOrg}` : "/api/zoho/connect";
+      window.location.href = url;// url = /api/zoho/connect
     }
   };
 

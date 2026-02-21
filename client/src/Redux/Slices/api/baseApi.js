@@ -2,8 +2,21 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: "/api",
-  credentials: "include", // cookies carry auth automatically
+  credentials: "include",
+
+  prepareHeaders: (headers, { getState }) => {
+    const state = getState();
+
+    const token = state.auth?.accessToken;
+    const orgId = localStorage.getItem("activeOrgId");
+
+    if (token) headers.set("authorization", `Bearer ${token}`);
+    if (orgId) headers.set("x-organization-id", orgId);
+
+    return headers;
+  }
 });
+
 
 const baseQueryWithRefresh = async (args, api, extraOptions) => {
   let result = await rawBaseQuery(args, api, extraOptions);
@@ -31,6 +44,6 @@ const baseQueryWithRefresh = async (args, api, extraOptions) => {
 export const baseApi = createApi({
   reducerPath: "api",
   baseQuery: baseQueryWithRefresh,
-  tagTypes: ["Auth","Zoho","Aging","CashIntelligence"],
+  tagTypes: ["Auth","Zoho","Org","Aging","CashIntelligence"],
   endpoints: () => ({}),
 });

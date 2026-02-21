@@ -1,18 +1,9 @@
-import { ZohoConnection } from "../models/zohoConnection.js";
+export const getValidZohoToken = async (connection) => {
 
-
-
-export const getValidZohoToken = async (userId) => {
-  const connection = await ZohoConnection.findOne({ userId });
-
-  if (!connection) throw new Error("Zoho not connected");
-
-  // still valid
   if (connection.tokenExpiry > new Date()) {
     return connection.accessToken;
   }
 
-  // refresh token
   const url = new URL(`${process.env.ZOHO_ACCOUNTS_URL}/oauth/v2/token`);
 
   url.searchParams.set("grant_type", "refresh_token");

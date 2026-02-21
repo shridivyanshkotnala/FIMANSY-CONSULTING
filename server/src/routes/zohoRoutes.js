@@ -1,13 +1,13 @@
 import express from "express";
-import { connectZoho, zohoCallback } from "../controllers/zohoController.js";
+import { connectZoho, zohoCallback, getZohoStatus } from "../controllers/zohoController.js";
 import { protectRoute } from "../middlewares/authMiddleware.js";
-import { getZohoStatus } from "../controllers/zohoController.js";
+import { orgMiddleware } from "../middlewares/organizationMiddleware.js";
 
 // ----------------   Zoho Route  -------------------- //
 const zohoRoutes = express.Router();
 
-zohoRoutes.get("/connect",protectRoute, connectZoho);
+zohoRoutes.get("/connect", protectRoute, orgMiddleware, connectZoho);
 zohoRoutes.get("/callback", zohoCallback);
-zohoRoutes.get("/status", protectRoute, getZohoStatus);
+zohoRoutes.get("/status", protectRoute, orgMiddleware, getZohoStatus);
 
 export default zohoRoutes;

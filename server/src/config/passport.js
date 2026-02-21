@@ -53,5 +53,17 @@ passport.use(
     }
   )
 );
+//Newly added serialize and deserialize methods for passport session management. Even though we are using JWTs, these are required by passport.session() to function properly. We don't actually store user data in the session, but we need to implement these methods to satisfy passport's requirements.
+// passport.session() requires serialize/deserialize even when JWTs are used.
+// We don't actually store users in session — auth is handled via JWT cookies.
+// passport.serializeUser((user, done) => done(null, user._id));
+// passport.deserializeUser(async (id, done) => {
+//   try {
+//     const user = await User.findById(id).select("-password -refreshToken");
+//     done(null, user);
+//   } catch (err) {
+//     done(err, null);
+//   }
+
 
 export default passport;

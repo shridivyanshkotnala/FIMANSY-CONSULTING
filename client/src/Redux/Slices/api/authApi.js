@@ -49,6 +49,8 @@ export const authApi = baseApi.injectEndpoints({
         try {
           await queryFulfilled;
         } finally {
+          // clear org context so the next user doesn't inherit stale org
+          localStorage.removeItem("activeOrgId");
           // wipe every cached API response (VERY IMPORTANT)
           dispatch(baseApi.util.resetApiState());
         }

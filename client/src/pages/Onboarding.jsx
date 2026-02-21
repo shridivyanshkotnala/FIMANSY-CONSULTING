@@ -46,12 +46,16 @@ export default function Onboarding() {
       // TEMP: until org API exists
       // we simulate org selection
 
-      await completeOnboarding(orgName.trim()).unwrap();
+      const res = await completeOnboarding(orgName.trim()).unwrap();
 
       toast({
         title: "Organization Created",
         description: "You can now enter the dashboard",
       });
+      // store active organization id for header/query usage
+      if (res?.data?.organization?._id) {
+        localStorage.setItem("activeOrgId", res.data.organization._id);
+      }
       navigate("/dashboard", { replace: true });
 
 

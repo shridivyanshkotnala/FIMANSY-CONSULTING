@@ -2,7 +2,9 @@ import { User } from '../models/userModel.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asynchandler } from '../utils/asynchandler.js';
 import { ApiResponse } from '../utils/ApiResponse.js'
-
+import { Organization } from '../models/organizationModel.js';
+import { Membership } from '../models/membershipModel.js';
+import jwt from 'jsonwebtoken';
 
 const generateAccessAndRefreshToken = async (userId) => {
     try {
@@ -304,7 +306,7 @@ const getMe = asynchandler(async (req, res) => {
     }
 
 
-    
+
     return res.status(200).json(
         new ApiResponse(200, user, "User details fetched successfully")
     )
@@ -323,13 +325,32 @@ const completeOnboarding = asynchandler(async (req, res) => {
         throw new ApiError(404, "User not found");
     }
 
-    user.companyName = companyName.trim();
+
+    const org = await Organization.create({
+        name: companyName,
+        owner: req.user._id,
+    });
+
+    if(!org){
+        throw new ApiError(500, "Organization creation failed, please try again later")
+    }
+
+    const membership = await Membership.create({
+        userId: req.user._id,
+        organizationId: org._id,
+        role: "owner",
+        status: "active",
+    });
+
+    if(!membership){
+        throw new ApiError(500, "Membership creation failed, please try again later")
+    }
+
     user.isOnboarded = true;
 
-    await user.save({ validateBeforeSave: false });
-
+    await user.save();
     return res.status(200).json(
-        new ApiResponse(200, user, "Onboarding completed")
+        new ApiResponse(200, { organization: org, membership }, "Onboarding completed")
     );
 });
 

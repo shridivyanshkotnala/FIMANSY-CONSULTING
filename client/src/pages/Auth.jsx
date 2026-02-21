@@ -53,19 +53,15 @@ export default function Auth() {
   const [login, { isLoading: loginLoading }] = useLoginMutation();
   const [signup, { isLoading: signupLoading }] = useSignupMutation();
 
-  // Check if already logged in
+  // Check if already logged in — do NOT block render; redirect via effect
   const { data: me, isLoading: checkingAuth } = useMeQuery();
-  // wait for auth check
 
-  // redirect AFTER render (legal)
+  // redirect AFTER render once /me resolves
   useEffect(() => {
     if (!checkingAuth && me) {
       navigate(from, { replace: true });
     }
   }, [checkingAuth, me, from, navigate]);
-
-  // only after hooks are declared, you may return
-  if (checkingAuth) return null;
 
 
   // ---------------- LOGIN ----------------

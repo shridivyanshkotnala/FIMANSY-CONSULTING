@@ -40,12 +40,6 @@ const userSchema = new mongoose.Schema(
             default: "founder",
         },
 
-        companyName: {
-            type: String,
-            trim: true,
-            default: null
-        },
-
         isOnboarded: {
             type: Boolean,
             default: false

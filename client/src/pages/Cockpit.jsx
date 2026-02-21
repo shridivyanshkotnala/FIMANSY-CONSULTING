@@ -145,7 +145,7 @@ export default function Cockpit() {
             status={mockData.reconciledStatus}
             subtitle="Unreconciled transactions"
             actionLabel="Reconcile Now"
-            onDrillDown={() => setActiveDrillDown("banking")}
+            onDrillDown={() => navigate("/banking")}
           />
 
           <PulseTile id="inventory" title="Inventory" icon={Package}
