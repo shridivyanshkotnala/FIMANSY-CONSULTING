@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -12,15 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { useGetAgingAlertsQuery, useGetAgingBucketsQuery } from "@/Redux/Slices/api/agingApi";
 
 // ===== TEMP DATABASE CLIENT (REMOVE LATER → Backend API / RTK Query) =====
 // import { supabase } from "@/integrations/supabase/client";
@@ -28,19 +18,13 @@ import { Textarea } from "@/components/ui/textarea";
 // ===== AUTH CONTEXT (LATER → REDUX AUTH SLICE SELECTOR) =====
 // import { useAuth } from "@/hooks/useAuth";
 
-import { differenceInDays, format } from "date-fns";
+
 import {
   Bell,
-  Mail,
-  MessageSquare,
-  AlertTriangle,
-  FileText,
-  Send,
   Clock,
   CheckCircle2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 /**
  * AgingInvoice Shape (Converted from TS interface)
@@ -59,51 +43,10 @@ export function AgingAlertsPanel() {
   // const { organization } = useAuth();
 
   // ===== LOCAL UI STATE =====
-  const [invoices, setInvoices] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [reminderType, setReminderType] = useState("soft");
-  const [reminderText, setReminderText] = useState("");
-  const [showDialog, setShowDialog] = useState(false);
+  // const [invoices, setInvoices] = useState([]);
 
-  // ===== FETCH AGING INVOICES =====
-  useEffect(() => {
-    if (!organization?.id) return;
 
-    const fetchAgingInvoices = async () => {
-      const { data, error } = await supabase
-        .from('invoices')
-        .select('id, invoice_number, vendor_name, date_of_issue, total_with_gst')
-        .eq('organization_id', organization.id)
-        .eq('document_category', 'revenue')
-        .eq('status', 'pending')
-        .order('date_of_issue', { ascending: true });
 
-      if (!error && data) {
-        const today = new Date();
-
-        // ===== BUSINESS LOGIC (KEEP EVEN AFTER DB REMOVAL) =====
-        const enriched = data.map(inv => {
-          const days = differenceInDays(today, new Date(inv.date_of_issue));
-
-          let alertLevel = "soft";
-          if (days > 45) alertLevel = "legal";
-          else if (days > 30) alertLevel = "firm";
-
-          return {
-            ...inv,
-            daysOutstanding: days,
-            alertLevel,
-          };
-        }).filter(inv => inv.daysOutstanding > 25);
-
-        setInvoices(enriched);
-      }
-      setLoading(false);
-    };
-
-    fetchAgingInvoices();
-  }, [organization?.id]);
 
   // ===== CURRENCY FORMATTER =====
   const formatCurrency = (amount) => {
@@ -114,6 +57,16 @@ export function AgingAlertsPanel() {
       maximumFractionDigits: 0,
     }).format(amount);
   };
+
+  const { data, isLoading } = useGetAgingAlertsQuery();
+  const { data: bucketData } = useGetAgingBucketsQuery();
+
+  const bucket_30_45 = bucketData?.data?.bucket_30_45 || [];
+  const bucket_46_plus = bucketData?.data?.bucket_46_plus || [];
+  const bucket_0_30 = bucketData?.data?.bucket_0_30 || [];
+
+
+  const invoices = data?.data || [];
 
   // ===== ALERT BADGE COMPONENT LOGIC =====
   const getAlertBadge = (level) => {
@@ -127,33 +80,8 @@ export function AgingAlertsPanel() {
     }
   };
 
-  // ===== MESSAGE TEMPLATE GENERATOR =====
-  const getReminderTemplate = (invoice, type) => {
-    const templates = {
-      soft: `Dear ${invoice.vendor_name},\n\nThis is a gentle reminder regarding Invoice #${invoice.invoice_number} dated ${format(new Date(invoice.date_of_issue), 'dd MMM yyyy')} for ${formatCurrency(invoice.total_with_gst)}.\n\nThe payment is now ${invoice.daysOutstanding} days outstanding. We kindly request you to expedite the payment at your earliest convenience.\n\nThank you for your continued business.\n\nBest regards`,
-      firm: `Dear ${invoice.vendor_name},\n\nRE: Overdue Payment - Invoice #${invoice.invoice_number}\n\nDespite our previous reminders, we note that the above invoice dated ${format(new Date(invoice.date_of_issue), 'dd MMM yyyy')} for ${formatCurrency(invoice.total_with_gst)} remains unpaid after ${invoice.daysOutstanding} days.\n\nWe request immediate payment to avoid any disruption to our business relationship.\n\nPlease treat this as urgent.\n\nRegards`,
-      legal: `LEGAL NOTICE UNDER MSMED ACT, 2006\n\nTo: ${invoice.vendor_name}\n\nRE: Invoice #${invoice.invoice_number} - Outstanding Amount: ${formatCurrency(invoice.total_with_gst)}\n\nThis is to formally notify you that the payment for the above invoice dated ${format(new Date(invoice.date_of_issue), 'dd MMM yyyy')} has been overdue for ${invoice.daysOutstanding} days, which exceeds the statutory limit under Section 15 of the MSMED Act, 2006.\n\nAs per Section 16 of the MSMED Act, you are liable to pay compound interest at three times the bank rate on the delayed payment.\n\nWe hereby demand:\n1. Immediate payment of the principal amount\n2. Interest on delayed payment as per the Act\n\nFailure to comply within 7 days will result in filing of a complaint with the MSME Samadhaan portal and initiation of legal proceedings.\n\nThis notice is issued without prejudice to our other legal rights.`,
-    };
-    return templates[type];
-  };
-
-  // ===== OPEN REMINDER DIALOG =====
-  const handleSendReminder = (invoice, type) => {
-    setSelectedInvoice(invoice);
-    setReminderType(type);
-    setReminderText(getReminderTemplate(invoice, type));
-    setShowDialog(true);
-  };
-
-  // ===== SEND REMINDER ACTION (FUTURE → API CALL) =====
-  const confirmSendReminder = () => {
-    toast.success(`${reminderType === 'legal' ? 'Legal notice' : 'Reminder'} logged for ${selectedInvoice?.vendor_name}`);
-    setShowDialog(false);
-    setSelectedInvoice(null);
-  };
-
-  // ===== LOADING SKELETON =====
-  if (loading) {
+  // ===== isLoading SKELETON =====
+  if (isLoading) {
     return (
       <Card>
         <CardHeader>
@@ -195,7 +123,7 @@ export function AgingAlertsPanel() {
       )}
 
       {/* ===== AUTOMATION RULES CARD ===== */}
-      <Card>
+      {/* <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-primary" />
@@ -239,6 +167,62 @@ export function AgingAlertsPanel() {
             </div>
           </div>
         </CardContent>
+      </Card> */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            Aging Distribution
+          </CardTitle>
+          <CardDescription>
+            Breakdown of outstanding receivables by aging bucket
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-3">
+
+            {/* 0–30 Days */}
+            <div className="p-4 rounded-lg border bg-muted/30">
+              <div className="text-sm text-muted-foreground mb-1">
+                0–30 Days
+              </div>
+              <div className="text-2xl font-semibold">
+                {bucket_0_30.length}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Invoices recently overdue
+              </div>
+            </div>
+
+            {/* 30–45 Days */}
+            <div className="p-4 rounded-lg border bg-warning/10 border-warning/20">
+              <div className="text-sm text-muted-foreground mb-1">
+                30–45 Days
+              </div>
+              <div className="text-2xl font-semibold text-warning">
+                {bucket_30_45.length}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Moderate risk receivables
+              </div>
+            </div>
+
+            {/* 46+ Days */}
+            <div className="p-4 rounded-lg border bg-destructive/10 border-destructive/20">
+              <div className="text-sm text-muted-foreground mb-1">
+                46+ Days
+              </div>
+              <div className="text-2xl font-semibold text-destructive">
+                {bucket_46_plus.length}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                High risk receivables
+              </div>
+            </div>
+
+          </div>
+        </CardContent>
       </Card>
 
       {/* ===== INVOICES TABLE ===== */}
@@ -258,10 +242,11 @@ export function AgingAlertsPanel() {
                 <TableRow>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Customer</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Paid Amount</TableHead>
+                  <TableHead className="text-right">Balance Amount</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-center">Days</TableHead>
                   <TableHead>Alert Level</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -274,7 +259,19 @@ export function AgingAlertsPanel() {
                   >
                     <TableCell className="font-medium">{invoice.invoice_number}</TableCell>
                     <TableCell>{invoice.vendor_name}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(invoice.total_with_gst)}</TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(invoice.paid_amount ?? invoice.paidAmount ?? 0)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(
+                        (invoice.balance_amount ?? invoice.balance ?? (
+                          (invoice.total_with_gst ?? invoice.total ?? 0) - (invoice.paid_amount ?? invoice.paidAmount ?? 0)
+                        ))
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="capitalize">{invoice.status ?? invoice.state ?? "unknown"}</span>
+                    </TableCell>
                     <TableCell className="text-center">
                       <span className={cn(
                         "font-medium",
@@ -285,22 +282,6 @@ export function AgingAlertsPanel() {
                       </span>
                     </TableCell>
                     <TableCell>{getAlertBadge(invoice.alertLevel)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => handleSendReminder(invoice, "soft")}>
-                          <Mail className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleSendReminder(invoice, "firm")}>
-                          <MessageSquare className="h-4 w-4" />
-                        </Button>
-                        {invoice.alertLevel === "legal" && (
-                          <Button size="sm" variant="destructive" onClick={() => handleSendReminder(invoice, "legal")}>
-                            <FileText className="h-4 w-4 mr-1" />
-                            Legal
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -309,40 +290,7 @@ export function AgingAlertsPanel() {
         </CardContent>
       </Card>
 
-      {/* ===== SEND REMINDER DIALOG ===== */}
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {reminderType === "legal" ? "MSMED Legal Notice" : `${reminderType.charAt(0).toUpperCase() + reminderType.slice(1)} Reminder`}
-            </DialogTitle>
-            <DialogDescription>
-              Review and send to {selectedInvoice?.vendor_name}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Textarea
-              value={reminderText}
-              onChange={(e) => setReminderText(e.target.value)}
-              rows={12}
-              className="font-mono text-sm"
-            />
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Mail className="h-4 w-4" />
-              This will be logged in the invoice communication history
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmSendReminder}>
-              <Send className="h-4 w-4 mr-2" />
-              Send {reminderType === "legal" ? "Notice" : "Reminder"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
     </div>
   );
 }

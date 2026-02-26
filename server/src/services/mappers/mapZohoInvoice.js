@@ -1,6 +1,7 @@
 export const mapZohoInvoice = (z) => ({
   invoiceId: z.invoice_id,
   customerId: z.customer_id,
+  customerName: z.customer_name || z.contact_name || (z.customer && (z.customer.name || z.customer.contact_name)) || null,
   invoiceNumber: z.invoice_number,
   status: z.status,
 

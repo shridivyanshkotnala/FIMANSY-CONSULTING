@@ -2,30 +2,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Lock, AlertTriangle, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useGetAgingBucketsQuery } from "@/Redux/Slices/api/cashIntelligenceApi";
 
-/**
- * LockedCashPanel
- *
- * Displays receivable aging summary.
- *
- * All classification must come from backend:
- * - aging buckets
- * - MSMED risk detection
- *
- * future redux:
- * const summary = useSelector(selectReceivableSummary)
- */
-
-export function LockedCashPanel({ summary = null, loading = false }) {
+export function LockedCashPanel() {
   const navigate = useNavigate();
+  const { data: raw, isLoading, isFetching } = useGetAgingBucketsQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
 
   const formatCurrency = (amount) => {
     if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
-    if (amount >= 1000) return `₹${(amount / 1000).toFixed(0)}K`;
-    return `₹${amount?.toFixed?.(0) || 0}`;
+    if (amount >= 1000)   return `₹${(amount / 1000).toFixed(0)}K`;
+    return `₹${Number(amount || 0).toFixed(0)}`;
   };
 
-  if (loading || !summary) {
+  if (isLoading || isFetching) {
     return (
       <Card className="col-span-1">
         <CardHeader className="pb-2">
@@ -39,7 +30,21 @@ export function LockedCashPanel({ summary = null, loading = false }) {
     );
   }
 
-  const { totalLocked, atRiskCount, buckets } = summary;
+  // Response: { success, data: { bucket_0_30, bucket_30_45, bucket_46_plus, requiringAction } }
+  const bucketData = raw?.data ?? raw ?? {};
+
+  const sum = (arr) =>
+    Array.isArray(arr) ? arr.reduce((acc, inv) => acc + (inv.balanceAmount ?? 0), 0) : 0;
+
+  const b0_30    = sum(bucketData.bucket_0_30);
+  const b30_45   = sum(bucketData.bucket_30_45);
+  const b46_plus = sum(bucketData.bucket_46_plus);
+  const totalLocked = b0_30 + b30_45 + b46_plus;
+
+  const atRiskCount = (
+    (bucketData.bucket_30_45?.length  ?? 0) +
+    (bucketData.bucket_46_plus?.length ?? 0)
+  );
 
   return (
     <Card
@@ -59,7 +64,6 @@ export function LockedCashPanel({ summary = null, loading = false }) {
       <CardContent className="space-y-3">
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold">{formatCurrency(totalLocked)}</span>
-
           {atRiskCount > 0 && (
             <Badge variant="destructive" className="text-xs">
               <AlertTriangle className="h-3 w-3 mr-1" />
@@ -71,18 +75,16 @@ export function LockedCashPanel({ summary = null, loading = false }) {
         {/* Aging Buckets */}
         <div className="space-y-1.5 text-xs">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">0-30 days</span>
-            <span className="font-medium text-success">{formatCurrency(buckets["0-30"])}</span>
+            <span className="text-muted-foreground">0–30 days</span>
+            <span className="font-medium text-success">{formatCurrency(b0_30)}</span>
           </div>
-
           <div className="flex justify-between">
-            <span className="text-muted-foreground">31-45 days</span>
-            <span className="font-medium text-warning">{formatCurrency(buckets["31-45"])}</span>
+            <span className="text-muted-foreground">31–45 days</span>
+            <span className="font-medium text-warning">{formatCurrency(b30_45)}</span>
           </div>
-
           <div className="flex justify-between">
-            <span className="text-muted-foreground">45+ days</span>
-            <span className="font-medium text-destructive">{formatCurrency(buckets["45+"])}</span>
+            <span className="text-muted-foreground">46+ days</span>
+            <span className="font-medium text-destructive">{formatCurrency(b46_plus)}</span>
           </div>
         </div>
 
@@ -90,9 +92,9 @@ export function LockedCashPanel({ summary = null, loading = false }) {
         <div className="h-2 flex rounded-full overflow-hidden bg-muted">
           {totalLocked > 0 && (
             <>
-              <div className="bg-success" style={{ width: `${(buckets["0-30"] / totalLocked) * 100}%` }} />
-              <div className="bg-warning" style={{ width: `${(buckets["31-45"] / totalLocked) * 100}%` }} />
-              <div className="bg-destructive" style={{ width: `${(buckets["45+"] / totalLocked) * 100}%` }} />
+              <div className="bg-success"     style={{ width: `${(b0_30    / totalLocked) * 100}%` }} />
+              <div className="bg-warning"     style={{ width: `${(b30_45   / totalLocked) * 100}%` }} />
+              <div className="bg-destructive" style={{ width: `${(b46_plus / totalLocked) * 100}%` }} />
             </>
           )}
         </div>
@@ -100,3 +102,5 @@ export function LockedCashPanel({ summary = null, loading = false }) {
     </Card>
   );
 }
+
+

@@ -3,7 +3,8 @@ import { ZohoConnection } from "../models/zohoConnectionModel.js";
 import { RawZohoInvoice } from "../models/raw/rawZohoInvoiceModel.js";
 import { ZohoClient } from "../services/zohoClient.js";
 import { mapZohoInvoice } from "../services/mappers/mapZohoInvoice.js";
-import { toZohoTime } from "../utils/zohoTime.js";
+import { rebuildReceivableLedgerForOrg } from "../services/ledger/receivableLedgerBuilder.js";
+import { rebuildARLedger } from "../services/ledger/rebuildArLedger.js";
 
 export const runInvoiceSync = async (job) => {
 
@@ -52,13 +53,30 @@ export const runInvoiceSync = async (job) => {
 
   // 3️⃣ update cursor ONLY AFTER FULL SUCCESS
   if (lastModified) {
+    // Store the raw timestamp from Zoho — no conversion needed; Zoho's own format
+    // is always valid to pass back on the next incremental sync.
     await SyncJob.updateOne(
       { _id: job._id },
-      { $set: { cursor: toZohoTime(lastModified) } }
+      { $set: { cursor: lastModified } }
     );
 
     console.log(`[SYNC] cursor advanced → ${lastModified}`);
   } else {
     console.log("[SYNC] no new updates");
+  }
+
+  // Rebuild the receivable ledger for this organization so balances reflect new invoices
+  try {
+    await rebuildReceivableLedgerForOrg(connection.organizationId);
+    console.log('[SYNC] receivable ledger rebuilt');
+  } catch (err) {
+    console.error('[SYNC] failed to rebuild receivable ledger', err);
+  }
+
+  try {
+    await rebuildARLedger(connection.organizationId, connection._id);
+    console.log('[SYNC] AR ledger rebuilt');
+  } catch (err) {
+    console.error('[SYNC] failed to rebuild AR ledger', err);
   }
 };

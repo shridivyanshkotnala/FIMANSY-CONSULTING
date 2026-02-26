@@ -43,6 +43,10 @@ const zohoConnectionSchema = new mongoose.Schema(
     },
 
     lastSyncedAt: Date,
+    creditNotesCursor: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true }
 );

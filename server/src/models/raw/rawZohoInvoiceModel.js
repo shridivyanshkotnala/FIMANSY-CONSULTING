@@ -14,6 +14,7 @@ const rawZohoInvoiceSchema = new mongoose.Schema({
   },
 
   customerId: String,
+  customerName: String,
   invoiceNumber: String,
   status: String,
 

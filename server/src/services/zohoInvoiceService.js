@@ -3,6 +3,7 @@ import { getOrCreateZohoItem } from "./zohoItemService.js";
 export const pushInvoiceToZoho = async (zohoClient, invoice) => {
 
   // 1️⃣ ensure customer
+  const customerName = invoice.customer?.name || invoice.customerName || null;
   const contactId = await getOrCreateZohoCustomer(zohoClient, invoice.customer);
 
   // 2️⃣ ensure items
@@ -23,6 +24,8 @@ export const pushInvoiceToZoho = async (zohoClient, invoice) => {
     "/invoices",
     {
       customer_id: contactId,
+      // include human readable name locally if available (Zoho API uses customer_id)
+      customer_name: customerName,
       date: invoice.date,
       reference_number: invoice.invoice_number,
       // place_of_supply: invoice.place_of_supply || "07",

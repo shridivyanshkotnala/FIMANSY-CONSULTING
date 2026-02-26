@@ -40,6 +40,7 @@
 
 import { getValidZohoToken } from "./zohoTokenService.js";
 import { ZohoConnection } from "../models/zohoConnectionModel.js";
+import { toZohoTime } from "../utils/zohoTime.js";
 
 const ZOHO_BASE = "https://www.zohoapis.in/books/v3";
 
@@ -140,7 +141,20 @@ export class ZohoClient {
     let lastModified = null;
 
     while (true) {
-      const data = await this.get(path, { ...params, page });
+      // Pass last_modified_time through as-is — Zoho returns timestamps in a format
+      // it already accepts, so no conversion is needed. If the stored cursor is from
+      // the old broken code (no timezone suffix), drop it and do a full resync
+      // instead of looping forever with an invalid value.
+      const safeParams = { ...params };
+      if (safeParams.last_modified_time) {
+        const hasTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(safeParams.last_modified_time);
+        if (!hasTimezone) {
+          console.warn(`[ZOHO] Dropping invalid cursor (no timezone): ${safeParams.last_modified_time} — falling back to full sync`);
+          delete safeParams.last_modified_time;
+        }
+      }
+
+      const data = await this.get(path, { ...safeParams, page });
 
       const records = data[arrayKey] || [];
       if (!records.length) break;

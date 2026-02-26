@@ -49,11 +49,11 @@ export default function Banking() {
               </div>
             </div>
           </div>
-
+{/* 
           <Button onClick={() => navigate("/upload?type=bank_statement")}>
             <Upload className="h-4 w-4 mr-2" />
             Upload Statement
-          </Button>
+          </Button> */}
         </div>
 
         {/* Tabs */}

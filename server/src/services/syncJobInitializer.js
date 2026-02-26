@@ -15,6 +15,10 @@ export const initializeSyncJobs = async (connection) => {
   const jobs = [
     { jobType: "sync_invoices" },
     { jobType: "sync_payments" },
+    { jobType: "sync_credits" },
+    { jobType: "generate_dso_metrics" }, // new job type for DSO metrics
+    { jobType: "sync_bank_feeds" },  
+    { jobType: "sync_vendor_payments" }    // bank transaction sync
   ];
 
   for (const job of jobs) {

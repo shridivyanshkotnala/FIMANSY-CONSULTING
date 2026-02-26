@@ -3,6 +3,8 @@ import { ZohoConnection } from "../models/zohoConnectionModel.js";
 import { RawZohoPayment } from "../models/raw/rawZohoPaymentModel.js";
 import { ZohoClient } from "../services/zohoClient.js";
 import { mapZohoPayment } from "../services/mappers/mapZohoPayment.js";
+import { rebuildReceivableLedgerForOrg } from "../services/ledger/receivableLedgerBuilder.js";
+import { rebuildARLedger } from "../services/ledger/rebuildArLedger.js";
 
 export const runPaymentSync = async (job) => {
 
@@ -53,13 +55,30 @@ export const runPaymentSync = async (job) => {
 
   // advance cursor only after full success
   if (lastModified) {
+    // Store the raw timestamp from Zoho — no conversion needed; Zoho's own format
+    // is always valid to pass back on the next incremental sync.
     await SyncJob.updateOne(
       { _id: job._id },
-      { $set: { cursor: toZohoTime(lastModified) } }
+      { $set: { cursor: lastModified } }
     );
 
     console.log(`[SYNC] payment cursor advanced → ${lastModified}`);
   } else {
     console.log("[SYNC] no new payment updates");
+  }
+
+  // payments affect balances — rebuild receivable ledger for this org
+  try {
+    await rebuildReceivableLedgerForOrg(connection.organizationId);
+    console.log('[SYNC] receivable ledger rebuilt after payments');
+  } catch (err) {
+    console.error('[SYNC] failed to rebuild receivable ledger after payments', err);
+  }
+
+  try {
+    await rebuildARLedger(connection.organizationId, connection._id);
+    console.log('[SYNC] AR ledger rebuilt after payments');
+  } catch (err) {
+    console.error('[SYNC] failed to rebuild AR ledger after payments', err);
   }
 };

@@ -14,8 +14,7 @@ import { AgingAlertsPanel } from "@/components/cash-intelligence/AgingAlertsPane
 import { DSOTracker } from "@/components/cash-intelligence/DSOTracker";
 import { TReDSSuggestions } from "@/components/cash-intelligence/TReDSSuggestions";
 import { VendorNegotiationSupport } from "@/components/cash-intelligence/VendorNegotiationSupport";
-import { useGetAgingQuery } from "@/Redux/Slices/api/cashApi";
-import { useGetZohoStatusQuery } from "@/Redux/Slices/api/zohoApi";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 import {
@@ -56,9 +55,12 @@ export default function CashIntelligence() {
 
   const [showWeeklyReview, setShowWeeklyReview] = useState(false);
   const navigate = useNavigate();
-  const { data, isLoading, isFetching, error, refetch } = useGetAgingQuery();
-  const { data: zoho } = useGetZohoStatusQuery();
-  
+  // const { data, isLoading, isFetching, error, refetch } = useGetAgingQuery();
+  // const { data: zoho } = useGetZohoStatusQuery();
+  const data = null;
+  const zoho = null;
+  const error = null;
+  const isLoading = false;
   return (
     <PillarLayout>
 
@@ -122,19 +124,7 @@ export default function CashIntelligence() {
            <LockedCashPanel data={useSelector(selectLockedCash)} />
         ========================================================== */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <LockedCashPanel
-            summary={data?.summary ? (() => {
-              const b030 = (data.summary.current || 0) + (data.summary.days_1_30 || 0);
-              const b3145 = data.summary.days_31_60 || 0;
-              const b45plus = (data.summary.days_61_90 || 0) + (data.summary.days_90_plus || 0);
-              return {
-                totalLocked: data.summary.totalOutstanding || (b030 + b3145 + b45plus),
-                atRiskCount: (data.priorityCustomers || []).filter(c => c.invoices?.some(i => i.daysOutstanding > 45)).length,
-                buckets: { "0-30": b030, "31-45": b3145, "45+": b45plus },
-              };
-            })() : null}
-            loading={isLoading}
-          />
+          <LockedCashPanel />
           <CashBurnPanel
             totalBurn={data?.cashBurn?.total || 0}
             categories={(data?.cashBurn?.breakdown || []).filter(b => b.amount > 0).map(b => {
@@ -231,17 +221,7 @@ export default function CashIntelligence() {
           </TabsContent>
 
           <TabsContent value="dso" className="space-y-6">
-            <DSOTracker
-              metrics={data?.summary ? {
-                currentDSO: data.gapIndicator?.operatingCycle || 0,
-                previousDSO: 0,
-                trend: "neutral",
-                atRiskRevenue: data.summary?.totalOutstanding || 0,
-                inflationCost: 0,
-                interestCost: 0,
-              } : null}
-              loading={isLoading}
-            />
+            <DSOTracker />
           </TabsContent>
 
           <TabsContent value="treds" className="space-y-6">

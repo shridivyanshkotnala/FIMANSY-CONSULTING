@@ -24,7 +24,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { useGetAgingQuery } from "@/Redux/Slices/api/cashApi";
 
 /*
   Cockpit (Command Centre Dashboard)
@@ -58,8 +57,8 @@ export default function Cockpit() {
 
   const [activeDrillDown, setActiveDrillDown] = useState(null);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
-  const { data: agingData } = useGetAgingQuery();
-
+  // const { data: agingData } = useGetAgingQuery();
+  const agingData = null; // Placeholder until API integration
   if (isMobile) return <MobileCommandCenter />;
 
   const formatCurrency = (amount) => {

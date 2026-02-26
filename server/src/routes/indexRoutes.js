@@ -4,6 +4,9 @@ import zohoRoutes from './zohoRoutes.js';
 import orgRoutes from './orgRoutes.js';
 import uploadRoutes from './uploadRoutes.js';
 import invoiceRoutes from './invoiceRoutes.js';
+import cashIntelligenceRoutes from './cashIntelligence.js';
+import bankRoutes from './bankingRoutes.js';
+
 const router = express.Router();
 
 router.use("/user", userRoute)
@@ -11,4 +14,7 @@ router.use("/zoho", zohoRoutes)
 router.use("/org", orgRoutes)
 router.use("/upload", uploadRoutes);
 router.use("/invoice", invoiceRoutes);
+router.use("/cash-intelligence", cashIntelligenceRoutes);
+router.use("/banking", bankRoutes);
+
 export default router;

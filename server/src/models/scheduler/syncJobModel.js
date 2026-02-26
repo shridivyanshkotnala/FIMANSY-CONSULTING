@@ -5,7 +5,14 @@ const syncJobSchema = new mongoose.Schema(
     // What pipeline this job runs
     jobType: {
       type: String,
-      enum: ["sync_invoices", "sync_payments"],
+      enum: [
+        "sync_invoices",
+        "sync_payments",
+        "sync_credits",
+        "generate_dso_metrics",
+        "sync_bank_feeds" ,// ✅ added
+        "sync_vendor_payments"
+      ],
       required: true,
       index: true,
     },
@@ -18,10 +25,19 @@ const syncJobSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Incremental sync position (last_modified_time from Zoho)
+    // Generic single cursor (used by invoice/payment jobs)
     cursor: {
       type: String,
       default: "1970-01-01T00:00:00+00:00",
+    },
+
+    // ✅ NEW: Meta object for complex job cursors (bank feeds etc)
+    meta: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {
+        lastBankAccountSync: "1970-01-01T00:00:00+00:00",
+        lastTransactionSync: {}, // { bankAccountId: lastModifiedTime }
+      },
     },
 
     // Human readable job state
@@ -73,15 +89,10 @@ const syncJobSchema = new mongoose.Schema(
   }
 );
 
-
+// 🔐 Ensure one job per connection per type
 syncJobSchema.index(
   { connectionId: 1, jobType: 1 },
   { unique: true }
 );
 
-//You must never have two invoice sync jobs for same connection.
-//This ensures that per connection only single bot is responsible for syncing invoices, preventing race conditions
-
-export const SyncJob = mongoose.model("SyncJob" , syncJobSchema);
-
-
+export const SyncJob = mongoose.model("SyncJob", syncJobSchema);
