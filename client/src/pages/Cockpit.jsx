@@ -160,7 +160,7 @@ export default function Cockpit() {
             status={mockData.complianceStatus}
             subtitle={mockData.nextDueDate ? `Next: ${format(new Date(mockData.nextDueDate), "dd MMM")}` : "All filed"}
             actionLabel="View Filings"
-            onDrillDown={() => setActiveDrillDown("compliance")}
+            onDrillDown={() => navigate("/compliance")}
           />
 
           <PulseTile id="gst" title="GST / TDS" icon={Receipt}

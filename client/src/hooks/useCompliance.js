@@ -1,4 +1,8 @@
 import { useState, useEffect } from 'react';
+
+// ⚠️ CONTEXT API SHIM — MARKED FOR REMOVAL
+// 🔄 FUTURE: Replace this entire hook with Redux RTK Query endpoints
+// This hook should be replaced by a compliance API slice (e.g., complianceApi.js)
 import { useAuth } from '@/hooks/useAuth';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';

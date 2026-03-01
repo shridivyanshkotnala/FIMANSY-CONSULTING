@@ -31,7 +31,7 @@ export function BankTransactionList() {
 
   const limit = 20;
 
-  const { data, isLoading, isFetching } =
+  const { data, isLoading } =
     useGetBankDashboardQuery({
       status: status === "all" ? undefined : status,
       search,
