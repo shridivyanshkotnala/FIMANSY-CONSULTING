@@ -7,7 +7,7 @@ import { errorHandler, routenotfound } from './src/middlewares/errorMiddleware.j
 import router from './src/routes/indexRoutes.js'
 import userRoute from './src/routes/userRoutes.js'
 import passport from "./src/config/passport.js";
-
+import complianceRoutes from './src/routes/complianceRoutes.js'; //complianceonboarding
 
 const app = express()
 
@@ -47,7 +47,7 @@ app.use(morgan('dev')); //Only for development mode
 // passport MUST be initialized after session and before any route that uses it
 app.use(passport.initialize());
 // app.use(passport.session());
-
+app.use("/api/compliance", complianceRoutes);
 app.use("/api",router);
 app.use("/auth", userRoute);
 
