@@ -1,6 +1,6 @@
-import { ComplianceTemplate } from "../models/ComplianceTemplate.js";
-import { ComplianceObligation } from "../models/ComplianceObligation.js";
-import { CompanyComplianceProfile } from "../models/CompanyComplianceProfile.js";
+import { ComplianceTemplate } from "../models/compliance/complianceTemplateModel.js";
+import { ComplianceObligation } from "../models/compliance/complianceObligationModel.js";
+import { CompanyComplianceProfile } from "../models/compliance/companyComplianceProfileModel.js";
 import { getFinancialYearDates } from "../utils/calenderLogic.js";
 import { generateMonthlyDueDates, generateQuarterlyDueDates, generateAnnualDueDate } from "../utils/calenderLogic.js";
 
