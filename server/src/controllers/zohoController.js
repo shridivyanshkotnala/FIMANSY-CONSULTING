@@ -98,7 +98,7 @@ const zohoCallback = asynchandler(async (req, res) => {
       tokenExpiry: new Date(Date.now() + expires_in * 1000),
       status: "connected",
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   if (!connection) throw new ApiError(500, "Failed to save Zoho connection");

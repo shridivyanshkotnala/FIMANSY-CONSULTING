@@ -7,6 +7,7 @@ import invoiceRoutes from './invoiceRoutes.js';
 import cashIntelligenceRoutes from './cashIntelligence.js';
 import bankRoutes from './bankingRoutes.js';
 import complianceRoutes from './complianceRoutes.js';
+import accountantRoutes from './accountantRoutes.js';
 
 const router = express.Router();
 
@@ -18,5 +19,6 @@ router.use("/invoice", invoiceRoutes);
 router.use("/cash-intelligence", cashIntelligenceRoutes);
 router.use("/banking", bankRoutes);
 router.use("/compliance", complianceRoutes);
+router.use("/accountant", accountantRoutes);
 
 export default router;

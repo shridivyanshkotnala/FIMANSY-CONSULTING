@@ -37,6 +37,14 @@ import {
 
 import { format } from "date-fns";
 
+// RTK Query hooks for comments and ticket detail
+import {
+  useGetCommentsQuery,
+  usePostCommentMutation,
+  useGetTicketByIdQuery,
+} from "@/Redux/Slices/api/complianceApi";
+import { useGetTicketStatusHistoryQuery } from "@/Redux/Slices/api/complianceApi";
+
 /* ================= Constants ================= */
 
 const STATUS_PIPELINE = [
@@ -59,80 +67,30 @@ const STATUS_LABELS = {
   closed: "Closed",
 };
 
-/* ================= Component ================= */
+    // Comments are provided by RTK Query; local state is kept in `localComments`.
+    // Do nothing here; data will be set from the query.
 
-export function TicketDetailDrawer({
-  ticket,
-  open,
-  onOpenChange,
-}) {
-  const { user } = useAuth();
+  export function TicketDetailDrawer({ ticket, open, onOpenChange }) {
+    useAuth();
+    const [newComment, setNewComment] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const [activeSection, setActiveSection] = useState("timeline");
 
-  const [statusHistory, setStatusHistory] = useState([]);
-  const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [activeSection, setActiveSection] =
-    useState("timeline");
+    // queries — MongoDB lean() docs carry _id not id; support both
+    const ticketId = ticket?._id || ticket?.id;
+    const { data: comments = [], isLoading: _commentsLoading } = useGetCommentsQuery(ticketId, { skip: !ticketId });
+    const { data: ticketDetail } = useGetTicketByIdQuery(ticketId, { skip: !ticketId });
+    const { data: fetchedStatusHistory = [], isLoading: _statusLoading } = useGetTicketStatusHistoryQuery(ticketId, { skip: !ticketId });
+    const [postComment, { isLoading: _posting }] = usePostCommentMutation();
 
-  /* ================= Effects ================= */
-
-  useEffect(() => {
-    if (!ticket || !open) return;
-
-    fetchStatusHistory();
-    fetchComments();
-  }, [ticket?.id, open]);
-
-  const fetchStatusHistory = async () => {
-    if (!ticket) return;
-
-    /*
-      ⚠️ SUPABASE REMOVED — COMMENTED OUT (DO NOT DELETE)
-      🔄 FUTURE: Replace with Redux RTK Query endpoint
-
-      try {
-        const { data } = await supabase
-          .from("compliance_status_history")
-          .select("*")
-          .eq("obligation_id", ticket.id)
-          .order("created_at", { ascending: true });
-        setStatusHistory(data || []);
-      } catch {
-        setStatusHistory([]);
-      }
-    */
-    // Stub: no backend yet — return empty array
-    setStatusHistory([]);
-  };
-
-  const fetchComments = async () => {
-    if (!ticket) return;
-
-    /*
-      ⚠️ SUPABASE REMOVED — COMMENTED OUT (DO NOT DELETE)
-      🔄 FUTURE: Replace with Redux RTK Query endpoint
-
-      try {
-        const { data } = await supabase
-          .from("compliance_comments")
-          .select("*")
-          .eq("obligation_id", ticket.id)
-          .order("created_at", { ascending: true });
-        setComments(data || []);
-      } catch {
-        setComments([]);
-      }
-    */
-    // Stub: no backend yet — return empty array
-    setComments([]);
-  };
+    useEffect(() => {
+      if (!ticket || !open) return;
+      // keep local derived state in sync if we ever use it later; currently components read queries directly
+    }, [ticketId, open, fetchedStatusHistory, comments, ticket]);
 
   const handleAddComment = async () => {
     if (!ticket || !newComment.trim()) return;
-
     setSubmitting(true);
-
     /*
       ⚠️ SUPABASE REMOVED — COMMENTED OUT (DO NOT DELETE)
       🔄 FUTURE: Replace with Redux RTK Query mutation
@@ -155,19 +113,19 @@ export function TicketDetailDrawer({
       }
     */
 
-    // Stub: add comment locally for now
-    setComments((prev) => [
-      ...prev,
-      {
-        id: `local-${Date.now()}`,
-        user_email: user?.email || "User",
-        user_role: "user",
-        content: newComment.trim(),
-        created_at: new Date().toISOString(),
-      },
-    ]);
-    setNewComment("");
-    setSubmitting(false);
+    try {
+      await postComment({
+        ticketId: ticket._id || ticket.id,
+        body: { message: newComment.trim(), attachments: [] },
+      }).unwrap();
+
+      setNewComment("");
+    } catch (err) {
+      // log and optionally show toast; keep optimistic UI only via RTK update
+      console.error("Post comment failed:", err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!ticket) return null;
@@ -263,19 +221,16 @@ export function TicketDetailDrawer({
                 </div>
               </div>
 
-              {ticket.company_name && (
-                <div className="flex items-center gap-2 text-sm">
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-[10px] text-muted-foreground">
-                      Company
-                    </p>
-                    <p className="font-medium truncate">
-                      {ticket.company_name}
-                    </p>
-                  </div>
+              {/* Company Info — prefer backend ticket detail when available */}
+              <div className="flex items-center gap-2 text-sm">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Company</p>
+                  <p className="font-medium truncate">
+                    {ticket.company_name || ticketDetail?.organization?.name || ticket.organization_name || "—"}
+                  </p>
                 </div>
-              )}
+              </div>
 
               <div className="flex items-center gap-2 text-sm">
                 <User className="h-4 w-4 text-muted-foreground" />
@@ -298,27 +253,30 @@ export function TicketDetailDrawer({
                 { key: "timeline", label: "Timeline", icon: Clock },
                 { key: "comments", label: "Comments", icon: MessageSquare },
                 { key: "documents", label: "Documents", icon: FileText },
-              ].map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveSection(key)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
-                    activeSection === key
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
+              ].map(({ key, label, icon }) => {
+                const Icon = icon;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setActiveSection(key)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
+                      activeSection === key
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
 
-                  {key === "comments" &&
-                    comments.length > 0 && (
-                      <span className="ml-1 bg-primary/10 text-primary text-[10px] px-1.5 rounded-full">
-                        {comments.length}
-                      </span>
-                    )}
-                </button>
-              ))}
+                    {key === "comments" &&
+                      comments.length > 0 && (
+                        <span className="ml-1 bg-primary/10 text-primary text-[10px] px-1.5 rounded-full">
+                          {comments.length}
+                        </span>
+                      )}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Timeline */}
@@ -363,56 +321,76 @@ export function TicketDetailDrawer({
                   })}
                 </div>
 
-                {statusHistory.length > 0 ? (
-                  <div className="space-y-3 border-l-2 border-border ml-3 pl-4">
-                    {statusHistory.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="relative"
-                      >
-                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-primary border-2 border-background" />
+                {(() => {
+                  // Build a full ordered timeline from the canonical pipeline.
+                  const server = Array.isArray(fetchedStatusHistory) ? fetchedStatusHistory : [];
+                  const serverMap = server.reduce((m, h) => {
+                    if (h && h.status) m[h.status] = h;
+                    return m;
+                  }, {});
 
-                        <p className="text-xs font-medium">
-                          {entry.from_status && (
-                            <>
-                              <span className="text-muted-foreground">
-                                {STATUS_LABELS[
-                                  entry.from_status
-                                ] ||
-                                  entry.from_status}
-                              </span>
-                              {" → "}
-                            </>
-                          )}
+                  const createdAt = ticket.created_at || ticket.createdAt || ticket?.ticket?.created_at || ticket?.ticket?.createdAt;
+                  const lastActivity = ticket.last_activity_at || ticket.updated_at || ticket?.ticket?.last_activity_at || ticket?.ticket?.updated_at;
 
-                          {STATUS_LABELS[
-                            entry.to_status
-                          ] || entry.to_status}
-                        </p>
+                  const built = STATUS_PIPELINE.map((status) => {
+                    const h = serverMap[status];
 
-                        {entry.notes && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {entry.notes}
-                          </p>
-                        )}
+                    if (h) {
+                      return {
+                        status,
+                        at: h.at || h.created_at || h.updated_at || null,
+                        actor: h.changed_by_role || (h.changed_by && h.changed_by.name) || null,
+                        notes: h.note || h.notes || null,
+                      };
+                    }
 
-                        <p className="text-[10px] text-muted-foreground mt-1">
-                          {format(
-                            new Date(entry.created_at),
-                            "dd MMM yyyy, HH:mm"
-                          )}
-                        </p>
+                    // synthesize Initiated or current status when server history missing
+                    if (status === "initiated") {
+                      return { status: "initiated", at: createdAt || null, actor: "System", notes: null };
+                    }
+
+                    if (status === ticket.status) {
+                      return { status, at: lastActivity || null, actor: "Accountant", notes: null };
+                    }
+
+                    // future/unreached status
+                    return { status, at: null, actor: null, notes: null };
+                  });
+
+                  const anyTimestamps = built.some((e) => e.at);
+                  if (!anyTimestamps) {
+                    return (
+                      <div className="text-center py-6">
+                        <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">No status timestamps available yet</p>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6">
-                    <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">
-                      No status updates recorded yet
-                    </p>
-                  </div>
-                )}
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3 border-l-2 border-border ml-3 pl-4">
+                      {built.map((entry, idx) => (
+                        <div key={entry.status || idx} className="relative">
+                          <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-primary border-2 border-background" />
+
+                          <p className="text-xs font-medium">
+                            {STATUS_LABELS[entry.status] || entry.status}
+                          </p>
+
+                          {entry.notes && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{entry.notes}</p>
+                          )}
+
+                          {entry.at ? (
+                            <p className="text-[10px] text-muted-foreground mt-1">{format(new Date(entry.at), "dd MMM yyyy, HH:mm")}  {entry.actor || "System"}</p>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground mt-1">—</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -424,34 +402,32 @@ export function TicketDetailDrawer({
                   <div className="space-y-3">
                     {comments.map((comment) => (
                       <div
-                        key={comment.id}
+                        key={comment._id || comment.id}
                         className="p-3 rounded-lg bg-muted/50 border"
                       >
                         <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium">
-                              {comment.user_email ||
-                                "User"}
+                              {comment.user_email || comment.author_email || comment.author?.email || "User"}
                             </span>
                             <Badge
                               variant="outline"
                               className="text-[9px] px-1 py-0"
                             >
-                              {comment.user_role ||
-                                "user"}
+                              {comment.user_role || comment.role || comment.author_role || "user"}
                             </Badge>
                           </div>
 
                           <span className="text-[10px] text-muted-foreground">
                             {format(
-                              new Date(comment.created_at),
+                              new Date(comment.createdAt || comment.created_at || comment.created_at || comment.createdAt),
                               "dd MMM, HH:mm"
                             )}
                           </span>
                         </div>
 
                         <p className="text-sm">
-                          {comment.content}
+                          {comment.message || comment.content || comment.body || ""}
                         </p>
                       </div>
                     ))}
