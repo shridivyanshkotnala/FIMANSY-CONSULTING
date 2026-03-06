@@ -29,6 +29,7 @@ import {
   endOfMonth,
   eachDayOfInterval,
   isSameDay,
+  isSameMonth,
   addMonths,
   parseISO,
   isPast,
@@ -64,6 +65,7 @@ export function ComplianceCalendar() {
         isPast(parseISO(ob.due_date)) &&
         !isToday(parseISO(ob.due_date))
     ).length;
+    
     return {
       total: obligations.length,
       filed,
@@ -72,7 +74,23 @@ export function ComplianceCalendar() {
     };
   }, [obligations]);
 
-  // Obligations due this month
+  // 🔴 FIXED: Get ALL obligations for the calendar grid
+  const obligationsByDate = useMemo(() => {
+    const grouped = {};
+    
+    obligations.forEach((ob) => {
+      if (!ob.due_date) return;
+      const date = parseISO(ob.due_date);
+      const key = format(date, "yyyy-MM-dd");
+      
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(ob);
+    });
+    
+    return grouped;
+  }, [obligations]);
+
+  // Keep this for the monthly list
   const monthObligations = useMemo(() => {
     return obligations.filter((ob) => {
       if (!ob.due_date) return false;
@@ -80,17 +98,6 @@ export function ComplianceCalendar() {
       return d >= monthStart && d <= monthEnd;
     });
   }, [obligations, monthStart, monthEnd]);
-
-  // Group by date key
-  const obligationsByDate = useMemo(() => {
-    const grouped = {};
-    monthObligations.forEach((ob) => {
-      const key = format(parseISO(ob.due_date), "yyyy-MM-dd");
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(ob);
-    });
-    return grouped;
-  }, [monthObligations]);
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -214,17 +221,34 @@ export function ComplianceCalendar() {
               <div
                 key={key}
                 className={cn(
-                  "h-12 flex flex-col items-center justify-center rounded-lg transition-colors relative",
+                  "h-12 flex flex-col items-center justify-center rounded-lg transition-colors relative cursor-pointer hover:ring-1 hover:ring-primary",
                   getDayClass(day),
                   isCurrentDay && "ring-2 ring-primary ring-offset-2"
                 )}
+                title={dayObs?.map(ob => 
+                  `${ob.form_name || ob.subtag}: ${ob.status}`
+                ).join('\n')}
               >
                 <span className="text-sm">{format(day, "d")}</span>
                 {dayObs?.length > 0 && (
                   <div className="absolute bottom-1 flex gap-0.5">
-                    {dayObs.slice(0, 3).map((_, i) => (
-                      <div key={i} className="h-1.5 w-1.5 rounded-full bg-current" />
+                    {dayObs.slice(0, 3).map((ob, i) => (
+                      <div 
+                        key={i} 
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full",
+                          ob.status === "filed" ? "bg-success" :
+                          ob.status === "overdue" || getDaysUntilDue(ob.due_date) < 0 ? "bg-destructive" :
+                          getDaysUntilDue(ob.due_date) <= 3 ? "bg-warning" :
+                          "bg-primary"
+                        )}
+                      />
                     ))}
+                    {dayObs.length > 3 && (
+                      <span className="text-[8px] font-medium ml-0.5">
+                        +{dayObs.length - 3}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -233,22 +257,27 @@ export function ComplianceCalendar() {
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          {[
-            { color: "bg-primary/60", label: "Due" },
-            { color: "bg-success/60", label: "Filed" },
-            { color: "bg-warning/60", label: "Urgent (≤3d)" },
-            { color: "bg-destructive/60", label: "Overdue" },
-          ].map(({ color, label }) => (
-            <div key={label} className="flex items-center gap-1.5">
-              <div className={cn("w-2.5 h-2.5 rounded-full", color)} />
-              <span>{label}</span>
-            </div>
-          ))}
+        <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+            <span>Due</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-success" />
+            <span>Filed</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-warning" />
+            <span>Urgent (≤3d)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-destructive" />
+            <span>Overdue</span>
+          </div>
         </div>
 
         {/* Monthly Filings List */}
-        <div className="space-y-3">
+        <div className="space-y-3 mt-6">
           <h4 className="text-sm font-semibold flex items-center gap-2">
             <FileText className="h-4 w-4" />
             This Month's Filings ({monthObligations.length})

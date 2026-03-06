@@ -1,40 +1,44 @@
 import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
 import { MCA_ANNUAL_FILINGS, ADVANCE_TAX_SCHEDULE, EVENT_COMPLIANCE_MAP } from './types';
 
-/**
- * Utility Layer — Compliance Calculations
- * --------------------------------------
- * Pure business logic only.
- *
- * VERY IMPORTANT:
- * - No UI state should live here
- * - Redux selectors will call these
- * - API responses must be normalized BEFORE entering here
- */
-
-
 /* ============================================================
    Financial Year Helpers
 ============================================================ */
 
+/**
+ * Returns the current financial year in full-year format
+ * e.g., "2025-2026"
+ */
 export function getCurrentFinancialYear() {
   const today = new Date();
-  const month = today.getMonth();
   const year = today.getFullYear();
+  const month = today.getMonth(); // 0 = Jan, 3 = April
 
-  // FY in India: April → March
   if (month >= 3) {
-    return `${year}-${(year + 1).toString().slice(-2)}`;
+    return `${year}-${year + 1}`;
   } else {
-    return `${year - 1}-${year.toString().slice(-2)}`;
+    return `${year - 1}-${year}`;
   }
 }
 
+/**
+ * Converts full-year FY to a display-friendly short format
+ * e.g., "2025-2026" → "2025-26"
+ */
+export function getDisplayFinancialYear(fy) {
+  if (!fy) return '';
+  const [start, end] = fy.split('-');
+  return `${start}-${end.slice(2)}`;
+}
+
+/**
+ * Returns the assessment year for a given financial year
+ * e.g., "2025-2026" → "AY 2026-27"
+ */
 export function getAssessmentYear(fy) {
   const [startYear] = fy.split('-').map(Number);
   return `AY ${startYear + 1}-${(startYear + 2).toString().slice(-2)}`;
 }
-
 
 /* ============================================================
    Due Date Calculations
@@ -57,7 +61,6 @@ export function getCompliancePriority(dueDate) {
   return { priority: 5, severity: 'info' };
 }
 
-
 /* ============================================================
    DSC Status Logic
 ============================================================ */
@@ -74,7 +77,6 @@ export function getDscStatus(expiryDate) {
 
   return { status: 'valid', daysRemaining, message: `DSC valid for ${daysRemaining} days` };
 }
-
 
 /* ============================================================
    MCA Annual Calendar Generator
@@ -94,10 +96,8 @@ export function generateAnnualComplianceCalendar(companyType, fyEndMonth, fy) {
       dueDate = filing.form === 'Form 8'
         ? new Date(startYear + 1, 9, 30)
         : new Date(startYear + 1, 4, 30);
-
     } else if (companyType === 'opc') {
       dueDate = addDays(fyEndDate, filing.form === 'AOC-4' ? 180 : 60);
-
     } else {
       const agmDate = addDays(fyEndDate, 180);
       dueDate = addDays(agmDate, filing.form === 'AOC-4' ? 30 : 60);
@@ -117,26 +117,20 @@ export function generateAnnualComplianceCalendar(companyType, fyEndMonth, fy) {
   return obligations;
 }
 
-
 /* ============================================================
    Advance Tax Calculator
-   NOTE: Simplified estimation logic — not final filing value
 ============================================================ */
 
 export function generateAdvanceTaxSchedule(fy, estimatedIncome) {
   const [startYear] = fy.split('-').map(Number);
-
-  // Corporate tax approximation
   const taxRate = 0.312;
   const estimatedTax = estimatedIncome * taxRate;
-
   const monthMap = { Jun: 5, Sep: 8, Dec: 11, Mar: 2 };
 
   return ADVANCE_TAX_SCHEDULE.map((schedule, index) => {
     const [day, monthStr] = schedule.dueDate.split('-');
     const month = monthMap[monthStr];
     const year = month >= 3 ? startYear : startYear + 1;
-
     const dueDate = new Date(year, month, parseInt(day));
 
     const cumulativeTax = (estimatedTax * schedule.cumulative) / 100;
@@ -151,7 +145,6 @@ export function generateAdvanceTaxSchedule(fy, estimatedIncome) {
     };
   });
 }
-
 
 /* ============================================================
    Audit Applicability (44AB)
@@ -169,7 +162,6 @@ export function isTaxAuditApplicable(turnover, digitalTransactionPercentage = 0)
   return { applicable: false, reason: 'Turnover is below audit threshold' };
 }
 
-
 /* ============================================================
    Event Filing Trigger
 ============================================================ */
@@ -185,9 +177,8 @@ export function getEventFilingRequirement(eventType, eventDate) {
   };
 }
 
-
 /* ============================================================
-   Alert Formatters (Used by Dashboard / Feed UI)
+   Alert Formatters
 ============================================================ */
 
 export function formatComplianceAlert(obligation) {
@@ -213,7 +204,6 @@ export function formatComplianceAlert(obligation) {
 
   return { message, actionLabel, severity };
 }
-
 
 export function formatDscAlert(director) {
   const status = getDscStatus(director.dsc_expiry_date);

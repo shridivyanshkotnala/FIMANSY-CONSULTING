@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 // This hook should be replaced by a compliance API slice (e.g., complianceApi.js)
 import { useAuth } from '@/hooks/useAuth';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8800/api';
 
 /**
  * useCompliance Hook
@@ -37,7 +37,6 @@ export function useCompliance() {
   const [complianceProfile, setComplianceProfile] = useState(null);
   const [directors, setDirectors] = useState([]);
   const [obligations, setObligations] = useState([]);
-  const [advanceTax, setAdvanceTax] = useState([]);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -56,19 +55,35 @@ export function useCompliance() {
     setError(null);
 
     try {
-      const [profileRes, dirsRes, obsRes, taxRes, evtsRes] = await Promise.all([
+      // 🔴 REMOVED advance-tax from the Promise.all
+      const [profileRes, dirsRes, obsRes, evtsRes] = await Promise.all([
         apiFetch(`/compliance/profile?organization_id=${organization.id}`),
         apiFetch(`/compliance/directors?organization_id=${organization.id}`),
         apiFetch(`/compliance/obligations?organization_id=${organization.id}`),
-        apiFetch(`/compliance/advance-tax?organization_id=${organization.id}`),
         apiFetch(`/compliance/events?organization_id=${organization.id}`),
       ]);
 
-      if (profileRes.data) setComplianceProfile(profileRes.data);
-      if (dirsRes.data) setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
-      if (obsRes.data) setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
-      if (taxRes.data) setAdvanceTax(Array.isArray(taxRes.data) ? taxRes.data : taxRes.data?.data || []);
-      if (evtsRes.data) setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
+      // Handle profile response (might be nested in .data or direct)
+      if (profileRes.data?.data) {
+        setComplianceProfile(profileRes.data.data);
+      } else if (profileRes.data) {
+        setComplianceProfile(profileRes.data);
+      }
+
+      // Handle directors response
+      if (dirsRes.data) {
+        setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
+      }
+
+      // Handle obligations response
+      if (obsRes.data) {
+        setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
+      }
+
+      // Handle events response
+      if (evtsRes.data) {
+        setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
+      }
 
     } catch (err) {
       setError('Failed to fetch compliance data');
@@ -91,17 +106,26 @@ export function useCompliance() {
     if (!organization?.id) return { error: new Error('No organization') };
 
     const profileData = { ...data, organization_id: organization.id };
-    const method = complianceProfile?.id ? 'PATCH' : 'POST';
-    const url = complianceProfile?.id
-      ? `/compliance/profile/${complianceProfile.id}`
+    
+    // 🔴 FIX: Use _id to determine if this is an update or create
+    const method = complianceProfile?._id ? 'PATCH' : 'POST';
+    const url = complianceProfile?._id
+      ? `/compliance/profile/${complianceProfile._id}`
       : '/compliance/profile';
+
+    console.log(`📡 Saving profile with ${method} to ${url}`);
+    console.log('📦 Profile data:', profileData);
 
     const { error } = await apiFetch(url, {
       method,
       body: JSON.stringify(profileData),
     });
 
-    if (!error) await fetchAll();
+    if (!error) {
+      console.log('✅ Profile saved successfully, refetching...');
+      await fetchAll();
+    }
+    
     return { error };
   };
 
@@ -139,6 +163,14 @@ export function useCompliance() {
     const { error } = await apiFetch(`/compliance/directors/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    });
+    if (!error) await fetchAll();
+    return { error };
+  };
+
+  const deleteDirector = async (id) => {
+    const { error } = await apiFetch(`/compliance/directors/${id}`, {
+      method: 'DELETE',
     });
     if (!error) await fetchAll();
     return { error };
@@ -194,36 +226,9 @@ export function useCompliance() {
     return { error };
   };
 
-
-  /* ============================================================
-     ADVANCE TAX
-  ============================================================ */
-
-  const saveAdvanceTax = async (data) => {
-    if (!organization?.id) return { error: new Error('No organization') };
-
-    const insertData = {
-      financial_year: data.financial_year || '',
-      quarter: data.quarter || 1,
-      due_date: data.due_date || new Date().toISOString().split('T')[0],
-      estimated_annual_income: data.estimated_annual_income ?? 0,
-      estimated_tax_liability: data.estimated_tax_liability ?? 0,
-      cumulative_percentage: data.cumulative_percentage || 0,
-      tax_payable_this_quarter: data.tax_payable_this_quarter ?? 0,
-      tax_paid_till_date: data.tax_paid_till_date ?? 0,
-      shortfall: data.shortfall ?? 0,
-      interest_234b: data.interest_234b ?? 0,
-      interest_234c: data.interest_234c ?? 0,
-      payment_status: data.payment_status || 'not_started',
-      payment_date: data.payment_date,
-      challan_number: data.challan_number,
-      notes: data.notes,
-      organization_id: organization.id,
-    };
-
-    const { error } = await apiFetch('/compliance/advance-tax', {
-      method: 'POST',
-      body: JSON.stringify(insertData),
+  const deleteObligation = async (id) => {
+    const { error } = await apiFetch(`/compliance/obligations/${id}`, {
+      method: 'DELETE',
     });
     if (!error) await fetchAll();
     return { error };
@@ -249,7 +254,6 @@ export function useCompliance() {
     complianceProfile,
     directors,
     obligations,
-    advanceTax,
     events,
     loading,
     error,
@@ -257,9 +261,10 @@ export function useCompliance() {
     saveComplianceProfile,
     addDirector,
     updateDirector,
+    deleteDirector,
     createObligation,
     updateObligationStatus,
-    saveAdvanceTax,
+    deleteObligation,
     acknowledgeEvent,
   };
 }

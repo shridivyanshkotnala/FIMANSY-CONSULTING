@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { getDscStatus } from "@/lib/compliance/utils";
 import { format } from "date-fns";
 import {
-  UserPlus, AlertTriangle, CheckCircle2, Clock, Loader2, Users
+  UserPlus, AlertTriangle, CheckCircle2, Clock, Loader2, Users, Mail, Phone as PhoneIcon, Calendar
 } from "lucide-react";
 
 /*
@@ -99,44 +99,107 @@ export function DirectorManagement({
             <Button><UserPlus className="h-4 w-4 mr-2"/>Add</Button>
           </DialogTrigger>
 
-          <DialogContent>
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Add Director</DialogTitle>
-              <DialogDescription>Enter MCA details</DialogDescription>
+              <DialogDescription>Enter director details and DSC information</DialogDescription>
             </DialogHeader>
 
-            <form onSubmit={submit} className="space-y-4">
-
-              <div className="space-y-2">
-                <Label>DIN</Label>
-                <Input required value={form.din} onChange={e=>setForm({...form,din:e.target.value})}/>
+            <form onSubmit={submit} className="space-y-5 py-2">
+              {/* DIN */}
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">DIN (Director Identification Number)</Label>
+                <Input 
+                  placeholder="e.g., 12345678"
+                  required 
+                  value={form.din} 
+                  onChange={e=>setForm({...form, din: e.target.value})}
+                  className="w-full"
+                />
               </div>
 
-              <div className="space-y-2">
-                <Label>Name</Label>
-                <Input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+              {/* Full Name */}
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Full Name</Label>
+                <Input 
+                  placeholder="As per MCA records"
+                  required 
+                  value={form.name} 
+                  onChange={e=>setForm({...form, name: e.target.value})}
+                  className="w-full"
+                />
               </div>
 
-              <div className="space-y-2">
-                <Label>Designation</Label>
-                <Select value={form.designation} onValueChange={v=>setForm({...form,designation:v})}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
+              {/* Designation */}
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Designation</Label>
+                <Select value={form.designation} onValueChange={v=>setForm({...form, designation: v})}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Director" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {designations.map(d=><SelectItem key={d} value={d}>{d.replaceAll("_"," ")}</SelectItem>)}
+                    {designations.map(d=>(
+                      <SelectItem key={d} value={d}>
+                        {d.replaceAll("_", " ").replace(/\b\w/g, l => l.toUpperCase())}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label>DSC Expiry</Label>
-                <Input type="date" value={form.dsc_expiry_date} onChange={e=>setForm({...form,dsc_expiry_date:e.target.value})}/>
+              {/* Date of Appointment */}
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Date of Appointment</Label>
+                <Input 
+                  type="date" 
+                  placeholder="dd-mm-yyyy"
+                  value={form.date_of_appointment} 
+                  onChange={e=>setForm({...form, date_of_appointment: e.target.value})}
+                  className="w-full"
+                />
+              </div>
+
+              {/* DSC Expiry Date */}
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">DSC Expiry Date</Label>
+                <Input 
+                  type="date" 
+                  placeholder="dd-mm-yyyy"
+                  value={form.dsc_expiry_date} 
+                  onChange={e=>setForm({...form, dsc_expiry_date: e.target.value})}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Email and Phone in one row */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Email</Label>
+                  <Input 
+                    type="email"
+                    placeholder="email@example.com"
+                    value={form.email} 
+                    onChange={e=>setForm({...form, email: e.target.value})}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Phone</Label>
+                  <Input 
+                    type="tel"
+                    placeholder="Phone number"
+                    value={form.phone} 
+                    onChange={e=>setForm({...form, phone: e.target.value})}
+                    className="w-full"
+                  />
+                </div>
               </div>
 
               <Button type="submit" disabled={submitting} className="w-full">
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin"/>}
-                Save Director
+                Add Director
               </Button>
-
             </form>
           </DialogContent>
         </Dialog>
@@ -152,22 +215,25 @@ export function DirectorManagement({
           </div>
         ) : (
           <div className="space-y-3">
-            {directors.map(d=>(
-              <div key={d.id} className="flex justify-between items-center border rounded-lg p-4">
-                <div>
-                  <p className="font-medium">{d.name}</p>
-                  <p className="text-sm text-muted-foreground">DIN: {d.din}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  {getBadge(d)}
-                  {d.dsc_expiry_date && (
-                    <span className="text-xs text-muted-foreground">
-                      {format(new Date(d.dsc_expiry_date),'dd MMM yyyy')}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+            {directors.map((director, index) => (
+  <div 
+    key={director.id || `director-${index}`} 
+    className="flex justify-between items-center border rounded-lg p-4"
+  >
+    <div>
+      <p className="font-medium">{director.name}</p>
+      <p className="text-sm text-muted-foreground">DIN: {director.din}</p>
+    </div>
+    <div className="flex items-center gap-3">
+      {getBadge(director)}
+      {director.dsc_expiry_date && (
+        <span className="text-xs text-muted-foreground">
+          {format(new Date(director.dsc_expiry_date), 'dd MMM yyyy')}
+        </span>
+      )}
+    </div>
+  </div>
+))}
           </div>
         )}
       </CardContent>
