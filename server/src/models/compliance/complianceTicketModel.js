@@ -14,14 +14,14 @@ const complianceTicketSchema = new mongoose.Schema(
     required: true,
   },
 
-  category_tag: {
+  compliance_category: {  // was: category_tag
     type: String,
-    enum: ['gst','tds','income_tax','mca','payroll','other'],
+    enum: ['gst', 'tds', 'income_tax', 'mca', 'payroll', 'other'],
     required: true,
     index: true,
   },
 
-  subtag: {
+  compliance_subtype: {  // was: subtag
     type: String,
     required: true,
     index: true,
@@ -77,7 +77,9 @@ const complianceTicketSchema = new mongoose.Schema(
 { timestamps: true }
 );
 
+// Update index with new field name
 complianceTicketSchema.index({ organization_id: 1, status: 1 });
+complianceTicketSchema.index({ organization_id: 1, compliance_category: 1 }); // Added for consistency
 
 export const ComplianceTicket =
   mongoose.model("ComplianceTicket", complianceTicketSchema);

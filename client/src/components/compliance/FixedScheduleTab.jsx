@@ -10,17 +10,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import {
-  FIXED_SCHEDULE_COMPLIANCES,
-  TAG_COLORS,
-} from "@/lib/compliance/complianceData";
-
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
 import { ComplianceCalendar } from "./ComplianceCalendarWidget";
 
-// ⚠️ CONTEXT API — MARKED FOR REMOVAL
-// 🔄 FUTURE: Replace with Redux RTK Query selectors
-// const { obligations, createObligation, loading } = useSelector(state => state.compliance)
 import { useCompliance } from "@/hooks/useCompliance";
 import {
   getCurrentFinancialYear,
@@ -30,9 +22,9 @@ import {
 import {
   format,
   isSameMonth,
-  isBefore,
   startOfDay,
   isWithinInterval,
+  parseISO,
 } from "date-fns";
 
 import {
@@ -63,14 +55,6 @@ function getCurrentQuarterRange() {
   return { start: new Date(year, 0, 1), end: new Date(year, 2, 31), label: "Q4" };
 }
 
-function getFYRange(fy) {
-  const [startYear] = fy.split("-").map(Number);
-  return {
-    start: new Date(startYear, 3, 1),
-    end: new Date(startYear + 1, 2, 31),
-  };
-}
-
 /* ================= Component ================= */
 
 export function FixedScheduleTab() {
@@ -83,75 +67,45 @@ export function FixedScheduleTab() {
   const today = startOfDay(new Date());
   const fy = getCurrentFinancialYear();
 
-  /* ================= Generate FY Compliances ================= */
+  // Debug: Log obligations from backend
+  console.log("📊 Backend obligations:", obligations);
+  console.log("📊 Total obligations from backend:", obligations.length);
 
-  const generatedCompliances = useMemo(() => {
-    const fyRange = getFYRange(fy);
-    const result = [];
+  /* ================= Filter obligations by time periods ================= */
 
-    for (
-      let month = fyRange.start.getMonth(),
-        year = fyRange.start.getFullYear();
-      ;
-    ) {
-      const d = new Date(year, month, 1);
-      if (d > fyRange.end) break;
-
-      FIXED_SCHEDULE_COMPLIANCES.forEach((fc) => {
-        const dueDate = fc.getDueDate(month, year);
-
-        if (
-          dueDate &&
-          dueDate >= fyRange.start &&
-          dueDate <= fyRange.end
-        ) {
-          const existing = obligations.find(
-            (ob) =>
-              ob.form_name === fc.name &&
-              ob.due_date === format(dueDate, "yyyy-MM-dd")
-          );
-
-          result.push({
-            name: fc.name,
-            description: fc.description,
-            primaryTag: fc.primaryTag,
-            secondaryTag: fc.secondaryTag,
-            dueDate,
-            status: existing?.status || "not_started",
-          });
-        }
-      });
-
-      month++;
-      if (month > 11) {
-        month = 0;
-        year++;
-      }
-    }
-
-    const unique = new Map();
-
-    result.forEach((r) => {
-      const key = `${r.name}-${format(r.dueDate, "yyyy-MM-dd")}`;
-      if (!unique.has(key)) unique.set(key, r);
+  const thisMonthObligations = useMemo(() => {
+    return obligations.filter((ob) => {
+      if (!ob.due_date) return false;
+      const dueDate = parseISO(ob.due_date);
+      return isSameMonth(dueDate, today);
     });
-
-    return Array.from(unique.values()).sort(
-      (a, b) => a.dueDate.getTime() - b.dueDate.getTime()
-    );
-  }, [fy, obligations]);
-
-  const thisMonthCompliances = generatedCompliances.filter((c) =>
-    isSameMonth(c.dueDate, today)
-  );
+  }, [obligations, today]);
 
   const quarterRange = getCurrentQuarterRange();
 
-  const thisQuarterCompliances = generatedCompliances.filter((c) =>
-    isWithinInterval(c.dueDate, quarterRange)
-  );
+  const thisQuarterObligations = useMemo(() => {
+    return obligations.filter((ob) => {
+      if (!ob.due_date) return false;
+      const dueDate = parseISO(ob.due_date);
+      return isWithinInterval(dueDate, quarterRange);
+    });
+  }, [obligations, quarterRange]);
 
-  const thisFYCompliances = generatedCompliances;
+  const thisFYObligations = useMemo(() => {
+    return obligations.filter((ob) => ob.financial_year === fy);
+  }, [obligations, fy]);
+
+  /* ================= Group by category for better display ================= */
+
+  const obligationsByCategory = useMemo(() => {
+    const grouped = {};
+    obligations.forEach((ob) => {
+      const category = ob.compliance_category || ob.category_tag || "other";
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(ob);
+    });
+    return grouped;
+  }, [obligations]);
 
   /* ================= Filing ================= */
 
@@ -160,21 +114,31 @@ export function FixedScheduleTab() {
 
     setIsSubmitting(true);
 
-    await createObligation({
-      compliance_type: "gst",
-      form_name: filingModal.name,
-      form_description: filingModal.description,
+    const result = await createObligation({
+      compliance_category: filingModal.compliance_category || filingModal.primaryTag?.toLowerCase(),
+      compliance_subtype: filingModal.compliance_subtype || filingModal.name,
+      compliance_description: filingModal.compliance_description || filingModal.description,
+      form_name: filingModal.form_name || filingModal.name,
+      form_description: filingModal.form_description || filingModal.description,
       due_date: format(filingModal.dueDate, "yyyy-MM-dd"),
-      status: "initiated",
+      status: "in_progress",
       financial_year: fy,
       notes: data.comment,
       priority: 3,
     });
 
-    toast({
-      title: "Filing initiated",
-      description: `${filingModal.name} filing has been initiated.`,
-    });
+    if (!result.error) {
+      toast({
+        title: "Filing initiated",
+        description: `${filingModal.name} filing has been initiated.`,
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to initiate filing",
+        variant: "destructive",
+      });
+    }
 
     setIsSubmitting(false);
     setFilingModal(null);
@@ -182,64 +146,64 @@ export function FixedScheduleTab() {
 
   /* ================= Render Row ================= */
 
-  const renderComplianceRow = (c) => {
-    const daysUntil = getDaysUntilDue(
-      format(c.dueDate, "yyyy-MM-dd")
-    );
+  const renderObligationRow = (obligation) => {
+    const dueDate = parseISO(obligation.due_date);
+    const daysUntil = getDaysUntilDue(obligation.due_date);
+    const isOverdue = daysUntil < 0 && obligation.status !== "filed";
+    const isFiled = obligation.status === "filed";
 
-    const isOverdue =
-      daysUntil < 0 &&
-      c.status !== "filed" &&
-      c.status !== "approved";
-
-    const isFiled =
-      c.status === "filed" ||
-      c.status === "approved";
+    // Get display name and description
+    const displayName = obligation.form_name || obligation.compliance_subtype || "Unknown";
+    const displayDescription = obligation.form_description || obligation.compliance_description || "";
+    const category = obligation.compliance_category || obligation.category_tag || "Other";
+    
+    // Capitalize first letter for badge
+    const categoryDisplay = category.charAt(0).toUpperCase() + category.slice(1);
 
     return (
       <div
-        key={`${c.name}-${format(c.dueDate, "yyyy-MM-dd")}`}
+        key={obligation._id}
         className={cn(
           "flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors cursor-pointer",
           isOverdue &&
             "border-l-4 border-l-destructive bg-destructive/5",
           isFiled && "opacity-60"
         )}
-        onClick={() => !isFiled && setFilingModal(c)}
+        onClick={() => !isFiled && setFilingModal({
+          ...obligation,
+          name: displayName,
+          description: displayDescription,
+          primaryTag: categoryDisplay,
+          dueDate: dueDate,
+        })}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
           <div className="min-w-0">
             <p className="font-medium text-sm truncate">
-              {c.name}
+              {displayName}
             </p>
             <p className="text-xs text-muted-foreground truncate">
-              {c.description}
+              {displayDescription}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 ml-2">
-          <Badge
-            className={cn(
-              "text-xs",
-              TAG_COLORS[c.primaryTag] ||
-                TAG_COLORS.Other
-            )}
-          >
-            {c.primaryTag}
+          <Badge variant="outline" className="text-xs">
+            {categoryDisplay}
           </Badge>
 
           <div className="text-right min-w-[80px]">
             <p className="text-xs font-medium">
-              {format(c.dueDate, "dd MMM")}
+              {format(dueDate, "dd MMM")}
             </p>
             <p
               className={cn(
                 "text-xs",
                 isOverdue
                   ? "text-destructive"
-                  : daysUntil <= 7
+                  : daysUntil <= 7 && !isFiled
                   ? "text-warning"
                   : "text-muted-foreground"
               )}
@@ -264,8 +228,9 @@ export function FixedScheduleTab() {
 
   /* ================= Loading ================= */
 
-  if (loading)
+  if (loading) {
     return <Skeleton className="h-96 w-full" />;
+  }
 
   /* ================= UI ================= */
 
@@ -281,17 +246,17 @@ export function FixedScheduleTab() {
             <Calendar className="h-4 w-4" />
             This Month's Filings
             <Badge variant="secondary" className="ml-auto">
-              {thisMonthCompliances.length}
+              {thisMonthObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {thisMonthCompliances.length === 0 ? (
+          {thisMonthObligations.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
               No filings due this month
             </p>
           ) : (
-            thisMonthCompliances.map(renderComplianceRow)
+            thisMonthObligations.map(renderObligationRow)
           )}
         </CardContent>
       </Card>
@@ -303,12 +268,18 @@ export function FixedScheduleTab() {
             <Calendar className="h-4 w-4" />
             This Quarter's Filings ({quarterRange.label})
             <Badge variant="secondary" className="ml-auto">
-              {thisQuarterCompliances.length}
+              {thisQuarterObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {thisQuarterCompliances.map(renderComplianceRow)}
+          {thisQuarterObligations.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No filings due this quarter
+            </p>
+          ) : (
+            thisQuarterObligations.map(renderObligationRow)
+          )}
         </CardContent>
       </Card>
 
@@ -319,34 +290,25 @@ export function FixedScheduleTab() {
             <Calendar className="h-4 w-4" />
             This Financial Year (FY {fy})
             <Badge variant="secondary" className="ml-auto">
-              {thisFYCompliances.length}
+              {thisFYObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 max-h-[400px] overflow-y-auto">
-          {thisFYCompliances.map(renderComplianceRow)}
+          {thisFYObligations.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No filings for this financial year
+            </p>
+          ) : (
+            thisFYObligations.map(renderObligationRow)
+          )}
         </CardContent>
       </Card>
 
       <ComplianceFilingModal
         open={!!filingModal}
-        onOpenChange={(open) =>
-          !open && setFilingModal(null)
-        }
-        compliance={
-          filingModal
-            ? {
-                name: filingModal.name,
-                description: filingModal.description,
-                primaryTag: filingModal.primaryTag,
-                secondaryTag: filingModal.secondaryTag,
-                dueDate: format(
-                  filingModal.dueDate,
-                  "yyyy-MM-dd"
-                ),
-              }
-            : null
-        }
+        onOpenChange={(open) => !open && setFilingModal(null)}
+        compliance={filingModal}
         onSubmit={handleFiling}
         isSubmitting={isSubmitting}
       />
