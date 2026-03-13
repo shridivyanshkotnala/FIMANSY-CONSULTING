@@ -22,21 +22,47 @@ const fetchProfile = async (organization_id) => {
   return CompanyComplianceProfile.findOne({ organization_id });
 };
 
+// Helper: determine missing required fields - SIMPLIFIED VERSION
 const getMissingFields = (profile) => {
   const requiredFields = [];
 
-  if (!profile.date_of_incorporation) requiredFields.push("DATE_OF_INCORPORATION");
-  if (!profile.registered_office_address) requiredFields.push("REGISTERED_OFFICE_ADDRESS");
+  // Only check these 5 required fields:
+  // 1. Date of Incorporation
+  if (!profile.date_of_incorporation) {
+    requiredFields.push("DATE_OF_INCORPORATION");
+  }
+
+  // 2-5. Address fields (now stored in registered_office_address)
+  if (!profile.registered_office_address) {
+    requiredFields.push("REGISTERED_OFFICE_ADDRESS");
+  }
 
   return requiredFields;
 };
 
-const getCurrentFinancialYear = () => {
+// Helper to get current financial year
+function getCurrentFinancialYear() {
   const today = new Date();
   const year = today.getFullYear();
   const month = today.getMonth();
-  return month >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
-};
+  
+  // Financial year runs from April to March
+  if (month >= 3) { // April to December
+    return `${year}-${year + 1}`;
+  } else { // January to March
+    return `${year - 1}-${year}`;
+  }
+}
+
+// Helper to check if profile is complete
+function isProfileComplete(profile) {
+  const missingFields = getMissingFields(profile);
+  return missingFields.length === 0;
+}
+
+// Create company compliance profile
+export const createCompanyProfile = asynchandler(async (req, res) => {
+  const { organization_id } = req.body;
 
 const isProfileComplete = (profile) => getMissingFields(profile).length === 0;
 
@@ -54,6 +80,7 @@ export const createCompanyProfile = asynchandler(async (req, res) => {
   const existingProfile = await CompanyComplianceProfile.findOne({ organization_id });
   if (existingProfile) throw new ApiError(400, "Profile already exists");
 
+  // Create the profile
   const profile = await CompanyComplianceProfile.create({
     organization_id,
     ...req.body,
@@ -66,55 +93,78 @@ export const createCompanyProfile = asynchandler(async (req, res) => {
     obligations_generated: false,
   });
 
-  // 🚀 Auto-generate obligations immediately
+  // 🚀 AUTO-GENERATE OBLIGATIONS IMMEDIATELY AFTER PROFILE CREATION
   try {
     console.log("🎯 New profile created! Generating obligations...");
     const currentFY = getCurrentFinancialYear();
     const count = await generateObligationsForFY(profile.organization_id, currentFY);
+    
+    // Mark that obligations have been generated
     profile.obligations_generated = true;
     await profile.save();
-    console.log(`✅ Generated ${count} obligations for FY ${currentFY}`);
-    console.log(`👥 Directors count: ${profile.director_count}`);
+    
+    console.log(`✅ Successfully generated ${count} obligations for FY ${currentFY}`);
   } catch (genError) {
     console.error("❌ Failed to generate obligations:", genError.message);
+    // Don't fail the profile creation
   }
 
   res.status(201).json(new ApiResponse(201, profile, "Company compliance profile created successfully"));
 });
 
-// ==============================
-// Update company profile
-// ==============================
+// Update company profile - SIMPLIFIED VERSION
 export const updateCompanyProfile = asynchandler(async (req, res) => {
-  const profile = await CompanyComplianceProfile.findById(req.params.id);
-  if (!profile) throw new ApiError(404, "Compliance profile not found");
+  try {
+    console.log('📥 Updating profile with ID:', req.params.id);
+    console.log('📦 Update data:', req.body);
 
-  const updatedProfile = await CompanyComplianceProfile.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true, runValidators: true }
-  );
-
-  // Generate obligations if not already done
-  if (!updatedProfile.obligations_generated) {
-    try {
-      console.log("🎯 Generating obligations for updated profile...");
-      const currentFY = getCurrentFinancialYear();
-      const count = await generateObligationsForFY(updatedProfile.organization_id, currentFY);
-      updatedProfile.obligations_generated = true;
-      await updatedProfile.save();
-      console.log(`✅ Generated ${count} obligations for FY ${currentFY}`);
-    } catch (genError) {
-      console.error("❌ Failed to generate obligations:", genError.message);
+    // Get the current profile before update
+    const currentProfile = await CompanyComplianceProfile.findById(req.params.id);
+    
+    if (!currentProfile) {
+      throw new ApiError(404, "Compliance profile not found");
     }
-  } else {
-    console.log("⏭️ Obligations already generated for this company");
-  }
 
-  res.json(new ApiResponse(200, updatedProfile, "Profile updated successfully"));
+    // Update the profile
+    const profile = await CompanyComplianceProfile.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    // 🚀 SIMPLE RULE: If profile exists and obligations not generated, generate them
+    // No complex completion check - just generate if not already done
+    if (!profile.obligations_generated) {
+      console.log("🎯 Profile updated! Generating obligations (first time)...");
+      
+      try {
+        const currentFY = getCurrentFinancialYear();
+        console.log(`📅 Current FY: ${currentFY}`);
+        
+        const count = await generateObligationsForFY(profile.organization_id, currentFY);
+        
+        // Mark that obligations have been generated
+        profile.obligations_generated = true;
+        await profile.save();
+        
+        console.log(`✅ Successfully generated ${count} obligations for FY ${currentFY}`);
+      } catch (genError) {
+        console.error("❌ Failed to generate obligations:", genError.message);
+        // Don't fail the update
+      }
+    } else {
+      console.log('⏭️ Obligations already generated for this company');
+    }
+
+    console.log('✅ Profile updated successfully:', profile._id);
+    res.json(new ApiResponse(200, profile, "Profile updated successfully"));
+    
+  } catch (error) {
+    console.error('❌ Error updating profile:', error);
+    throw error;
+  }
 });
 
-// ==============================
 // Get company profile
 // ==============================
 export const getCompanyProfile = async (req, res) => {
@@ -138,9 +188,7 @@ export const getCompanyProfile = async (req, res) => {
   }
 };
 
-// ==============================
-// Get onboarding status
-// ==============================
+// Onboarding status
 export const getOnboardingStatus = asynchandler(async (req, res) => {
   const profile = await fetchProfile(req.params.organization_id);
 

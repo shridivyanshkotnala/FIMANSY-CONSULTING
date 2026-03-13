@@ -3,6 +3,15 @@ import { useAuth } from '@/hooks/useAuth';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8800/api';
 
+/**
+ * useCompliance Hook
+ * --------------------------------------------------
+ * Central data access layer for compliance module.
+ *
+ * All Supabase code removed — calls Node.js backend API.
+ * Until backend endpoints are wired, functions return empty data gracefully.
+ */
+
 async function apiFetch(endpoint, options = {}) {
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, {
@@ -99,6 +108,7 @@ export function useCompliance() {
     setError(null);
 
     try {
+      // 🔴 REMOVED advance-tax from the Promise.all
       const [profileRes, dirsRes, obsRes, evtsRes] = await Promise.all([
         apiFetch(`/compliance/profile?organization_id=${organization.id}`),
         apiFetch(`/compliance/directors?organization_id=${organization.id}`),
@@ -106,8 +116,27 @@ export function useCompliance() {
         apiFetch(`/compliance/events?organization_id=${organization.id}`),
       ]);
 
-      if (profileRes.data?.data) setComplianceProfile(profileRes.data.data);
-      else if (profileRes.data) setComplianceProfile(profileRes.data);
+      // Handle profile response (might be nested in .data or direct)
+      if (profileRes.data?.data) {
+        setComplianceProfile(profileRes.data.data);
+      } else if (profileRes.data) {
+        setComplianceProfile(profileRes.data);
+      }
+
+      // Handle directors response
+      if (dirsRes.data) {
+        setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
+      }
+
+      // Handle obligations response
+      if (obsRes.data) {
+        setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
+      }
+
+      // Handle events response
+      if (evtsRes.data) {
+        setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
+      }
 
       if (dirsRes.data)
         setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
@@ -136,23 +165,26 @@ export function useCompliance() {
     if (!organization?.id) return { error: new Error('No organization') };
 
     const profileData = { ...data, organization_id: organization.id };
+    
+    // 🔴 FIX: Use _id to determine if this is an update or create
     const method = complianceProfile?._id ? 'PATCH' : 'POST';
     const url = complianceProfile?._id
       ? `/compliance/profile/${complianceProfile._id}`
       : '/compliance/profile';
 
-    const { data: responseData, error } = await apiFetch(url, {
+    console.log(`📡 Saving profile with ${method} to ${url}`);
+    console.log('📦 Profile data:', profileData);
+
+    const { error } = await apiFetch(url, {
       method,
       body: JSON.stringify(profileData),
     });
 
     if (!error) {
-      const freshProfile = responseData?.data || responseData;
-      setComplianceProfile(freshProfile);
+      console.log('✅ Profile saved successfully, refetching...');
       await fetchAll();
-      return { error: null, profile: freshProfile };
     }
-
+    
     return { error };
   };
 
@@ -200,6 +232,7 @@ export function useCompliance() {
     if (!error) await fetchAll();
     return { error };
   };
+
 
   // =========================
   // Compliance Obligations

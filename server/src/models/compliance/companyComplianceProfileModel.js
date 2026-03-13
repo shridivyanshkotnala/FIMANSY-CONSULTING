@@ -24,14 +24,6 @@ const companyComplianceProfileSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    directors: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Director"
-  }],
-  director_count: {
-    type: Number,
-    default: 0  // Always starts at 0
-  },
     cin: {
       type: String,
       trim: true,
