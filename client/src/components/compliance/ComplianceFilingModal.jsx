@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 import {
   Dialog,
@@ -22,181 +23,179 @@ import {
   Loader2,
   Calendar,
   Tag,
+  CheckCircle2,
 } from "lucide-react";
 
 import { format } from "date-fns";
-
-/*
-  ==========================================================
-  Compliance Filing Modal
-  ----------------------------------------------------------
-  Props:
-  - open
-  - onOpenChange
-  - compliance
-  - onSubmit
-  - isSubmitting
-  ==========================================================
-*/
 
 export function ComplianceFilingModal({
   open,
   onOpenChange,
   compliance,
-  onSubmit,
-  isSubmitting,
+  mode = "ticket",
+  onSuccess,
 }) {
-  // Local state
-  const [comment, setComment] = useState("");
-  const [files, setFiles] = useState([]); // removed File[] typing
 
-  /*
-    ==========================================================
-    Handle File Change
-    TS removed:
-    (e: React.ChangeEvent<HTMLInputElement>)
-    ==========================================================
-  */
+  const { toast } = useToast();
+
+  const [comment, setComment] = useState("");
+  const [files, setFiles] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleFileChange = (e) => {
-    if (e.target.files) {
-      setFiles(Array.from(e.target.files));
+    if (!e.target.files) return;
+    setFiles(Array.from(e.target.files));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!compliance?._id) {
+      toast({
+        title: "Error",
+        description: "No obligation selected",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!comment.trim()) {
+      toast({
+        title: "Comment required",
+        description: "Please describe the task",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+
+      const payload = {
+        comment: comment.trim(),
+        attachments: files.map((f) => f.name),
+      };
+
+      // 🔥 Parent handles API + refresh
+      if (onSuccess) {
+        await onSuccess(payload);
+      }
+
+      setComment("");
+      setFiles([]);
+
+      onOpenChange(false);
+
+    } catch (err) {
+
+      console.error("Ticket creation error:", err);
+
+      toast({
+        title: "Failed to create ticket",
+        description: err.message || "Server error occurred",
+        variant: "destructive",
+      });
+
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  /*
-    ==========================================================
-    Handle Submit
-    TS removed:
-    (e: React.FormEvent)
-    ==========================================================
-  */
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    onSubmit({
-      comment,
-      files,
-    });
-
-    // Reset local state after submission
-    setComment("");
-    setFiles([]);
-  };
-
-  // Guard condition
   if (!compliance) return null;
+
+  const displayName =
+    compliance.form_name ||
+    compliance.compliance_subtype ||
+    "Compliance Item";
+
+  const primaryTag = compliance.compliance_category || "other";
+  const secondaryTag = compliance.compliance_subtype || "";
+
+  const dueDate = compliance.due_date || compliance.dueDate;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
 
-        {/* Header */}
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            {compliance.name}
+            {displayName}
           </DialogTitle>
+
           <DialogDescription>
-            {compliance.description}
+            Create a ticket to track this compliance obligation
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">
 
-          {/* ================= TAGS ================= */}
+          {/* Tags */}
           <div className="flex items-center gap-2">
             <Tag className="h-4 w-4 text-muted-foreground" />
 
-            <Badge
-              className={
-                TAG_COLORS[compliance.primaryTag] ||
-                TAG_COLORS.Other
-              }
-            >
-              {compliance.primaryTag}
+            <Badge className={TAG_COLORS[primaryTag] || TAG_COLORS.other}>
+              {primaryTag.toUpperCase()}
             </Badge>
 
-            <Badge variant="outline">
-              {compliance.secondaryTag}
-            </Badge>
+            {secondaryTag && (
+              <Badge variant="outline">{secondaryTag}</Badge>
+            )}
           </div>
 
-          {/* ================= DUE DATE ================= */}
-          {compliance.dueDate && (
+          {/* Due Date */}
+          {dueDate && (
             <div className="flex items-center gap-2 text-sm">
               <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">
-                Due:
-              </span>
+
+              <span className="text-muted-foreground">Due:</span>
+
               <span className="font-medium">
-                {format(
-                  new Date(compliance.dueDate),
-                  "dd MMM yyyy"
-                )}
+                {format(new Date(dueDate), "dd MMM yyyy")}
               </span>
             </div>
           )}
 
-          {/* ================= FILE UPLOAD ================= */}
+          {/* Upload */}
           <div className="space-y-2">
-            <Label>Upload Documents</Label>
+            <Label>Upload Documents (Optional)</Label>
 
-            <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
-              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-
-              <p className="text-sm text-muted-foreground mb-2">
-                Drag & drop or click to upload
-              </p>
-
-              <Input
-                type="file"
-                multiple
-                onChange={handleFileChange}
-                className="cursor-pointer"
-              />
-            </div>
-
-            {files.length > 0 && (
-              <div className="space-y-1">
-                {files.map((f, i) => (
-                  <p
-                    key={i}
-                    className="text-sm text-muted-foreground flex items-center gap-1"
-                  >
-                    <FileText className="h-3 w-3" />
-                    {f.name}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ================= COMMENT ================= */}
-          <div className="space-y-2">
-            <Label>
-              Comment / Message to Accountant
-            </Label>
-
-            <Textarea
-              placeholder="Add notes or instructions for your accountant..."
-              value={comment}
-              onChange={(e) =>
-                setComment(e.target.value)
-              }
-              rows={3}
+            <Input
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              disabled={isSubmitting}
             />
           </div>
 
-          {/* ================= SUBMIT BUTTON ================= */}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={isSubmitting}
-          >
-            {isSubmitting && (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          {/* Comment */}
+          <div className="space-y-2">
+            <Label>Ticket Description</Label>
+
+            <Textarea
+              placeholder="Describe what needs to be done..."
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={4}
+              disabled={isSubmitting}
+              required
+            />
+          </div>
+
+          {/* Submit */}
+          <Button type="submit" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating Ticket...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Create Ticket
+              </>
             )}
-            Initiate Filing
           </Button>
 
         </form>

@@ -37,12 +37,19 @@ const complianceTemplateSchema = new mongoose.Schema(
     type: mongoose.Schema.Types.Mixed,
     required: true,
   },
+  trigger_type: {
+  type: String,
+  enum: ['scheduled', 'conditional', 'event_driven'],
+  default: 'scheduled',
+  index: true,
+},
 
   is_active: {
     type: Boolean,
     default: true,
     index: true,
-  }
+  },
+  
 
 },
 {
