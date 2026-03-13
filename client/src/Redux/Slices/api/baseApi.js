@@ -19,31 +19,46 @@ const rawBaseQuery = fetchBaseQuery({
 
 
 const baseQueryWithRefresh = async (args, api, extraOptions) => {
-  let result = await rawBaseQuery(args, api, extraOptions);
+  try {
+    let result = await rawBaseQuery(args, api, extraOptions);
 
-  // access token expired → attempt refresh
-  if (result?.error?.status === 401) {
-    const refreshResult = await rawBaseQuery(
-      { url: "/user/refresh-token", method: "POST" },
-      api,
-      extraOptions
-    );
+    // access token expired → attempt refresh
+    if (result?.error?.status === 401) {
+      const refreshResult = await rawBaseQuery(
+        { url: "/user/refresh-token", method: "POST" },
+        api,
+        extraOptions
+      );
 
-    if (refreshResult?.data) {
-      // retry original request after refresh
-      result = await rawBaseQuery(args, api, extraOptions);
+      if (refreshResult?.data) {
+        // retry original request after refresh
+        result = await rawBaseQuery(args, api, extraOptions);
+      }
+
+      // if refresh fails → DO NOTHING
+      // AuthGuard will see /me = 401 and redirect to /auth
     }
 
-    // if refresh fails → DO NOTHING
-    // AuthGuard will see /me = 401 and redirect to /auth
+    return result;
+  } catch (err) {
+    // Ensure we always return an object the RTK Query can consume
+    console.debug("baseQueryWithRefresh caught error:", err);
+    return { error: { status: err?.status || "FETCH_ERROR", data: err?.message || String(err) } };
   }
-
-  return result;
 };
 
 export const baseApi = createApi({
   reducerPath: "api",
   baseQuery: baseQueryWithRefresh,
-  tagTypes: ["Auth","Zoho","Org","Aging","CashIntelligence","Banking"],
+  tagTypes: ["Auth", "Zoho", "Org", "Aging", "CashIntelligence", "Banking",
+    "Dashboard",
+    "Organization",
+    "OrganizationList",
+    "Ticket",
+    "TicketList",
+    "Comment",
+    "TicketStatusHistory",
+    "ComplianceTemplate",
+  ],
   endpoints: () => ({}),
 });

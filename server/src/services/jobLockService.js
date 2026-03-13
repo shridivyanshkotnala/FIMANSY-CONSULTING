@@ -23,7 +23,7 @@ export const acquireJobLock = async (jobId, instanceId) => {
         lastError: null
       }
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   return !!job; // true if lock acquired

@@ -146,7 +146,7 @@ export const updateTransactionCategoryController = async (req, res, next) => {
       {
         $set: { category },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!updated) {
@@ -228,7 +228,7 @@ export const forceVendorPaymentSyncController = async (req, res, next) => {
           isDeleted,
           syncedAt: new Date(),
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     }
 

@@ -32,6 +32,14 @@ import {
 
 import { format, formatDistanceToNow, isValid } from "date-fns";
 
+// RTK Query hooks for comments and ticket detail
+import {
+  useGetCommentsQuery,
+  usePostCommentMutation,
+  useGetTicketByIdQuery,
+} from "@/Redux/Slices/api/complianceApi";
+import { useGetTicketStatusHistoryQuery } from "@/Redux/Slices/api/complianceApi";
+
 /* ================= Constants ================= */
 
 const STATUS_PIPELINE = [

@@ -78,7 +78,8 @@ const registerUser = asynchandler(async (req, res) => {
     const newUser = await User.create({
         fullName,
         email,
-        password
+        password,
+        role:"founder"
     })
 
     const createdUser = await User.findById(newUser._id).select("-password -refreshToken")
@@ -195,7 +196,7 @@ const logoutUser = asynchandler(async (req, res) => {
             $set: { refreshToken: undefined }
         },
         {
-            new: true
+            returnDocument: 'after'
         }
     )
     //deleting cookies also and returning response 
