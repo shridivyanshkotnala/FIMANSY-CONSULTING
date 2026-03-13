@@ -221,9 +221,20 @@ export function ComplianceSetupForm({ onComplete }) {
     label: new Date(0, i).toLocaleString("default", { month: "long" }),
   }));
 
-  const showCIN = ["private_limited", "opc", "public_limited"].includes(formData.company_type);
-  const showLLPIN = formData.company_type === "llp";
-  const showCapital = ["private_limited", "opc", "public_limited", "llp"].includes(formData.company_type);
+  const months = [
+    { value: 1, label: "January" },
+    { value: 2, label: "February" },
+    { value: 3, label: "March" },
+    { value: 4, label: "April" },
+    { value: 5, label: "May" },
+    { value: 6, label: "June" },
+    { value: 7, label: "July" },
+    { value: 8, label: "August" },
+    { value: 9, label: "September" },
+    { value: 10, label: "October" },
+    { value: 11, label: "November" },
+    { value: 12, label: "December" },
+  ];
 
   const showCIN = ["private_limited", "opc", "public_limited"].includes(formData.company_type);
   const showLLPIN = formData.company_type === "llp";

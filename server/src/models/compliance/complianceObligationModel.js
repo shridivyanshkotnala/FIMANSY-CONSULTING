@@ -8,21 +8,21 @@ const complianceObligationSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-
+    
     // ✅ NEW field names matching Template schema
-    compliance_category: { // was: category_tag
+    compliance_category: {  // was: category_tag
       type: String,
       enum: ['gst', 'tds', 'income_tax', 'payroll', 'mca'],
       required: true,
       index: true,
     },
-
-    compliance_subtype: { // was: subtag
+    
+    compliance_subtype: {  // was: subtag
       type: String,
       trim: true,
     },
-
-    compliance_description: { // was: description
+    
+    compliance_description: {  // was: description
       type: String,
       trim: true,
     },
@@ -39,27 +39,27 @@ const complianceObligationSchema = new mongoose.Schema(
         'tds',
       ],
     },
-
+    
     form_name: {
       type: String,
       trim: true,
     },
-
+    
     form_description: {
       type: String,
       trim: true,
     },
-
+    
     due_date: {
       type: Date,
       required: true,
       index: true,
     },
-
+    
     filing_date: {
       type: Date,
     },
-
+    
     status: {
       type: String,
       enum: [
@@ -72,32 +72,27 @@ const complianceObligationSchema = new mongoose.Schema(
       default: 'not_started',
       index: true,
     },
-    ticket_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "ComplianceTicket",
-      index: true
-    },
-
+    
     financial_year: {
       type: String,
       trim: true,
     },
-
+    
     // Engine fields
     is_recurring: {
       type: Boolean,
       default: false,
     },
-
+    
     recurrence_type: {
       type: String,
       enum: ['monthly', 'quarterly', 'annual', 'one_time'],
     },
-
+    
     recurrence_config: {
       type: mongoose.Schema.Types.Mixed,
     },
-
+    
     // Other fields
     assessment_year: String,
     trigger_event: String,
@@ -129,14 +124,6 @@ complianceObligationSchema.index({ organization_id: 1, status: 1 });
 complianceObligationSchema.index({ organization_id: 1, due_date: 1 });
 complianceObligationSchema.index({ organization_id: 1, compliance_type: 1 });
 complianceObligationSchema.index({ organization_id: 1, compliance_category: 1 }); // Updated
-
-// ✅ Compound unique index to prevent duplicates
-complianceObligationSchema.index({
-  organization_id: 1,
-  form_name: 1,  
-  due_date: 1,
-  financial_year: 1
-}, { unique: true });
 
 export const ComplianceObligation = mongoose.model(
   "ComplianceObligation",

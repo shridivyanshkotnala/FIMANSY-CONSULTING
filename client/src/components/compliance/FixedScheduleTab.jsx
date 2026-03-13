@@ -10,13 +10,6 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
 import { ComplianceCalendar } from "./ComplianceCalendarWidget";
@@ -80,20 +73,6 @@ function getCurrentQuarterRange() {
   return { start: new Date(year, 0, 1), end: new Date(year, 2, 31), label: "Q4" };
 }
 
-const getTicketStatusBadge = (status) => {
-  const variants = {
-    initiated: "secondary",
-    pending_docs: "warning",
-    in_progress: "default",
-    filed: "success",
-    approved: "success",
-    overdue: "destructive",
-    closed: "outline",
-    not_started: "outline",
-  };
-  return variants[status] || "secondary";
-};
-
 /* ================= Component ================= */
 
 export function FixedScheduleTab() {
@@ -112,17 +91,46 @@ export function FixedScheduleTab() {
 
   const today = startOfDay(new Date());
   const fy = getCurrentFinancialYear();
+
+  // Debug: Log obligations from backend
+  console.log("📊 Backend obligations:", obligations);
+  console.log("📊 Total obligations from backend:", obligations.length);
+
+  /* ================= Filter obligations by time periods ================= */
+
+  const thisMonthObligations = useMemo(() => {
+    return obligations.filter((ob) => {
+      if (!ob.due_date) return false;
+      const dueDate = parseISO(ob.due_date);
+      return isSameMonth(dueDate, today);
+    });
+  }, [obligations, today]);
+
   const quarterRange = getCurrentQuarterRange();
 
-  /* ================= Refresh both data sources ================= */
-  const refreshAllData = useCallback(async () => {
-    await Promise.all([
-      refetchCompliance(),
-      refetchTickets()
-    ]);
-  }, [refetchCompliance, refetchTickets]);
+  const thisQuarterObligations = useMemo(() => {
+    return obligations.filter((ob) => {
+      if (!ob.due_date) return false;
+      const dueDate = parseISO(ob.due_date);
+      return isWithinInterval(dueDate, quarterRange);
+    });
+  }, [obligations, quarterRange]);
 
-  /* ================= Filters ================= */
+  const thisFYObligations = useMemo(() => {
+    return obligations.filter((ob) => ob.financial_year === fy);
+  }, [obligations, fy]);
+
+  /* ================= Group by category for better display ================= */
+
+  const obligationsByCategory = useMemo(() => {
+    const grouped = {};
+    obligations.forEach((ob) => {
+      const category = ob.compliance_category || ob.category_tag || "other";
+      if (!grouped[category]) grouped[category] = [];
+      grouped[category].push(ob);
+    });
+    return grouped;
+  }, [obligations]);
 
   const obligationsWithTickets = useMemo(() => {
     return obligations.filter((ob) => ob.status !== "not_started" || ob.ticket_id);
@@ -166,17 +174,31 @@ export function FixedScheduleTab() {
 
     setIsSubmitting(true);
 
-    try {
-      const result = await createTicket({
-        obligation_id: filingModal._id,
-        comment: data.comment,
-      });
+    const result = await createObligation({
+      compliance_category: filingModal.compliance_category || filingModal.primaryTag?.toLowerCase(),
+      compliance_subtype: filingModal.compliance_subtype || filingModal.name,
+      compliance_description: filingModal.compliance_description || filingModal.description,
+      form_name: filingModal.form_name || filingModal.name,
+      form_description: filingModal.form_description || filingModal.description,
+      due_date: format(filingModal.dueDate, "yyyy-MM-dd"),
+      status: "in_progress",
+      financial_year: fy,
+      notes: data.comment,
+      priority: 3,
+    });
 
-      if (!result.error) {
-        toast({
-          title: "✅ Ticket created",
-          description: `${filingModal.form_name || filingModal.compliance_subtype} filing started`,
-        });
+    if (!result.error) {
+      toast({
+        title: "Filing initiated",
+        description: `${filingModal.name} filing has been initiated.`,
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to initiate filing",
+        variant: "destructive",
+      });
+    }
 
         // Refresh both compliance and tickets data
         await refreshAllData();
@@ -202,160 +224,93 @@ export function FixedScheduleTab() {
 
   /* ================= Ticket View ================= */
 
-  const handleViewTicket = (obligation) => {
-    setSelectedObligation(obligation);
-    setDrawerOpen(true);
-  };
-
-  const handleObligationClick = (obligation) => {
-    if (obligation.ticket_id || obligation.status !== "not_started") {
-      handleViewTicket(obligation);
-    } else {
-      setFilingModal(obligation);
-    }
-  };
-
-  const handleDrawerClose = async (open) => {
-    setDrawerOpen(open);
-    if (!open) {
-      setSelectedObligation(null);
-      // Refresh data when drawer closes in case status was updated
-      await refreshAllData();
-    }
-  };
-
-  /* ================= Handle Status Update from Drawer ================= */
-  const handleTicketUpdate = async () => {
-    // Refresh data when ticket status is updated in drawer
-    await refreshAllData();
-  };
-
-  /* ================= Ticket Status UI ================= */
-
-  const renderTicketStatus = (obligation) => {
-    if (!obligation.ticket_id && obligation.status === "not_started") {
-      return (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 text-xs text-muted-foreground cursor-help">
-                <Ticket className="h-3 w-3" />
-                <span>Create Ticket</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Click to create a ticket for this filing</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      );
-    }
-
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-2">
-              <Badge variant={getTicketStatusBadge(obligation.status)}>
-                {obligation.status === "in_progress" && "In Progress"}
-                {obligation.status === "pending_docs" && "Pending Docs"}
-                {obligation.status === "filed" && "Filed"}
-                {obligation.status === "approved" && "Approved"}
-                {obligation.status === "overdue" && "Overdue"}
-                {obligation.status === "closed" && "Closed"}
-                {obligation.status === "initiated" && "Initiated"}
-                {!["initiated", "in_progress", "pending_docs", "filed", "approved", "overdue", "closed", "not_started"].includes(obligation.status) && obligation.status}
-              </Badge>
-
-              {obligation.ticket_id && (
-                <MessageCircle className="h-3 w-3 text-muted-foreground" />
-              )}
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Click to view ticket details</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  };
-
-  /* ================= Obligation Row ================= */
-
   const renderObligationRow = (obligation) => {
     const dueDate = parseISO(obligation.due_date);
     const daysUntil = getDaysUntilDue(obligation.due_date);
+    const isOverdue = daysUntil < 0 && obligation.status !== "filed";
+    const isFiled = obligation.status === "filed";
 
-    const isOverdue =
-      daysUntil < 0 &&
-      obligation.status !== "filed" &&
-      obligation.status !== "approved" &&
-      obligation.status !== "closed";
-
-    const displayName = obligation.form_name || obligation.compliance_subtype;
-    const displayDescription = obligation.form_description || obligation.compliance_description;
+    // Get display name and description
+    const displayName = obligation.form_name || obligation.compliance_subtype || "Unknown";
+    const displayDescription = obligation.form_description || obligation.compliance_description || "";
+    const category = obligation.compliance_category || obligation.category_tag || "Other";
+    
+    // Capitalize first letter for badge
+    const categoryDisplay = category.charAt(0).toUpperCase() + category.slice(1);
 
     return (
       <div
         key={obligation._id}
-        onClick={() => handleObligationClick(obligation)}
         className={cn(
           "flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer transition-all",
           isOverdue && "border-l-4 border-l-destructive bg-destructive/5",
           (obligation.ticket_id || obligation.status !== "not_started") && "border-primary/20 hover:border-primary/40"
         )}
+        onClick={() => !isFiled && setFilingModal({
+          ...obligation,
+          name: displayName,
+          description: displayDescription,
+          primaryTag: categoryDisplay,
+          dueDate: dueDate,
+        })}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
 
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium truncate">{displayName}</p>
-
-              {isOverdue && (
-                <AlertCircle className="h-3 w-3 text-destructive shrink-0" />
-              )}
-
-              {obligation.status === "filed" && (
-                <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
-              )}
-            </div>
-
-            {displayDescription && (
-              <p className="text-xs text-muted-foreground truncate">
-                {displayDescription}
-              </p>
-            )}
-
-            <p className="text-xs text-muted-foreground mt-1">
-              Due: {format(dueDate, "dd MMM yyyy")}
-              {daysUntil <= 7 && daysUntil > 0 && (
-                <span className="ml-2 text-warning">({daysUntil} days left)</span>
-              )}
-              {isOverdue && (
-                <span className="ml-2 text-destructive">({Math.abs(daysUntil)}d overdue)</span>
-              )}
+            <p className="font-medium text-sm truncate">
+              {displayName}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+              {displayDescription}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 ml-4">
-          {renderTicketStatus(obligation)}
-          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          <Badge variant="outline" className="text-xs">
+            {categoryDisplay}
+          </Badge>
+
+          <div className="text-right min-w-[80px]">
+            <p className="text-xs font-medium">
+              {format(dueDate, "dd MMM")}
+            </p>
+            <p
+              className={cn(
+                "text-xs",
+                isOverdue
+                  ? "text-destructive"
+                  : daysUntil <= 7 && !isFiled
+                  ? "text-warning"
+                  : "text-muted-foreground"
+              )}
+            >
+              {isFiled
+                ? "Filed ✓"
+                : isOverdue
+                ? `${Math.abs(daysUntil)}d overdue`
+                : daysUntil === 0
+                ? "Due today"
+                : `${daysUntil}d left`}
+            </p>
+          </div>
+
+          {!isFiled && (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
         </div>
       </div>
     );
   };
 
+  /* ================= Loading ================= */
+
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-[200px] w-full" />
-        <Skeleton className="h-[300px] w-full" />
-        <Skeleton className="h-[300px] w-full" />
-      </div>
-    );
+    return <Skeleton className="h-96 w-full" />;
   }
+
+  /* ================= UI ================= */
 
   return (
     <div className="space-y-6">
@@ -412,18 +367,18 @@ export function FixedScheduleTab() {
             <Calendar className="h-4 w-4" />
             Quarterly Filings ({quarterRange.label})
             <Badge variant="secondary" className="ml-auto">
-              {quarterlyObligations.length}
+              {thisQuarterObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
 
         <CardContent className="space-y-2">
-          {quarterlyObligations.length === 0 ? (
+          {thisQuarterObligations.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No quarterly filings due
+              No filings due this quarter
             </p>
           ) : (
-            quarterlyObligations.map(renderObligationRow)
+            thisQuarterObligations.map(renderObligationRow)
           )}
         </CardContent>
       </Card>
@@ -454,8 +409,8 @@ export function FixedScheduleTab() {
         open={!!filingModal}
         onOpenChange={(open) => !open && setFilingModal(null)}
         compliance={filingModal}
-        onSuccess={handleCreateTicket}
-        mode="ticket"
+        onSubmit={handleFiling}
+        isSubmitting={isSubmitting}
       />
 
       <TicketDetailDrawer

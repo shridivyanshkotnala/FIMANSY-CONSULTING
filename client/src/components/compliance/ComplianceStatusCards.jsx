@@ -166,14 +166,8 @@ export function ComplianceStatusCards({ obligations }) {
                 This Quarter
               </p>
             </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold">
-                {counts.thisFY}
-              </p>
-              <p className="text-[11px] font-medium text-muted-foreground mt-0.5">
-                This FY
-              </p>
-            </div>
+
+            
 
             
 

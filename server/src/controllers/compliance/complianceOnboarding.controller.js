@@ -166,25 +166,39 @@ export const updateCompanyProfile = asynchandler(async (req, res) => {
 });
 
 // Get company profile
-// ==============================
 export const getCompanyProfile = async (req, res) => {
   try {
     const { organization_id } = req.query;
-    if (!organization_id) return res.status(400).json({ success: false, message: "organization_id is required" });
 
-    const profile = await CompanyComplianceProfile.findOne({ organization_id }).populate('directors');
-    if (!profile) return res.status(404).json({ success: false, message: "Profile not found" });
+    if (!organization_id) {
+      return res.status(400).json({
+        success: false,
+        message: "organization_id is required"
+      });
+    }
+
+    const profile = await CompanyComplianceProfile.findOne({
+      organization_id
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile not found"
+      });
+    }
 
     res.json({
       success: true,
-      data: {
-        ...profile.toObject(),
-        director_count: profile.directors.length,
-      }
+      data: profile
     });
+
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 

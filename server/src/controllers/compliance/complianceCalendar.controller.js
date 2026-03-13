@@ -55,14 +55,14 @@ export const getObligations = async (req, res) => {
       });
     }
 
-    // Build filter
-    const filter = { organization_id: new mongoose.Types.ObjectId(organization_id) };
+    // Build filter with new field names
+    const filter = { 
+      organization_id: new mongoose.Types.ObjectId(organization_id) 
+    };
 
     if (status) filter.status = status;
     if (financialYear) filter.financial_year = financialYear;
     if (compliance_category) filter.compliance_category = compliance_category; // Updated
-
-    console.log("🔍 Obligations filter:", JSON.stringify(filter, null, 2));
 
     console.log("🔍 Obligations filter:", JSON.stringify(filter, null, 2));
 
@@ -104,11 +104,7 @@ export const updateObligationStatus = async (req, res) => {
 
     const updated = await ComplianceObligation.findByIdAndUpdate(
       id,
-      {
-        status,
-        notes,
-        completed_at: status === "filed" ? new Date() : null,
-      },
+      updateData,
       { new: true }
     );
 
@@ -214,7 +210,13 @@ export const getDashboardSummary = async (req, res) => {
 
     res.json({
       success: true,
-      data: { overdue, upcoming },
+      data: { 
+        total,
+        overdue,
+        upcoming,
+        pending: total - overdue - upcoming,
+        by_compliance_category: byCategory 
+      },
     });
   } catch (error) {
     console.error("❌ Error in getDashboardSummary:", error);
