@@ -20,30 +20,46 @@ const companyComplianceProfileSchema = new mongoose.Schema(
       ],
       required: true,
     },
+    obligations_generated: {
+      type: Boolean,
+      default: false,
+    },
+    directors: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Director"
+  }],
+  director_count: {
+    type: Number,
+    default: 0  // Always starts at 0
+  },
     cin: {
       type: String,
       trim: true,
-      sparse: true, // Allows null/undefined while maintaining uniqueness
+      sparse: true,
+      default: null,
       index: true,
     },
     llpin: {
       type: String,
       trim: true,
       sparse: true,
+      default: null,
     },
     date_of_incorporation: {
       type: Date,
+      default: null,
     },
     financial_year_end: {
       type: Number,
       required: true,
       min: 1,
       max: 12,
-      default: 3, // March (31st) - India FY end
+      default: 3, // March (India FY end)
     },
     registered_office_address: {
       type: String,
       trim: true,
+      default: null,
     },
     authorized_capital: {
       type: Number,
@@ -62,22 +78,25 @@ const companyComplianceProfileSchema = new mongoose.Schema(
     },
     last_mca_check_at: {
       type: Date,
+      default: null,
     },
-    // Additional fields that might be useful
     gstin: {
       type: String,
       trim: true,
       sparse: true,
+      default: null,
     },
     pan: {
       type: String,
       trim: true,
       sparse: true,
+      default: null,
     },
     tan: {
       type: String,
       trim: true,
       sparse: true,
+      default: null,
     },
     is_audit_applicable: {
       type: Boolean,
@@ -85,6 +104,7 @@ const companyComplianceProfileSchema = new mongoose.Schema(
     },
     last_audit_date: {
       type: Date,
+      default: null,
     },
   },
   {

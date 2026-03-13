@@ -1,20 +1,7 @@
 import { useState, useEffect } from 'react';
-
-// ⚠️ CONTEXT API SHIM — MARKED FOR REMOVAL
-// 🔄 FUTURE: Replace this entire hook with Redux RTK Query endpoints
-// This hook should be replaced by a compliance API slice (e.g., complianceApi.js)
 import { useAuth } from '@/hooks/useAuth';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-/**
- * useCompliance Hook
- * --------------------------------------------------
- * Central data access layer for compliance module.
- *
- * All Supabase code removed — calls Node.js backend API.
- * Until backend endpoints are wired, functions return empty data gracefully.
- */
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8800/api';
 
 async function apiFetch(endpoint, options = {}) {
   try {
@@ -23,6 +10,11 @@ async function apiFetch(endpoint, options = {}) {
       credentials: 'include',
       ...options,
     });
+
+    if (endpoint.includes('/profile') && res.status === 404) {
+      return { data: null, error: null };
+    }
+
     if (!res.ok) throw new Error(`API ${res.status}`);
     return { data: await res.json(), error: null };
   } catch (err) {
@@ -37,15 +29,66 @@ export function useCompliance() {
   const [complianceProfile, setComplianceProfile] = useState(null);
   const [directors, setDirectors] = useState([]);
   const [obligations, setObligations] = useState([]);
-  const [advanceTax, setAdvanceTax] = useState([]);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // -------------------------
+  // Conditional Compliance
+  // -------------------------
+  const [conditionalItems, setConditionalItems] = useState([]);
+  const [loadingConditional, setLoadingConditional] = useState(false);
 
-  /* ============================================================
-     FETCH ALL DATA
-  ============================================================ */
+  const getCurrentFinancialYear = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+  };
+
+  const fetchConditionalCompliances = async (financialYear) => {
+    if (!organization?.id) return;
+
+    setLoadingConditional(true);
+    try {
+      const { data } = await apiFetch(
+        `/compliance/conditional?organization_id=${organization.id}&financialYear=${financialYear}`
+      );
+
+      if (data?.data) setConditionalItems(data.data);
+      return { data: data?.data };
+    } catch (err) {
+      console.error('Error fetching conditional compliances:', err);
+      return { error: err };
+    } finally {
+      setLoadingConditional(false);
+    }
+  };
+
+  const generateConditionalObligation = async (templateId, filingData) => {
+    if (!organization?.id) return { error: new Error('No organization') };
+
+    const fy = getCurrentFinancialYear();
+
+    const { data, error } = await apiFetch('/compliance/conditional/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        organization_id: organization.id,
+        template_id: templateId,
+        financialYear: fy,
+        filingData
+      }),
+    });
+
+    if (!error) {
+      await fetchConditionalCompliances(fy);
+    }
+
+    return { data, error };
+  };
+
+  // =========================
+  // Fetch all compliance data
+  // =========================
   const fetchAll = async () => {
     if (!organization?.id) {
       setLoading(false);
@@ -56,20 +99,24 @@ export function useCompliance() {
     setError(null);
 
     try {
-      const [profileRes, dirsRes, obsRes, taxRes, evtsRes] = await Promise.all([
+      const [profileRes, dirsRes, obsRes, evtsRes] = await Promise.all([
         apiFetch(`/compliance/profile?organization_id=${organization.id}`),
         apiFetch(`/compliance/directors?organization_id=${organization.id}`),
         apiFetch(`/compliance/obligations?organization_id=${organization.id}`),
-        apiFetch(`/compliance/advance-tax?organization_id=${organization.id}`),
         apiFetch(`/compliance/events?organization_id=${organization.id}`),
       ]);
 
-      if (profileRes.data) setComplianceProfile(profileRes.data);
-      if (dirsRes.data) setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
-      if (obsRes.data) setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
-      if (taxRes.data) setAdvanceTax(Array.isArray(taxRes.data) ? taxRes.data : taxRes.data?.data || []);
-      if (evtsRes.data) setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
+      if (profileRes.data?.data) setComplianceProfile(profileRes.data.data);
+      else if (profileRes.data) setComplianceProfile(profileRes.data);
 
+      if (dirsRes.data)
+        setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
+
+      if (obsRes.data)
+        setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
+
+      if (evtsRes.data)
+        setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
     } catch (err) {
       setError('Failed to fetch compliance data');
       console.error(err);
@@ -78,38 +125,40 @@ export function useCompliance() {
     }
   };
 
-
   useEffect(() => {
     fetchAll();
   }, [organization?.id]);
 
-
-  /* ============================================================
-     PROFILE UPSERT
-  ============================================================ */
+  // =========================
+  // Save / Upsert profile
+  // =========================
   const saveComplianceProfile = async (data) => {
     if (!organization?.id) return { error: new Error('No organization') };
 
     const profileData = { ...data, organization_id: organization.id };
-    const method = complianceProfile?.id ? 'PATCH' : 'POST';
-    const url = complianceProfile?.id
-      ? `/compliance/profile/${complianceProfile.id}`
+    const method = complianceProfile?._id ? 'PATCH' : 'POST';
+    const url = complianceProfile?._id
+      ? `/compliance/profile/${complianceProfile._id}`
       : '/compliance/profile';
 
-    const { error } = await apiFetch(url, {
+    const { data: responseData, error } = await apiFetch(url, {
       method,
       body: JSON.stringify(profileData),
     });
 
-    if (!error) await fetchAll();
+    if (!error) {
+      const freshProfile = responseData?.data || responseData;
+      setComplianceProfile(freshProfile);
+      await fetchAll();
+      return { error: null, profile: freshProfile };
+    }
+
     return { error };
   };
 
-
-  /* ============================================================
-     DIRECTORS
-  ============================================================ */
-
+  // =========================
+  // Directors
+  // =========================
   const addDirector = async (data) => {
     if (!organization?.id) return { error: new Error('No organization') };
 
@@ -144,15 +193,24 @@ export function useCompliance() {
     return { error };
   };
 
+  const deleteDirector = async (id) => {
+    const { error } = await apiFetch(`/compliance/directors/${id}`, {
+      method: 'DELETE',
+    });
+    if (!error) await fetchAll();
+    return { error };
+  };
 
-  /* ============================================================
-     COMPLIANCE OBLIGATIONS
-  ============================================================ */
-
+  // =========================
+  // Compliance Obligations
+  // =========================
   const createObligation = async (data) => {
     if (!organization?.id) return { error: new Error('No organization') };
 
     const insertData = {
+      compliance_category: data.compliance_category || data.compliance_type,
+      compliance_subtype: data.compliance_subtype || data.subtag,
+      compliance_description: data.compliance_description || data.description,
       compliance_type: data.compliance_type || 'mca_annual',
       form_name: data.form_name || '',
       form_description: data.form_description,
@@ -160,6 +218,9 @@ export function useCompliance() {
       filing_date: data.filing_date,
       status: data.status || 'not_started',
       financial_year: data.financial_year,
+      is_recurring: data.is_recurring || false,
+      recurrence_type: data.recurrence_type,
+      recurrence_config: data.recurrence_config,
       assessment_year: data.assessment_year,
       trigger_event: data.trigger_event,
       trigger_date: data.trigger_date,
@@ -181,75 +242,53 @@ export function useCompliance() {
     return { error };
   };
 
-  const updateObligationStatus = async (id, status, filingDate) => {
-    const updateData = { status };
-    if (filingDate) updateData.filing_date = filingDate;
-
+  const updateObligationStatus = async (id, status, filingData = {}) => {
+    const updateData = { status, ...filingData };
     const { error } = await apiFetch(`/compliance/obligations/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(updateData),
     });
-
     if (!error) await fetchAll();
     return { error };
   };
 
-
-  /* ============================================================
-     ADVANCE TAX
-  ============================================================ */
-
-  const saveAdvanceTax = async (data) => {
-    if (!organization?.id) return { error: new Error('No organization') };
-
-    const insertData = {
-      financial_year: data.financial_year || '',
-      quarter: data.quarter || 1,
-      due_date: data.due_date || new Date().toISOString().split('T')[0],
-      estimated_annual_income: data.estimated_annual_income ?? 0,
-      estimated_tax_liability: data.estimated_tax_liability ?? 0,
-      cumulative_percentage: data.cumulative_percentage || 0,
-      tax_payable_this_quarter: data.tax_payable_this_quarter ?? 0,
-      tax_paid_till_date: data.tax_paid_till_date ?? 0,
-      shortfall: data.shortfall ?? 0,
-      interest_234b: data.interest_234b ?? 0,
-      interest_234c: data.interest_234c ?? 0,
-      payment_status: data.payment_status || 'not_started',
-      payment_date: data.payment_date,
-      challan_number: data.challan_number,
-      notes: data.notes,
-      organization_id: organization.id,
-    };
-
-    const { error } = await apiFetch('/compliance/advance-tax', {
-      method: 'POST',
-      body: JSON.stringify(insertData),
+  const deleteObligation = async (id) => {
+    const { error } = await apiFetch(`/compliance/obligations/${id}`, {
+      method: 'DELETE',
     });
     if (!error) await fetchAll();
     return { error };
   };
 
-
-  /* ============================================================
-     EVENTS
-  ============================================================ */
-
+  // =========================
+  // Events
+  // =========================
   const acknowledgeEvent = async (id) => {
     const { error } = await apiFetch(`/compliance/events/${id}/acknowledge`, {
       method: 'PATCH',
       body: JSON.stringify({ is_acknowledged: true }),
     });
-
     if (!error) await fetchAll();
     return { error };
   };
 
+  const createEvent = async (data) => {
+    if (!organization?.id) return { error: new Error('No organization') };
+    const { error } = await apiFetch('/compliance/events', {
+      method: 'POST',
+      body: JSON.stringify({ ...data, organization_id: organization.id }),
+    });
+    if (!error) await fetchAll();
+    return { error };
+  };
 
+  // =========================
+  // Return Hook API
+  // =========================
   return {
     complianceProfile,
     directors,
     obligations,
-    advanceTax,
     events,
     loading,
     error,
@@ -257,9 +296,16 @@ export function useCompliance() {
     saveComplianceProfile,
     addDirector,
     updateDirector,
+    deleteDirector,
     createObligation,
     updateObligationStatus,
-    saveAdvanceTax,
+    deleteObligation,
     acknowledgeEvent,
+    createEvent,
+    // Conditional Compliance
+    conditionalItems,
+    loadingConditional,
+    fetchConditionalCompliances,
+    generateConditionalObligation,
   };
 }
