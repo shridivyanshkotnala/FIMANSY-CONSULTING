@@ -21,30 +21,76 @@ export async function generateObligationsForFY(organization_id, financialYear) {
     throw new Error("No compliance templates found");
   }
 
+  // Step 3: Calculate FY range
+  console.log("\n🔍 Step 3: Calculating financial year range...");
   const { start: fyStart, end: fyEnd } = getFinancialYearDates(financialYear);
   console.log(`📅 FY Range: ${fyStart} to ${fyEnd}`);
 
+  console.log(`📅 FY Range: ${fyStart.toISOString()} → ${fyEnd.toISOString()}`);
+
+  // NEW LOGIC: Incorporation-aware generation
+  const incorporationDate = new Date(company.date_of_incorporation);
+
+  const generationStart =
+    incorporationDate > fyStart ? incorporationDate : fyStart;
+
+  console.log(`📅 Generation Start Date: ${generationStart.toISOString()}`);
+
+  // Step 4: Generate obligations
+  console.log("\n🔍 Step 4: Generating obligations for each template...");
+
   const obligationsToInsert = [];
 
-  for (const template of templates) {
+  for (const [index, template] of templates.entries()) {
+
+    console.log(`\n🔄 Template ${index + 1}/${templates.length}`);
+    console.log(`   Name: ${template.name}`);
+    console.log(`   Type: ${template.recurrence_type}`);
+
     let dueDates = [];
 
     switch (template.recurrence_type) {
+
       case "monthly":
-        dueDates = generateMonthlyDueDates(template, fyStart, fyEnd);
+        console.log("📅 Generating monthly dates...");
+        dueDates = generateMonthlyDueDates(template, generationStart, fyEnd);
         break;
       case "quarterly":
-        dueDates = generateQuarterlyDueDates(template, fyStart, fyEnd);
+        console.log("📅 Generating quarterly dates...");
+        dueDates = generateQuarterlyDueDates(template, generationStart, fyEnd);
         break;
       case "annual":
-        dueDates = generateAnnualDueDate(template, fyStart, fyEnd);
+        console.log("📅 Generating annual date...");
+        dueDates = generateAnnualDueDate(template, generationStart, fyEnd);
         break;
       default:
+        console.log(`⚠️ Unknown recurrence type: ${template.recurrence_type}`);
         continue;
     }
 
+    // Filter dates before incorporation (extra safety)
+    dueDates = dueDates.filter(d => d >= generationStart);
+
+    console.log(`✅ ${dueDates.length} valid due dates generated`);
+
+    if (dueDates.length > 0) {
+      console.log(
+        `📅 Sample: ${dueDates
+          .slice(0, 3)
+          .map(d => d.toISOString().split("T")[0])
+          .join(", ")}`
+      );
+    }
+
     for (const dueDate of dueDates) {
-      obligationsToInsert.push({
+
+      if (isNaN(dueDate)) {
+        console.warn("⚠️ Skipping invalid date");
+        continue;
+      }
+
+      const obligation = {
+
         organization_id,
         // ✅ Add form_name field (use template name)
         form_name: template.name,
@@ -57,12 +103,16 @@ export async function generateObligationsForFY(organization_id, financialYear) {
         subtag: template.subtag,
         description: template.description,
         financial_year: financialYear,
+
         due_date: dueDate,
         status: "not_started", // Add default status
         is_recurring: true,
         recurrence_type: template.recurrence_type,
         recurrence_config: template.recurrence_config
-      });
+
+      };
+
+      obligationsToInsert.push(obligation);
     }
   }
 

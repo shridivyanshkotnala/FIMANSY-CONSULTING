@@ -6,14 +6,18 @@ import { ApiResponse } from "../../utils/ApiResponse.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
 
+// ==============================
 // Constants for company types
+// ==============================
 const COMPANY_TYPES = {
   PRIVATE: "private_limited",
   PUBLIC: "public_limited",
   LLP: "llp",
 };
 
-// Helper: fetch company profile by organization_id
+// ==============================
+// Helper functions
+// ==============================
 const fetchProfile = async (organization_id) => {
   return CompanyComplianceProfile.findOne({ organization_id });
 };
@@ -60,31 +64,28 @@ function isProfileComplete(profile) {
 export const createCompanyProfile = asynchandler(async (req, res) => {
   const { organization_id } = req.body;
 
-  if (!organization_id) {
-    throw new ApiError(400, "organization_id is required");
-  }
+const isProfileComplete = (profile) => getMissingFields(profile).length === 0;
 
-  const org = await Organization.findOne({
-    _id: organization_id,
-    owner: req.user._id
-  });
+// ==============================
+// Create company profile
+// ==============================
+export const createCompanyProfile = asynchandler(async (req, res) => {
+  const { organization_id } = req.body;
 
-  if (!org) {
-    throw new ApiError(404, "Organization not found or access denied");
-  }
+  if (!organization_id) throw new ApiError(400, "organization_id is required");
 
-  const existingProfile = await CompanyComplianceProfile.findOne({ 
-    organization_id 
-  });
+  const org = await Organization.findOne({ _id: organization_id, owner: req.user._id });
+  if (!org) throw new ApiError(404, "Organization not found or access denied");
 
-  if (existingProfile) {
-    throw new ApiError(400, "Profile already exists");
-  }
+  const existingProfile = await CompanyComplianceProfile.findOne({ organization_id });
+  if (existingProfile) throw new ApiError(400, "Profile already exists");
 
   // Create the profile
   const profile = await CompanyComplianceProfile.create({
     organization_id,
     ...req.body,
+    directors: [],
+    director_count: 0,
     financial_year_end: req.body.financial_year_end || 3,
     authorized_capital: req.body.authorized_capital || 0,
     paid_up_capital: req.body.paid_up_capital || 0,
@@ -165,39 +166,25 @@ export const updateCompanyProfile = asynchandler(async (req, res) => {
 });
 
 // Get company profile
+// ==============================
 export const getCompanyProfile = async (req, res) => {
   try {
     const { organization_id } = req.query;
+    if (!organization_id) return res.status(400).json({ success: false, message: "organization_id is required" });
 
-    if (!organization_id) {
-      return res.status(400).json({
-        success: false,
-        message: "organization_id is required"
-      });
-    }
-
-    const profile = await CompanyComplianceProfile.findOne({
-      organization_id
-    });
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: "Profile not found"
-      });
-    }
+    const profile = await CompanyComplianceProfile.findOne({ organization_id }).populate('directors');
+    if (!profile) return res.status(404).json({ success: false, message: "Profile not found" });
 
     res.json({
       success: true,
-      data: profile
+      data: {
+        ...profile.toObject(),
+        director_count: profile.directors.length,
+      }
     });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -206,10 +193,7 @@ export const getOnboardingStatus = asynchandler(async (req, res) => {
   const profile = await fetchProfile(req.params.organization_id);
 
   if (!profile) {
-    return res.json(new ApiResponse(200, { 
-      is_onboarded: false, 
-      has_profile: false 
-    }, "Onboarding status fetched"));
+    return res.json(new ApiResponse(200, { is_onboarded: false, has_profile: false }, "Onboarding status fetched"));
   }
 
   const missingFields = getMissingFields(profile);

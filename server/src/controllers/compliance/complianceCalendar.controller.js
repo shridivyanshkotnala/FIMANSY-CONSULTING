@@ -46,7 +46,7 @@ export const generateFY = async (req, res) => {
 // ==============================
 export const getObligations = async (req, res) => {
   try {
-    const { organization_id, status, financialYear, type } = req.query;
+    const { organization_id, status, financialYear, compliance_category } = req.query;
 
     if (!organization_id) {
       return res.status(400).json({
@@ -60,7 +60,9 @@ export const getObligations = async (req, res) => {
 
     if (status) filter.status = status;
     if (financialYear) filter.financial_year = financialYear;
-    if (type) filter.compliance_type = type;
+    if (compliance_category) filter.compliance_category = compliance_category; // Updated
+
+    console.log("🔍 Obligations filter:", JSON.stringify(filter, null, 2));
 
     console.log("🔍 Obligations filter:", JSON.stringify(filter, null, 2));
 
@@ -86,7 +88,19 @@ export const getObligations = async (req, res) => {
 export const updateObligationStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes, srn_number, acknowledgement_number } = req.body;
+
+    const updateData = {
+      status,
+      notes,
+      ...(status === "filed" && { 
+        completed_at: new Date() 
+      })
+    };
+
+    // Add filing details if provided
+    if (srn_number) updateData.srn_number = srn_number;
+    if (acknowledgement_number) updateData.acknowledgement_number = acknowledgement_number;
 
     const updated = await ComplianceObligation.findByIdAndUpdate(
       id,
@@ -150,17 +164,53 @@ export const getDashboardSummary = async (req, res) => {
 
     const today = new Date();
 
+    // Count overdue obligations (not filed and due date passed)
     const overdue = await ComplianceObligation.countDocuments({
       organization_id: new mongoose.Types.ObjectId(organization_id),
       status: { $ne: "filed" },
       due_date: { $lt: today },
     });
 
+    // Count upcoming obligations (not filed and due date in future)
     const upcoming = await ComplianceObligation.countDocuments({
       organization_id: new mongoose.Types.ObjectId(organization_id),
       status: { $ne: "filed" },
       due_date: { $gte: today },
     });
+
+    // Get total count
+    const total = await ComplianceObligation.countDocuments({
+      organization_id: new mongoose.Types.ObjectId(organization_id)
+    });
+
+    // Get category breakdown with new field name
+    const byCategory = await ComplianceObligation.aggregate([
+      { 
+        $match: { 
+          organization_id: new mongoose.Types.ObjectId(organization_id) 
+        } 
+      },
+      { 
+        $group: { 
+          _id: "$compliance_category", // Updated field name
+          count: { $sum: 1 },
+          overdue: {
+            $sum: {
+              $cond: [
+                { 
+                  $and: [
+                    { $ne: ["$status", "filed"] },
+                    { $lt: ["$due_date", today] }
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]);
 
     res.json({
       success: true,

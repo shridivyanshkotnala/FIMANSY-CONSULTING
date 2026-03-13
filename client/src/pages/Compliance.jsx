@@ -1,5 +1,5 @@
 // React core
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // Router navigation
 import { useNavigate } from "react-router-dom";
@@ -13,10 +13,9 @@ import { Button } from "@/components/ui/button";
 import { ContextualHelp } from "@/components/ui/contextual-help";
 import { EmptyState } from "@/components/ui/empty-state";
 
-// ⚠️ CONTEXT API — MARKED FOR REMOVAL
-// 🔄 FUTURE: Replace with Redux RTK Query selectors
-// const { complianceProfile, obligations, directors, loading } = useSelector(state => state.compliance)
+// Hooks
 import { useCompliance } from "@/hooks/useCompliance";
+import { useTickets } from "@/hooks/useTickets";
 
 // Compliance Components
 import { ComplianceSetupForm } from "@/components/compliance/ComplianceSetupForm";
@@ -38,6 +37,7 @@ import {
   Shield,
   AlertTriangle,
   ClipboardList,
+  CheckCircle2,
 } from "lucide-react";
 
 /*
@@ -55,30 +55,64 @@ import {
 
 export default function Compliance() {
 
-  // ⚠️ CURRENT: Context-based data source
-  // 🔄 FUTURE: Replace with Redux selectors
-  // Example:
-  // const complianceProfile = useSelector(state => state.compliance.profile)
-  // const obligations = useSelector(state => state.compliance.obligations)
-  // const directors = useSelector(state => state.compliance.directors)
-  // const loading = useSelector(state => state.compliance.loading)
+  const {
+    complianceProfile,
+    obligations,
+    directors,
+    loading,
+    addDirector,
+    refetch
+  } = useCompliance();
 
-  const { complianceProfile, obligations, directors, loading, addDirector } = useCompliance();
+  const { tickets } = useTickets();
 
   // Local UI state
   const [showSetup, setShowSetup] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
 
   // Navigation handler
   const navigate = useNavigate();
 
-  // Determine if company profile is missing
+  // Filter directors specific to this profile
+  const profileDirectors = (directors || []).filter(
+    (d) => d.profile_id === complianceProfile?._id
+  );
+
+  /*
+  ----------------------------------------------------------
+  Ticket status key to trigger tab rerender
+  ----------------------------------------------------------
+  */
+  const ticketStatusKey = tickets
+    ?.map((t) => `${t._id}-${t.status}`)
+    .join("-") || "no-tickets";
+
+  /*
+  ----------------------------------------------------------
+  Detect data ready
+  ----------------------------------------------------------
+  */
+
+  useEffect(() => {
+    if (!loading && obligations.length > 0) {
+      console.log("✅ Data ready with", obligations.length, "obligations");
+      setDataReady(true);
+      setIsGenerating(false);
+    } 
+    else if (!loading && complianceProfile && obligations.length === 0) {
+      console.log("⏳ Waiting for obligations to generate...");
+    }
+  }, [loading, obligations, complianceProfile]);
+
   const needsSetup = !loading && !complianceProfile;
 
   /*
-    ==========================================================
-    LOADING STATE
-    ==========================================================
+  ==========================================================
+  LOADING STATE
+  ==========================================================
   */
+
   if (loading) {
     return (
       <PillarLayout>
@@ -90,26 +124,60 @@ export default function Compliance() {
   }
 
   /*
-    ==========================================================
-    EMPTY STATE — When compliance profile is not configured
-    ==========================================================
+  ==========================================================
+  GENERATING STATE
+  ==========================================================
   */
+
+  if (isGenerating || (complianceProfile && obligations.length === 0 && !loading)) {
+    return (
+      <PillarLayout>
+        <div className="flex items-center justify-center h-64 flex-col gap-4">
+
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+
+          <div className="text-center space-y-2">
+            <h2 className="text-xl font-semibold">
+              Generating Compliance Obligations
+            </h2>
+
+            <p className="text-muted-foreground max-w-md">
+              Please wait while we analyze your company profile and generate
+              all applicable ROC, MCA, and Income Tax compliance requirements.
+            </p>
+
+            <p className="text-sm text-muted-foreground mt-4">
+              This usually takes just a few seconds...
+            </p>
+          </div>
+
+        </div>
+      </PillarLayout>
+    );
+  }
+
+  /*
+  ==========================================================
+  EMPTY STATE
+  ==========================================================
+  */
+
   if (needsSetup && !showSetup) {
     return (
       <PillarLayout>
         <div className="p-6 max-w-7xl mx-auto">
+
           <div className="flex items-center gap-3 mb-6">
 
-            {/* Back Button */}
             <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
 
-            {/* Header Section */}
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-primary/10">
                 <Shield className="h-6 w-6 text-primary" />
               </div>
+
               <div>
                 <h1 className="text-2xl font-bold">Compliance & GST</h1>
                 <p className="text-muted-foreground">
@@ -119,7 +187,6 @@ export default function Compliance() {
             </div>
           </div>
 
-          {/* Setup Prompt */}
           <EmptyState
             icon={Building2}
             title="Set Up Compliance Tracking"
@@ -127,16 +194,18 @@ export default function Compliance() {
             actionLabel="Set Up Now"
             onAction={() => setShowSetup(true)}
           />
+
         </div>
       </PillarLayout>
     );
   }
 
   /*
-    ==========================================================
-    SETUP FORM VIEW
-    ==========================================================
+  ==========================================================
+  SETUP FORM VIEW
+  ==========================================================
   */
+
   if (showSetup || needsSetup) {
     return (
       <PillarLayout>
@@ -144,7 +213,6 @@ export default function Compliance() {
 
           <div className="flex items-center gap-3 mb-6">
 
-            {/* Conditional Back Logic */}
             <Button
               variant="ghost"
               size="icon"
@@ -157,60 +225,76 @@ export default function Compliance() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
 
-            <h1 className="text-2xl font-bold">Compliance Setup</h1>
+            <h1 className="text-2xl font-bold">
+              Compliance Setup
+            </h1>
+
           </div>
 
-          {/* Setup Form */}
           <ComplianceSetupForm
-            onComplete={() => setShowSetup(false)}
+            onComplete={() => {
+              setShowSetup(false);
+              setIsGenerating(true);
+              refetch();
+            }}
           />
+
         </div>
       </PillarLayout>
     );
   }
 
   /*
-    ==========================================================
-    MAIN COMPLIANCE DASHBOARD
-    ==========================================================
+  ==========================================================
+  MAIN DASHBOARD
+  ==========================================================
   */
+
   return (
     <PillarLayout>
       <div className="p-6 max-w-7xl mx-auto space-y-6">
 
-        {/* ================= HEADER ================= */}
+        {/* HEADER */}
+
         <div className="flex items-center justify-between">
 
           <div className="flex items-center gap-3">
 
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate("/")}
-            >
+            <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
 
             <div className="flex items-center gap-3">
+
               <div className="p-2 rounded-xl bg-primary/10">
                 <Shield className="h-6 w-6 text-primary" />
               </div>
+
               <div>
-                <h1 className="text-2xl font-bold">Compliance & GST</h1>
+                <h1 className="text-2xl font-bold">
+                  Compliance & GST
+                </h1>
+
                 <p className="text-muted-foreground">
                   MCA, ROC, Income Tax & GST obligations
                 </p>
+
+                {obligations.length > 0 && (
+                  <p className="text-xs text-green-600 flex items-center gap-1 mt-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    {obligations.length} obligations tracked
+                  </p>
+                )}
+
               </div>
+
             </div>
+
           </div>
 
           <div className="flex items-center gap-3">
 
-            {/* Settings Button */}
-            <Button
-              variant="outline"
-              onClick={() => setShowSetup(true)}
-            >
+            <Button variant="outline" onClick={() => setShowSetup(true)}>
               <Settings className="h-4 w-4 mr-2" />
               Settings
             </Button>
@@ -218,68 +302,75 @@ export default function Compliance() {
             <ContextualHelp
               content="Track MCA filings, DSC expiry, GST reconciliation, and advance tax obligations."
             />
+
           </div>
+
         </div>
 
-        {/* ================= SUMMARY HEADER ================= */}
+        {/* SUMMARY */}
+
         <ComplianceSummaryHeader
           profile={complianceProfile}
-          directors={directors}
+          directors={profileDirectors}
         />
 
-        {/* ================= STATUS CARDS ================= */}
-        <ComplianceStatusCards
-          obligations={obligations}
-        />
+        <ComplianceStatusCards obligations={obligations} />
 
         {/* ================= TABS ================= */}
-        <Tabs defaultValue="fixed" className="space-y-6">
+
+        <Tabs
+          defaultValue="fixed"
+          className="space-y-6"
+          key={`${obligations.length}-${tickets.length}-${ticketStatusKey}`}
+        >
 
           <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
 
-            <TabsTrigger value="fixed" className="flex items-center gap-1.5">
-              <Calendar className="h-4 w-4" />
-              <span className="hidden sm:inline">Calendar</span>
+            <TabsTrigger value="fixed">
+              <Calendar className="h-4 w-4 mr-1" />
+              Calendar
             </TabsTrigger>
 
-            <TabsTrigger value="conditional" className="flex items-center gap-1.5">
-              <AlertTriangle className="h-4 w-4" />
-              <span className="hidden sm:inline">Conditional</span>
+            <TabsTrigger value="conditional">
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              Conditional
             </TabsTrigger>
 
-            <TabsTrigger value="tracking" className="flex items-center gap-1.5">
-              <ClipboardList className="h-4 w-4" />
-              <span className="hidden sm:inline">Tracking</span>
+            <TabsTrigger value="tracking">
+              <ClipboardList className="h-4 w-4 mr-1" />
+              Tracking
             </TabsTrigger>
 
-            <TabsTrigger value="directors" className="flex items-center gap-1.5">
-              <Users className="h-4 w-4" />
-              <span className="hidden sm:inline">Directors</span>
+            <TabsTrigger value="directors">
+              <Users className="h-4 w-4 mr-1" />
+              Directors
             </TabsTrigger>
 
           </TabsList>
 
           <TabsContent value="fixed">
-            <FixedScheduleTab />
+            <FixedScheduleTab key={`fixed-${obligations.length}-${ticketStatusKey}`} />
           </TabsContent>
 
           <TabsContent value="conditional">
-            <ConditionalCompliancesTab />
+            <ConditionalCompliancesTab key={`conditional-${obligations.length}-${ticketStatusKey}`} />
           </TabsContent>
 
           <TabsContent value="tracking">
-            <ComplianceTracking />
+            <ComplianceTracking key={`tracking-${ticketStatusKey}`} />
           </TabsContent>
 
           <TabsContent value="directors">
             <DirectorManagement
-              directors={directors}
+              key={`directors-${profileDirectors.length}`}
+              directors={profileDirectors}
               loading={loading}
               onAddDirector={addDirector}
             />
           </TabsContent>
 
         </Tabs>
+
       </div>
     </PillarLayout>
   );

@@ -1,7 +1,4 @@
-// React
 import { useMemo, useState } from "react";
-
-// UI Components
 import {
   Card,
   CardContent,
@@ -9,20 +6,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Data Source
 import { useCompliance } from "@/hooks/useCompliance";
-
-// Utility Functions
-import {
-  getDaysUntilDue,
-  getCompliancePriority,
-} from "@/lib/compliance/utils";
-
-// Date Utilities
+import { getDaysUntilDue } from "@/lib/compliance/utils";
 import {
   format,
   startOfMonth,
@@ -32,30 +21,32 @@ import {
   isSameMonth,
   addMonths,
   parseISO,
-  isPast,
-  isToday,
 } from "date-fns";
-
-// Icons
-import {
-  Calendar,
-  FileText,
-  ChevronLeft,
-  ChevronRight,
-  CheckCircle2,
-} from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+const parseDate = (dateStr) => {
+  if (!dateStr) return null;
+  try {
+    return parseISO(dateStr);
+  } catch {
+    return null;
+  }
+};
 
-export function ComplianceCalendar() {
-  const { obligations, loading } = useCompliance();
+export function ComplianceCalendar({ obligations = [], loading }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
 
-  // Summary stats across all obligations
+  const obligationsArray = Array.isArray(obligations) ? obligations : [];
+
+  // Stats
   const stats = useMemo(() => {
     const filed = obligations.filter((ob) => ob.status === "filed").length;
     const overdue = obligations.filter(
@@ -67,10 +58,10 @@ export function ComplianceCalendar() {
     ).length;
     
     return {
-      total: obligations.length,
+      total: obligationsArray.length,
       filed,
       overdue,
-      pending: obligations.length - filed - overdue,
+      pending: obligationsArray.length - filed - overdue,
     };
   }, [obligations]);
 
@@ -115,19 +106,30 @@ export function ComplianceCalendar() {
   const getDayClass = (date) => {
     const key = format(date, "yyyy-MM-dd");
     const dayObs = obligationsByDate[key];
+
     if (!dayObs?.length) return "";
 
     const hasOverdue = dayObs.some(
       (ob) => ob.status === "overdue" || getDaysUntilDue(ob.due_date) < 0
     );
+
     const hasUrgent = dayObs.some(
-      (ob) => getDaysUntilDue(ob.due_date) <= 3 && ob.status !== "filed"
+      (ob) =>
+        getDaysUntilDue(ob.due_date) <= 3 &&
+        ob.status !== "filed"
     );
+
     const allFiled = dayObs.every((ob) => ob.status === "filed");
 
-    if (hasOverdue) return "bg-destructive/20 text-destructive font-bold";
-    if (hasUrgent) return "bg-warning/20 text-warning font-bold";
-    if (allFiled) return "bg-success/20 text-success";
+    if (hasOverdue)
+      return "bg-destructive/20 text-destructive font-semibold";
+
+    if (hasUrgent)
+      return "bg-warning/20 text-warning font-semibold";
+
+    if (allFiled)
+      return "bg-success/20 text-success";
+
     return "bg-primary/20 text-primary";
   };
 
@@ -156,31 +158,40 @@ export function ComplianceCalendar() {
               <Calendar className="h-5 w-5" />
               Compliance Calendar
             </CardTitle>
-            <CardDescription>Track statutory filing deadlines</CardDescription>
+            <CardDescription>
+              {obligationsArray.length} obligations loaded
+            </CardDescription>
           </div>
 
+          {/* Month Navigation */}
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="icon"
-              onClick={() => setCurrentMonth(addMonths(currentMonth, -1))}
+              onClick={() =>
+                setCurrentMonth(addMonths(currentMonth, -1))
+              }
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
+
             <span className="font-medium min-w-[140px] text-center">
               {format(currentMonth, "MMMM yyyy")}
             </span>
+
             <Button
               variant="outline"
               size="icon"
-              onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+              onClick={() =>
+                setCurrentMonth(addMonths(currentMonth, 1))
+              }
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
-        {/* Stats Row */}
+        {/* Stats */}
         <div className="grid grid-cols-4 gap-3 mt-4">
           {[
             { label: "Total", value: stats.total, color: "text-primary" },
@@ -197,17 +208,20 @@ export function ComplianceCalendar() {
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {/* Calendar Grid */}
+        {/* Calendar */}
         <div className="grid grid-cols-7 gap-1">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-            <div
-              key={day}
-              className="text-center text-xs font-medium text-muted-foreground py-2"
-            >
-              {day}
-            </div>
-          ))}
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+            (day) => (
+              <div
+                key={day}
+                className="text-center text-xs font-medium text-muted-foreground py-2"
+              >
+                {day}
+              </div>
+            )
+          )}
 
+          {/* Empty cells before month start */}
           {Array.from({ length: monthStart.getDay() }).map((_, i) => (
             <div key={`empty-${i}`} className="h-12" />
           ))}
@@ -215,7 +229,7 @@ export function ComplianceCalendar() {
           {days.map((day) => {
             const key = format(day, "yyyy-MM-dd");
             const dayObs = obligationsByDate[key];
-            const isCurrentDay = isSameDay(day, new Date());
+            const isToday = isSameDay(day, today);
 
             return (
               <div
@@ -223,13 +237,14 @@ export function ComplianceCalendar() {
                 className={cn(
                   "h-12 flex flex-col items-center justify-center rounded-lg transition-colors relative cursor-pointer hover:ring-1 hover:ring-primary",
                   getDayClass(day),
-                  isCurrentDay && "ring-2 ring-primary ring-offset-2"
+                  isToday && "ring-2 ring-primary ring-offset-2"
                 )}
                 title={dayObs?.map(ob => 
                   `${ob.form_name || ob.subtag}: ${ob.status}`
                 ).join('\n')}
               >
                 <span className="text-sm">{format(day, "d")}</span>
+
                 {dayObs?.length > 0 && (
                   <div className="absolute bottom-1 flex gap-0.5">
                     {dayObs.slice(0, 3).map((ob, i) => (
@@ -355,5 +370,14 @@ export function ComplianceCalendar() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function Legend({ color, label }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={cn("w-2.5 h-2.5 rounded-full", color)} />
+      <span>{label}</span>
+    </div>
   );
 }

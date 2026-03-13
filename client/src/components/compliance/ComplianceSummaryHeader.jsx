@@ -9,17 +9,16 @@ import { getCurrentFinancialYear } from "@/lib/compliance/utils";
   ----------------------------------------------------------
   Props:
   - profile (object or null)
-  - directors (array)
+  - directors (array of all directors fetched for this profile)
   ==========================================================
 */
 
 export function ComplianceSummaryHeader({ profile, directors }) {
-
   const fy = getCurrentFinancialYear();
 
-  // Count active directors
-  const activeDirectors = directors.filter(
-    (d) => d.is_active
+  // Count active directors for this profile
+  const activeDirectors = (directors || []).filter(
+    (d) => d.is_active && d.profile_id === profile?._id
   ).length;
 
   /*
@@ -30,22 +29,15 @@ export function ComplianceSummaryHeader({ profile, directors }) {
   const getCurrentQuarter = () => {
     const month = new Date().getMonth();
 
-    if (month >= 3 && month <= 5)
-      return "Q1 (Apr–Jun)";
-
-    if (month >= 6 && month <= 8)
-      return "Q2 (Jul–Sep)";
-
-    if (month >= 9 && month <= 11)
-      return "Q3 (Oct–Dec)";
-
+    if (month >= 3 && month <= 5) return "Q1 (Apr–Jun)";
+    if (month >= 6 && month <= 8) return "Q2 (Jul–Sep)";
+    if (month >= 9 && month <= 11) return "Q3 (Oct–Dec)";
     return "Q4 (Jan–Mar)";
   };
 
   return (
     <Card className="bg-card border">
       <CardContent className="py-4 px-6">
-
         <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
 
           {/* ================= Company Type ================= */}
@@ -53,15 +45,10 @@ export function ComplianceSummaryHeader({ profile, directors }) {
             <div className="p-2 rounded-lg bg-primary/10">
               <Building2 className="h-5 w-5 text-primary" />
             </div>
-
             <div>
-              <p className="text-xs text-muted-foreground">
-                Company Type
-              </p>
-
+              <p className="text-xs text-muted-foreground">Company Type</p>
               <p className="font-semibold capitalize text-sm">
-                {profile?.company_type?.replace(/_/g, " ") ||
-                  "Not Set"}
+                {profile?.company_type?.replace(/_/g, " ") || "Not Set"}
               </p>
             </div>
           </div>
@@ -73,12 +60,8 @@ export function ComplianceSummaryHeader({ profile, directors }) {
             <div className="p-2 rounded-lg bg-primary/10">
               <Calendar className="h-5 w-5 text-primary" />
             </div>
-
             <div>
-              <p className="text-xs text-muted-foreground">
-                Financial Year
-              </p>
-
+              <p className="text-xs text-muted-foreground">Financial Year</p>
               <p className="font-semibold text-sm">
                 FY {fy} · {getCurrentQuarter()}
               </p>
@@ -92,15 +75,9 @@ export function ComplianceSummaryHeader({ profile, directors }) {
             <div className="p-2 rounded-lg bg-primary/10">
               <Users className="h-5 w-5 text-primary" />
             </div>
-
             <div>
-              <p className="text-xs text-muted-foreground">
-                Directors
-              </p>
-
-              <p className="font-semibold text-sm">
-                {activeDirectors}
-              </p>
+              <p className="text-xs text-muted-foreground">Directors</p>
+              <p className="font-semibold text-sm">{activeDirectors}</p>
             </div>
           </div>
 

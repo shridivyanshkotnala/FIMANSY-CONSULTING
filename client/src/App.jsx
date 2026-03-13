@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthGuard } from "@/components/auth/AuthGuard";
+import { AdminGuard } from "@/components/auth/AdminGuard";
 import Auth from "./pages/Auth";
 import Onboarding from "./pages/Onboarding";
 import Cockpit from "./pages/Cockpit";
@@ -20,6 +21,11 @@ import ZohoSuccess from "@/oauth/ZohoSuccess";
 import { useDispatch } from "react-redux";
 import { baseApi } from "@/Redux/Slices/api/baseApi";
 import { useEffect } from "react";
+import AccountantLogin from "./pages/AccountantLogin";
+import AccountantDashboard from "./pages/AccountantDashboard";
+import AccountantReconciliation from "./pages/AccountantReconciliation";
+import AccountantQueries from "./pages/AccountantQueries";
+
 
 const App = () => {
   const dispatch = useDispatch();
@@ -35,8 +41,8 @@ const App = () => {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [dispatch]);
-  return(
-  <>
+  return (
+    <>
       <TooltipProvider>
         <Toaster />
         <Sonner />
@@ -136,6 +142,10 @@ const App = () => {
               }
             />
 
+            <Route path="/accountant-login" element={<AccountantLogin />} />
+            <Route path="/accountant/dashboard" element={<AdminGuard><AccountantDashboard /></AdminGuard>} />
+            <Route path="/accountant/reconciliation" element={<AdminGuard><AccountantReconciliation /></AdminGuard>} />
+            <Route path="/accountant/queries" element={<AdminGuard><AccountantQueries /></AdminGuard>} />
             {/* redirects */}
             <Route path="/dashboard" element={<AuthGuard requireOrganization><Cockpit /></AuthGuard>} />
             <Route path="/command-center" element={<Navigate to="/" replace />} />
@@ -148,7 +158,7 @@ const App = () => {
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
-      </>)
+    </>)
 };
 
 export default App;

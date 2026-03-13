@@ -8,21 +8,26 @@ const complianceObligationSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    // ✅ Add these fields to match what the engine generates
-    category_tag: {
+
+    // ✅ NEW field names matching Template schema
+    compliance_category: { // was: category_tag
       type: String,
       enum: ['gst', 'tds', 'income_tax', 'payroll', 'mca'],
       required: true,
+      index: true,
     },
-    subtag: {
+
+    compliance_subtype: { // was: subtag
       type: String,
       trim: true,
     },
-    description: {
+
+    compliance_description: { // was: description
       type: String,
       trim: true,
     },
-    // Keep your existing fields but make them optional
+
+    // Keep compliance_type for backward compatibility
     compliance_type: {
       type: String,
       enum: [
@@ -33,25 +38,28 @@ const complianceObligationSchema = new mongoose.Schema(
         'gst',
         'tds',
       ],
-      // Remove required: true
     },
+
     form_name: {
       type: String,
       trim: true,
-      // Remove required: true
     },
+
     form_description: {
       type: String,
       trim: true,
     },
+
     due_date: {
       type: Date,
       required: true,
       index: true,
     },
+
     filing_date: {
       type: Date,
     },
+
     status: {
       type: String,
       enum: [
@@ -64,23 +72,33 @@ const complianceObligationSchema = new mongoose.Schema(
       default: 'not_started',
       index: true,
     },
+    ticket_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ComplianceTicket",
+      index: true
+    },
+
     financial_year: {
       type: String,
       trim: true,
     },
+
     // Engine fields
     is_recurring: {
       type: Boolean,
       default: false,
     },
+
     recurrence_type: {
       type: String,
       enum: ['monthly', 'quarterly', 'annual', 'one_time'],
     },
+
     recurrence_config: {
       type: mongoose.Schema.Types.Mixed,
     },
-    // Keep your other fields...
+
+    // Other fields
     assessment_year: String,
     trigger_event: String,
     trigger_date: Date,
@@ -106,11 +124,19 @@ const complianceObligationSchema = new mongoose.Schema(
   }
 );
 
-// Compound indexes
+// Updated compound indexes with new field names
 complianceObligationSchema.index({ organization_id: 1, status: 1 });
 complianceObligationSchema.index({ organization_id: 1, due_date: 1 });
 complianceObligationSchema.index({ organization_id: 1, compliance_type: 1 });
-complianceObligationSchema.index({ organization_id: 1, category_tag: 1 }); // Add this
+complianceObligationSchema.index({ organization_id: 1, compliance_category: 1 }); // Updated
+
+// ✅ Compound unique index to prevent duplicates
+complianceObligationSchema.index({
+  organization_id: 1,
+  form_name: 1,  
+  due_date: 1,
+  financial_year: 1
+}, { unique: true });
 
 export const ComplianceObligation = mongoose.model(
   "ComplianceObligation",

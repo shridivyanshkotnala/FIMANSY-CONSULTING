@@ -5,12 +5,14 @@ import { baseApi } from "./Slices/api/baseApi";
 import authReducer from "./Slices/authSlice";
 import appReducer from "./Slices/appSlice";
 import sessionReducer from "./Slices/sessionSlice";
+import complianceUiReducer from "./Slices/complianceSlice";
 
 export const store = configureStore({
     reducer : {
         auth : authReducer,
         app : appReducer,
         session: sessionReducer,
+        complianceUi: complianceUiReducer,
 
         [baseApi.reducerPath] : baseApi.reducer
     },

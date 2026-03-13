@@ -216,21 +216,14 @@ export function ComplianceSetupForm({ onComplete }) {
     { value: "partnership", label: "Partnership Firm" },
     { value: "proprietorship", label: "Sole Proprietorship" },
   ];
+  const months = Array.from({ length: 12 }, (_, i) => ({
+    value: i + 1,
+    label: new Date(0, i).toLocaleString("default", { month: "long" }),
+  }));
 
-  const months = [
-    { value: 1, label: "January" },
-    { value: 2, label: "February" },
-    { value: 3, label: "March" },
-    { value: 4, label: "April" },
-    { value: 5, label: "May" },
-    { value: 6, label: "June" },
-    { value: 7, label: "July" },
-    { value: 8, label: "August" },
-    { value: 9, label: "September" },
-    { value: 10, label: "October" },
-    { value: 11, label: "November" },
-    { value: 12, label: "December" },
-  ];
+  const showCIN = ["private_limited", "opc", "public_limited"].includes(formData.company_type);
+  const showLLPIN = formData.company_type === "llp";
+  const showCapital = ["private_limited", "opc", "public_limited", "llp"].includes(formData.company_type);
 
   const showCIN = ["private_limited", "opc", "public_limited"].includes(formData.company_type);
   const showLLPIN = formData.company_type === "llp";
@@ -245,14 +238,10 @@ export function ComplianceSetupForm({ onComplete }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Building2 className="h-5 w-5" />
-          Company Compliance Profile
+          <Building2 className="h-5 w-5" /> Company Compliance Profile
         </CardTitle>
-        <CardDescription>
-          Set up your company details to enable automated compliance tracking
-        </CardDescription>
+        <CardDescription>Set up your company details to enable automated compliance tracking</CardDescription>
       </CardHeader>
-
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
@@ -296,7 +285,7 @@ export function ComplianceSetupForm({ onComplete }) {
               </Select>
             </div>
 
-            {/* CIN */}
+            {/* CIN / LLPIN */}
             {showCIN && (
               <div className="space-y-2">
                 <Label htmlFor="cin">CIN (Corporate Identification Number)</Label>
@@ -308,8 +297,6 @@ export function ComplianceSetupForm({ onComplete }) {
                 />
               </div>
             )}
-
-            {/* LLPIN */}
             {showLLPIN && (
               <div className="space-y-2">
                 <Label htmlFor="llpin">LLPIN</Label>
@@ -351,7 +338,6 @@ export function ComplianceSetupForm({ onComplete }) {
                     }
                   />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="paid_up_capital">Paid-up Capital (₹)</Label>
                   <Input
@@ -395,7 +381,6 @@ export function ComplianceSetupForm({ onComplete }) {
                 onChange={(e) => setFormData({ ...formData, city: e.target.value })}
               />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="state">
                 State <span className="text-destructive">*</span>
@@ -407,7 +392,6 @@ export function ComplianceSetupForm({ onComplete }) {
                 onChange={(e) => setFormData({ ...formData, state: e.target.value })}
               />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="pincode">
                 Pincode <span className="text-destructive">*</span>

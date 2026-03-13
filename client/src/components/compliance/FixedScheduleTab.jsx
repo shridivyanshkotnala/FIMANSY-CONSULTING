@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react"; // Add useCallback
+import { useNavigate } from "react-router-dom";
 
 import {
   Card,
@@ -9,19 +10,21 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-
+import { Button } from "@/components/ui/button";
 import {
-  FIXED_SCHEDULE_COMPLIANCES,
-  TAG_COLORS,
-} from "@/lib/compliance/complianceData";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
 import { ComplianceCalendar } from "./ComplianceCalendarWidget";
+import { TicketDetailDrawer } from "./TicketDetailDrawer";
 
-// ⚠️ CONTEXT API — MARKED FOR REMOVAL
-// 🔄 FUTURE: Replace with Redux RTK Query selectors
-// const { obligations, createObligation, loading } = useSelector(state => state.compliance)
 import { useCompliance } from "@/hooks/useCompliance";
+import { useTickets } from "@/hooks/useTickets";
+
 import {
   getCurrentFinancialYear,
   getDaysUntilDue,
@@ -30,19 +33,33 @@ import {
 import {
   format,
   isSameMonth,
-  isBefore,
   startOfDay,
   isWithinInterval,
+  parseISO,
 } from "date-fns";
 
 import {
   Calendar,
   FileText,
   ChevronRight,
+  Ticket,
+  MessageCircle,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+/* ================= Quarterly subtype definitions ================= */
+
+const QUARTERLY_SUBTYPES = [
+  "tds_return",
+  "advance_tax_q1",
+  "advance_tax_q2",
+  "advance_tax_q3",
+  "advance_tax_q4",
+];
 
 /* ================= Helpers ================= */
 
@@ -63,294 +80,390 @@ function getCurrentQuarterRange() {
   return { start: new Date(year, 0, 1), end: new Date(year, 2, 31), label: "Q4" };
 }
 
-function getFYRange(fy) {
-  const [startYear] = fy.split("-").map(Number);
-  return {
-    start: new Date(startYear, 3, 1),
-    end: new Date(startYear + 1, 2, 31),
+const getTicketStatusBadge = (status) => {
+  const variants = {
+    initiated: "secondary",
+    pending_docs: "warning",
+    in_progress: "default",
+    filed: "success",
+    approved: "success",
+    overdue: "destructive",
+    closed: "outline",
+    not_started: "outline",
   };
-}
+  return variants[status] || "secondary";
+};
 
 /* ================= Component ================= */
 
 export function FixedScheduleTab() {
-  const { obligations, createObligation, loading } = useCompliance();
+  const navigate = useNavigate();
+
+  const { obligations, loading, refetch: refetchCompliance } = useCompliance();
+  const { createTicket, refetchTickets } = useTickets();
+
   const { toast } = useToast();
 
   const [filingModal, setFilingModal] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [selectedObligation, setSelectedObligation] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   const today = startOfDay(new Date());
   const fy = getCurrentFinancialYear();
-
-  /* ================= Generate FY Compliances ================= */
-
-  const generatedCompliances = useMemo(() => {
-    const fyRange = getFYRange(fy);
-    const result = [];
-
-    for (
-      let month = fyRange.start.getMonth(),
-        year = fyRange.start.getFullYear();
-      ;
-    ) {
-      const d = new Date(year, month, 1);
-      if (d > fyRange.end) break;
-
-      FIXED_SCHEDULE_COMPLIANCES.forEach((fc) => {
-        const dueDate = fc.getDueDate(month, year);
-
-        if (
-          dueDate &&
-          dueDate >= fyRange.start &&
-          dueDate <= fyRange.end
-        ) {
-          const existing = obligations.find(
-            (ob) =>
-              ob.form_name === fc.name &&
-              ob.due_date === format(dueDate, "yyyy-MM-dd")
-          );
-
-          result.push({
-            name: fc.name,
-            description: fc.description,
-            primaryTag: fc.primaryTag,
-            secondaryTag: fc.secondaryTag,
-            dueDate,
-            status: existing?.status || "not_started",
-          });
-        }
-      });
-
-      month++;
-      if (month > 11) {
-        month = 0;
-        year++;
-      }
-    }
-
-    const unique = new Map();
-
-    result.forEach((r) => {
-      const key = `${r.name}-${format(r.dueDate, "yyyy-MM-dd")}`;
-      if (!unique.has(key)) unique.set(key, r);
-    });
-
-    return Array.from(unique.values()).sort(
-      (a, b) => a.dueDate.getTime() - b.dueDate.getTime()
-    );
-  }, [fy, obligations]);
-
-  const thisMonthCompliances = generatedCompliances.filter((c) =>
-    isSameMonth(c.dueDate, today)
-  );
-
   const quarterRange = getCurrentQuarterRange();
 
-  const thisQuarterCompliances = generatedCompliances.filter((c) =>
-    isWithinInterval(c.dueDate, quarterRange)
-  );
+  /* ================= Refresh both data sources ================= */
+  const refreshAllData = useCallback(async () => {
+    await Promise.all([
+      refetchCompliance(),
+      refetchTickets()
+    ]);
+  }, [refetchCompliance, refetchTickets]);
 
-  const thisFYCompliances = generatedCompliances;
+  /* ================= Filters ================= */
 
-  /* ================= Filing ================= */
+  const obligationsWithTickets = useMemo(() => {
+    return obligations.filter((ob) => ob.status !== "not_started" || ob.ticket_id);
+  }, [obligations]);
 
-  const handleFiling = async (data) => {
+  const obligationsWithoutTickets = useMemo(() => {
+    return obligations.filter((ob) => ob.status === "not_started" && !ob.ticket_id);
+  }, [obligations]);
+
+  const thisMonthObligations = useMemo(() => {
+    return obligations.filter((ob) => {
+      if (!ob.due_date) return false;
+      const dueDate = parseISO(ob.due_date);
+      return isSameMonth(dueDate, today) && ob.recurrence_type === "monthly";
+    });
+  }, [obligations, today]);
+
+  const quarterlyObligations = useMemo(() => {
+    return obligations.filter((ob) => {
+      if (!ob.due_date) return false;
+
+      const isQuarterly =
+        ob.recurrence_type === "quarterly" ||
+        QUARTERLY_SUBTYPES.includes(ob.compliance_subtype);
+
+      if (!isQuarterly) return false;
+
+      const dueDate = parseISO(ob.due_date);
+      return isWithinInterval(dueDate, quarterRange);
+    });
+  }, [obligations, quarterRange]);
+
+  const thisFYObligations = useMemo(() => {
+    return obligations.filter((ob) => ob.financial_year === fy);
+  }, [obligations, fy]);
+
+  /* ================= Ticket Creation ================= */
+
+  const handleCreateTicket = async (data) => {
     if (!filingModal) return;
 
     setIsSubmitting(true);
 
-    await createObligation({
-      compliance_type: "gst",
-      form_name: filingModal.name,
-      form_description: filingModal.description,
-      due_date: format(filingModal.dueDate, "yyyy-MM-dd"),
-      status: "initiated",
-      financial_year: fy,
-      notes: data.comment,
-      priority: 3,
-    });
+    try {
+      const result = await createTicket({
+        obligation_id: filingModal._id,
+        comment: data.comment,
+      });
 
-    toast({
-      title: "Filing initiated",
-      description: `${filingModal.name} filing has been initiated.`,
-    });
+      if (!result.error) {
+        toast({
+          title: "✅ Ticket created",
+          description: `${filingModal.form_name || filingModal.compliance_subtype} filing started`,
+        });
 
-    setIsSubmitting(false);
-    setFilingModal(null);
+        // Refresh both compliance and tickets data
+        await refreshAllData();
+
+        setFilingModal(null);
+      } else {
+        toast({
+          title: "Error creating ticket",
+          description: result.error.message,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create ticket",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  /* ================= Render Row ================= */
+  /* ================= Ticket View ================= */
 
-  const renderComplianceRow = (c) => {
-    const daysUntil = getDaysUntilDue(
-      format(c.dueDate, "yyyy-MM-dd")
+  const handleViewTicket = (obligation) => {
+    setSelectedObligation(obligation);
+    setDrawerOpen(true);
+  };
+
+  const handleObligationClick = (obligation) => {
+    if (obligation.ticket_id || obligation.status !== "not_started") {
+      handleViewTicket(obligation);
+    } else {
+      setFilingModal(obligation);
+    }
+  };
+
+  const handleDrawerClose = async (open) => {
+    setDrawerOpen(open);
+    if (!open) {
+      setSelectedObligation(null);
+      // Refresh data when drawer closes in case status was updated
+      await refreshAllData();
+    }
+  };
+
+  /* ================= Handle Status Update from Drawer ================= */
+  const handleTicketUpdate = async () => {
+    // Refresh data when ticket status is updated in drawer
+    await refreshAllData();
+  };
+
+  /* ================= Ticket Status UI ================= */
+
+  const renderTicketStatus = (obligation) => {
+    if (!obligation.ticket_id && obligation.status === "not_started") {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground cursor-help">
+                <Ticket className="h-3 w-3" />
+                <span>Create Ticket</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Click to create a ticket for this filing</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-2">
+              <Badge variant={getTicketStatusBadge(obligation.status)}>
+                {obligation.status === "in_progress" && "In Progress"}
+                {obligation.status === "pending_docs" && "Pending Docs"}
+                {obligation.status === "filed" && "Filed"}
+                {obligation.status === "approved" && "Approved"}
+                {obligation.status === "overdue" && "Overdue"}
+                {obligation.status === "closed" && "Closed"}
+                {obligation.status === "initiated" && "Initiated"}
+                {!["initiated", "in_progress", "pending_docs", "filed", "approved", "overdue", "closed", "not_started"].includes(obligation.status) && obligation.status}
+              </Badge>
+
+              {obligation.ticket_id && (
+                <MessageCircle className="h-3 w-3 text-muted-foreground" />
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Click to view ticket details</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
+  };
+
+  /* ================= Obligation Row ================= */
+
+  const renderObligationRow = (obligation) => {
+    const dueDate = parseISO(obligation.due_date);
+    const daysUntil = getDaysUntilDue(obligation.due_date);
 
     const isOverdue =
       daysUntil < 0 &&
-      c.status !== "filed" &&
-      c.status !== "approved";
+      obligation.status !== "filed" &&
+      obligation.status !== "approved" &&
+      obligation.status !== "closed";
 
-    const isFiled =
-      c.status === "filed" ||
-      c.status === "approved";
+    const displayName = obligation.form_name || obligation.compliance_subtype;
+    const displayDescription = obligation.form_description || obligation.compliance_description;
 
     return (
       <div
-        key={`${c.name}-${format(c.dueDate, "yyyy-MM-dd")}`}
+        key={obligation._id}
+        onClick={() => handleObligationClick(obligation)}
         className={cn(
-          "flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors cursor-pointer",
-          isOverdue &&
-            "border-l-4 border-l-destructive bg-destructive/5",
-          isFiled && "opacity-60"
+          "flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer transition-all",
+          isOverdue && "border-l-4 border-l-destructive bg-destructive/5",
+          (obligation.ticket_id || obligation.status !== "not_started") && "border-primary/20 hover:border-primary/40"
         )}
-        onClick={() => !isFiled && setFilingModal(c)}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+
           <div className="min-w-0">
-            <p className="font-medium text-sm truncate">
-              {c.name}
-            </p>
-            <p className="text-xs text-muted-foreground truncate">
-              {c.description}
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium truncate">{displayName}</p>
+
+              {isOverdue && (
+                <AlertCircle className="h-3 w-3 text-destructive shrink-0" />
+              )}
+
+              {obligation.status === "filed" && (
+                <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+              )}
+            </div>
+
+            {displayDescription && (
+              <p className="text-xs text-muted-foreground truncate">
+                {displayDescription}
+              </p>
+            )}
+
+            <p className="text-xs text-muted-foreground mt-1">
+              Due: {format(dueDate, "dd MMM yyyy")}
+              {daysUntil <= 7 && daysUntil > 0 && (
+                <span className="ml-2 text-warning">({daysUntil} days left)</span>
+              )}
+              {isOverdue && (
+                <span className="ml-2 text-destructive">({Math.abs(daysUntil)}d overdue)</span>
+              )}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 ml-2">
-          <Badge
-            className={cn(
-              "text-xs",
-              TAG_COLORS[c.primaryTag] ||
-                TAG_COLORS.Other
-            )}
-          >
-            {c.primaryTag}
-          </Badge>
-
-          <div className="text-right min-w-[80px]">
-            <p className="text-xs font-medium">
-              {format(c.dueDate, "dd MMM")}
-            </p>
-            <p
-              className={cn(
-                "text-xs",
-                isOverdue
-                  ? "text-destructive"
-                  : daysUntil <= 7
-                  ? "text-warning"
-                  : "text-muted-foreground"
-              )}
-            >
-              {isFiled
-                ? "Filed ✓"
-                : isOverdue
-                ? `${Math.abs(daysUntil)}d overdue`
-                : daysUntil === 0
-                ? "Due today"
-                : `${daysUntil}d left`}
-            </p>
-          </div>
-
-          {!isFiled && (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          )}
+        <div className="flex items-center gap-3 ml-4">
+          {renderTicketStatus(obligation)}
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
         </div>
       </div>
     );
   };
 
-  /* ================= Loading ================= */
-
-  if (loading)
-    return <Skeleton className="h-96 w-full" />;
-
-  /* ================= UI ================= */
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-[200px] w-full" />
+        <Skeleton className="h-[300px] w-full" />
+        <Skeleton className="h-[300px] w-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
 
-      <ComplianceCalendar />
+      {/* Stats Summary - Optional but helpful */}
+      <div className="grid grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold">{obligations.length}</div>
+            <p className="text-xs text-muted-foreground">Total Obligations</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold">{obligationsWithTickets.length}</div>
+            <p className="text-xs text-muted-foreground">With Tickets</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold">{obligationsWithoutTickets.length}</div>
+            <p className="text-xs text-muted-foreground">Ready for Tickets</p>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Month */}
+      <ComplianceCalendar obligations={obligations} />
+
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
             This Month's Filings
             <Badge variant="secondary" className="ml-auto">
-              {thisMonthCompliances.length}
+              {thisMonthObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
+
         <CardContent className="space-y-2">
-          {thisMonthCompliances.length === 0 ? (
+          {thisMonthObligations.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
               No filings due this month
             </p>
           ) : (
-            thisMonthCompliances.map(renderComplianceRow)
+            thisMonthObligations.map(renderObligationRow)
           )}
         </CardContent>
       </Card>
 
-      {/* Quarter */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
-            This Quarter's Filings ({quarterRange.label})
+            Quarterly Filings ({quarterRange.label})
             <Badge variant="secondary" className="ml-auto">
-              {thisQuarterCompliances.length}
+              {quarterlyObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
+
         <CardContent className="space-y-2">
-          {thisQuarterCompliances.map(renderComplianceRow)}
+          {quarterlyObligations.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No quarterly filings due
+            </p>
+          ) : (
+            quarterlyObligations.map(renderObligationRow)
+          )}
         </CardContent>
       </Card>
 
-      {/* FY */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
-            This Financial Year (FY {fy})
+            Financial Year {fy}
             <Badge variant="secondary" className="ml-auto">
-              {thisFYCompliances.length}
+              {thisFYObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
+
         <CardContent className="space-y-2 max-h-[400px] overflow-y-auto">
-          {thisFYCompliances.map(renderComplianceRow)}
+          {thisFYObligations.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No filings for this financial year
+            </p>
+          ) : (
+            thisFYObligations.map(renderObligationRow)
+          )}
         </CardContent>
       </Card>
 
       <ComplianceFilingModal
         open={!!filingModal}
-        onOpenChange={(open) =>
-          !open && setFilingModal(null)
-        }
-        compliance={
-          filingModal
-            ? {
-                name: filingModal.name,
-                description: filingModal.description,
-                primaryTag: filingModal.primaryTag,
-                secondaryTag: filingModal.secondaryTag,
-                dueDate: format(
-                  filingModal.dueDate,
-                  "yyyy-MM-dd"
-                ),
-              }
-            : null
-        }
-        onSubmit={handleFiling}
-        isSubmitting={isSubmitting}
+        onOpenChange={(open) => !open && setFilingModal(null)}
+        compliance={filingModal}
+        onSuccess={handleCreateTicket}
+        mode="ticket"
       />
 
+      <TicketDetailDrawer
+        ticket={selectedObligation}
+        open={drawerOpen}
+        onOpenChange={handleDrawerClose}
+        onStatusUpdate={handleTicketUpdate}
+      />
     </div>
   );
 }

@@ -8,6 +8,13 @@ const directorSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    profile_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CompanyComplianceProfile",
+      required: true,
+      index: true,
+    },
+    
     din: {
       type: String,
       required: true,

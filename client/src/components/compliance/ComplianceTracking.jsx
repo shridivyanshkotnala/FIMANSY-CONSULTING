@@ -1,17 +1,14 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-
 import {
   Select,
   SelectContent,
@@ -19,26 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 
-/*
-  ⚠️ SUPABASE REMOVED — COMMENTED OUT (DO NOT DELETE)
-  🔄 FUTURE: Replace with Redux RTK Query endpoint
-  import { supabase } from "@/integrations/supabase/client";
-*/
-
-// ⚠️ CONTEXT API SHIM — MARKED FOR REMOVAL
-// 🔄 FUTURE: Replace with Redux selectors / RTK Query hooks
-import { useAuth } from "@/hooks/useAuth";
-
-// ⚠️ CONTEXT API — useCompliance replaces direct supabase calls
-// 🔄 FUTURE: Replace with Redux RTK Query endpoint for compliance
 import { useCompliance } from "@/hooks/useCompliance";
+import { useTickets } from "@/hooks/useTickets";
 
 import {
   Search,
-  Clock,
   AlertTriangle,
   CheckCircle2,
   TrendingUp,
@@ -53,246 +38,136 @@ import {
   startOfDay,
 } from "date-fns";
 
+import { CreateTicketModal } from "./CreateTicketModal";
 import { TicketDetailDrawer } from "./TicketDetailDrawer";
 
-/*
-  ==========================================================
-  Static Config
-  ==========================================================
-*/
+/* ---------------------------------------------------- */
+/* Config */
+/* ---------------------------------------------------- */
 
-const CATEGORY_TAGS = [
-  "GST",
-  "TDS",
-  "Income Tax",
-  "MCA",
-  "Payroll",
-  "Other",
-];
+const CATEGORY_TAGS = ["gst", "tds", "income_tax", "payroll", "mca"];
 
-const ONGOING_STATUSES = [
-  "initiated",
-  "pending_docs",
-  "in_progress",
-  "filed",
-  "overdue",
-  "not_started",
-];
-
-const CLOSED_STATUSES = [
-  "approved",
-  "closed",
-  "ignored",
-];
-
-const STATUS_CONFIG = {
-  initiated: { label: "Initiated", className: "bg-primary/10 text-primary border-primary/20" },
-  not_started: { label: "Not Started", className: "bg-muted text-muted-foreground border-border" },
-  pending_docs: { label: "Pending Docs", className: "bg-warning/10 text-warning border-warning/20" },
-  in_progress: { label: "In Progress", className: "bg-accent text-accent-foreground border-accent" },
-  filed: { label: "Filed", className: "bg-success/10 text-success border-success/20" },
-  approved: { label: "Approved", className: "bg-success/10 text-success border-success/20" },
-  overdue: { label: "Overdue", className: "bg-destructive/10 text-destructive border-destructive/20" },
-  ignored: { label: "Ignored", className: "bg-muted text-muted-foreground border-border" },
-  closed: { label: "Closed", className: "bg-muted text-muted-foreground border-border" },
+const STATUS = {
+  not_started: { label: "Not Started", class: "bg-muted text-muted-foreground" },
+  in_progress: { label: "In Progress", class: "bg-accent text-accent-foreground" },
+  filed: { label: "Filed", class: "bg-success/10 text-success" },
+  overdue: { label: "Overdue", class: "bg-destructive/10 text-destructive" },
+  not_applicable: { label: "N/A", class: "bg-muted text-muted-foreground" },
 };
 
-/*
-  ==========================================================
-  Component
-  ==========================================================
-*/
+const ONGOING = ["not_started", "in_progress", "overdue"];
+const CLOSED = ["filed", "not_applicable"];
+
+/* ---------------------------------------------------- */
+/* Component */
+/* ---------------------------------------------------- */
 
 export function ComplianceTracking() {
+  const { obligations = [], loading: complianceLoading } = useCompliance();
 
-  const { organization } = useAuth();
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [fy, setFY] = useState("all");
+  const [status, setStatus] = useState("all");
 
-  // ⚠️ CONTEXT API — useCompliance replaces direct supabase calls
-  // 🔄 FUTURE: Replace with Redux RTK Query endpoint
-  const { obligations, loading: complianceLoading } = useCompliance();
-
-  const [tickets, setTickets] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [fyFilter, setFyFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-
-  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [selected, setSelected] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const today = startOfDay(new Date());
 
-  /*
-    ==========================================================
-    Fetch Tickets
-    ⚠️ SUPABASE REMOVED — now reads from useCompliance() hook
-    🔄 FUTURE: Replace with RTK Query compliance endpoint
-    ==========================================================
-  */
+  /* ------------------------------ */
+  /* Process obligations with overdue logic */
+  /* ------------------------------ */
 
-  useEffect(() => {
-    /*
-      --- OLD SUPABASE CODE (COMMENTED, NOT REMOVED) ---
-      const fetchTickets = async () => {
-        const orgId = organization?.id || "7dc52afc-47c2-4ced-86c0-fc8c3131d78c";
-        setLoading(true);
-        try {
-          const timeout = new Promise((r) => setTimeout(() => r("timeout"), 5000));
-          const query = supabase
-            .from("compliance_obligations")
-            .select("*")
-            .eq("organization_id", orgId)
-            .order("due_date", { ascending: true });
-          const result = await Promise.race([query, timeout]);
-          if (result === "timeout" || result?.error) {
-            setTickets([]);
-          } else {
-            setTickets(result?.data || []);
-          }
-        } catch {
-          setTickets([]);
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchTickets();
-    */
+  const tickets = useMemo(() => {
+    // Ensure obligations is an array
+    const obligationsArray = Array.isArray(obligations) ? obligations : [];
+    
+    return obligationsArray.map((obligation) => {
+      const due = obligation.due_date ? new Date(obligation.due_date) : null;
 
-    // Use data from useCompliance hook instead of direct Supabase call
-    setTickets(Array.isArray(obligations) ? obligations : []);
-    setLoading(complianceLoading);
-  }, [obligations, complianceLoading]);
-
-  /*
-    ==========================================================
-    Auto Mark Overdue
-    ==========================================================
-  */
-
-  const processedTickets = useMemo(() => {
-    return tickets.map((t) => {
-      const due = new Date(t.due_date);
-
+      // Mark as overdue if past due and not filed/completed
       if (
+        due &&
         isBefore(due, today) &&
-        ONGOING_STATUSES.includes(t.status) &&
-        t.status !== "filed"
+        obligation.status === "not_started"
       ) {
-        return { ...t, status: "overdue" };
+        return { ...obligation, status: "overdue" };
       }
 
-      return t;
+      return obligation;
     });
-  }, [tickets, today]);
+  }, [obligations, today]);
 
-  /*
-    ==========================================================
-    Filtering
-    ==========================================================
-  */
+  /* ------------------------------ */
+  /* Filtering */
+  /* ------------------------------ */
 
-  const filteredTickets = useMemo(() => {
-
-    return processedTickets.filter((t) => {
-
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-
-        const matches =
-          t.form_name?.toLowerCase().includes(q) ||
-          t.financial_year?.toLowerCase().includes(q) ||
-          t.ticket_number?.toLowerCase().includes(q) ||
-          t.secondary_tag?.toLowerCase().includes(q);
-
+  const filtered = useMemo(() => {
+    return tickets.filter((t) => {
+      // Search filter - search in relevant fields
+      if (search) {
+        const q = search.toLowerCase();
+        const searchableFields = [
+          t.form_name,
+          t.form_description,
+          t.compliance_category,
+          t.compliance_subtype,
+          t.compliance_description,
+          t.financial_year,
+          t.srn_number,
+          t.acknowledgement_number,
+          t.notes,
+        ].filter(Boolean).map(field => field.toLowerCase());
+        
+        const matches = searchableFields.some(field => field.includes(q));
         if (!matches) return false;
       }
 
-      if (
-        categoryFilter !== "all" &&
-        t.primary_tag !== categoryFilter
-      )
-        return false;
-
-      if (
-        fyFilter !== "all" &&
-        t.financial_year !== fyFilter
-      )
-        return false;
-
-      if (
-        statusFilter !== "all" &&
-        t.status !== statusFilter
-      )
-        return false;
+      // Category filter
+      if (category !== "all" && t.compliance_category !== category) return false;
+      
+      // Financial year filter
+      if (fy !== "all" && t.financial_year !== fy) return false;
+      
+      // Status filter
+      if (status !== "all" && t.status !== status) return false;
 
       return true;
-
     });
+  }, [tickets, search, category, fy, status]);
 
-  }, [
-    processedTickets,
-    searchQuery,
-    categoryFilter,
-    fyFilter,
-    statusFilter,
-  ]);
+  const ongoing = filtered.filter((t) => ONGOING.includes(t.status));
+  const closed = filtered.filter((t) => CLOSED.includes(t.status));
 
-  const ongoingTickets = filteredTickets.filter((t) =>
-    ONGOING_STATUSES.includes(t.status)
-  );
+  /* ------------------------------ */
+  /* Metrics */
+  /* ------------------------------ */
 
-  const closedTickets = filteredTickets.filter((t) =>
-    CLOSED_STATUSES.includes(t.status)
-  );
+  const metrics = useMemo(() => {
+    const overdue = tickets.filter((t) => t.status === "overdue").length;
+    const closedCount = tickets.filter((t) => CLOSED.includes(t.status)).length;
+    const ongoingCount = tickets.filter((t) => ONGOING.includes(t.status)).length;
 
-  /*
-    ==========================================================
-    Metrics
-    ==========================================================
-  */
-
-  const totalOngoing = processedTickets.filter((t) =>
-    ONGOING_STATUSES.includes(t.status)
-  ).length;
-
-  const totalOverdue = processedTickets.filter(
-    (t) => t.status === "overdue"
-  ).length;
-
-  const totalClosed = processedTickets.filter((t) =>
-    CLOSED_STATUSES.includes(t.status)
-  ).length;
-
-  const onTimeRate =
-    totalClosed > 0
-      ? Math.round(
-          (processedTickets.filter(
-            (t) =>
-              t.status === "approved" ||
-              t.status === "closed"
-          ).length /
-            (totalClosed + totalOngoing)) *
-            100
-        )
+    const onTime = closedCount > 0
+      ? Math.round((tickets.filter((t) => t.status === "filed").length / closedCount) * 100)
       : 100;
 
-  const uniqueFYs = [
-    ...new Set(
-      processedTickets
-        .map((t) => t.financial_year)
-        .filter(Boolean)
-    ),
-  ];
+    return {
+      ongoing: ongoingCount,
+      overdue,
+      closed: closedCount,
+      onTime,
+    };
+  }, [tickets]);
 
-  /*
-    ==========================================================
-    Loading
-    ==========================================================
-  */
+  const fyOptions = [...new Set(tickets.map((t) => t.financial_year).filter(Boolean))];
 
-  if (loading) {
+  /* ------------------------------ */
+  /* Loading */
+  /* ------------------------------ */
+
+  if (complianceLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-24 w-full" />
@@ -301,227 +176,238 @@ export function ComplianceTracking() {
     );
   }
 
-  /*
-    ==========================================================
-    Render
-    ==========================================================
-  */
+  /* ------------------------------ */
+  /* Render */
+  /* ------------------------------ */
 
   return (
     <div className="space-y-6">
+      <Metrics metrics={metrics} />
 
-      {/* ================= Metrics ================= */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <ListChecks className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Ongoing</p>
-                <p className="text-2xl font-bold">{totalOngoing}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <Filters
+        search={search}
+        setSearch={setSearch}
+        category={category}
+        setCategory={setCategory}
+        fy={fy}
+        setFY={setFY}
+        status={status}
+        setStatus={setStatus}
+        fyOptions={fyOptions}
+      />
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${totalOverdue > 0 ? "bg-destructive/10" : "bg-success/10"}`}>
-                <AlertTriangle className={`h-5 w-5 ${totalOverdue > 0 ? "text-destructive" : "text-success"}`} />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Overdue</p>
-                <p className="text-2xl font-bold">{totalOverdue}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-success/10">
-                <CheckCircle2 className="h-5 w-5 text-success" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Closed</p>
-                <p className="text-2xl font-bold">{totalClosed}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <TrendingUp className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">On-Time Rate</p>
-                <p className="text-2xl font-bold">{onTimeRate}%</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ================= Filters ================= */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by form name, FY, ticket..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {CATEGORY_TAGS.map((tag) => (
-              <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={fyFilter} onValueChange={setFyFilter}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="FY" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All FYs</SelectItem>
-            {uniqueFYs.map((fy) => (
-              <SelectItem key={fy} value={fy}>FY {fy}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-              <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* ================= Tabs ================= */}
-      <Tabs defaultValue="ongoing" className="space-y-4">
+      <Tabs defaultValue="ongoing">
         <TabsList>
-          <TabsTrigger value="ongoing" className="flex items-center gap-1.5">
-            <Clock className="h-4 w-4" />
-            Ongoing ({ongoingTickets.length})
+          <TabsTrigger value="ongoing">
+            Ongoing ({ongoing.length})
           </TabsTrigger>
-          <TabsTrigger value="closed" className="flex items-center gap-1.5">
-            <CheckCircle2 className="h-4 w-4" />
-            Closed ({closedTickets.length})
+          <TabsTrigger value="closed">
+            Closed ({closed.length})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="ongoing">
-          <Card>
-            <CardContent className="pt-6 space-y-2">
-              {ongoingTickets.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <CheckCircle2 className="h-10 w-10 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm">No ongoing tickets</p>
-                </div>
-              ) : (
-                ongoingTickets.map((t) => {
-                  const daysUntil = differenceInDays(new Date(t.due_date), today);
-                  const isOverdue = isBefore(new Date(t.due_date), today) && t.status !== "filed";
-                  const cfg = STATUS_CONFIG[t.status] || STATUS_CONFIG.not_started;
-
-                  return (
-                    <div
-                      key={t.id}
-                      className={`flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors cursor-pointer ${
-                        isOverdue ? "border-l-4 border-l-destructive bg-destructive/5" : ""
-                      }`}
-                      onClick={() => { setSelectedTicket(t); setDrawerOpen(true); }}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{t.form_name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{t.form_description}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <Badge className={`text-xs ${cfg.className}`}>{cfg.label}</Badge>
-                        <div className="text-right min-w-[70px]">
-                          <p className="text-xs font-medium">
-                            {t.due_date ? format(new Date(t.due_date), "dd MMM") : "—"}
-                          </p>
-                          <p className={`text-xs ${isOverdue ? "text-destructive" : daysUntil <= 7 ? "text-warning" : "text-muted-foreground"}`}>
-                            {isOverdue ? `${Math.abs(daysUntil)}d overdue` : daysUntil === 0 ? "Due today" : `${daysUntil}d left`}
-                          </p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </CardContent>
-          </Card>
+          <TicketList 
+            tickets={ongoing} 
+            today={today} 
+            onClick={(ticket) => {
+              setSelected(ticket);
+              setDrawerOpen(true);
+            }} 
+          />
         </TabsContent>
 
         <TabsContent value="closed">
-          <Card>
-            <CardContent className="pt-6 space-y-2">
-              {closedTickets.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <ListChecks className="h-10 w-10 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm">No closed tickets</p>
-                </div>
-              ) : (
-                closedTickets.map((t) => {
-                  const cfg = STATUS_CONFIG[t.status] || STATUS_CONFIG.closed;
-                  return (
-                    <div
-                      key={t.id}
-                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors cursor-pointer opacity-70"
-                      onClick={() => { setSelectedTicket(t); setDrawerOpen(true); }}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{t.form_name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{t.form_description}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <Badge className={`text-xs ${cfg.className}`}>{cfg.label}</Badge>
-                        <p className="text-xs text-muted-foreground">
-                          {t.filing_date ? format(new Date(t.filing_date), "dd MMM yyyy") : "—"}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </CardContent>
-          </Card>
+          <TicketList 
+            tickets={closed} 
+            today={today} 
+            onClick={(ticket) => {
+              setSelected(ticket);
+              setDrawerOpen(true);
+            }} 
+          />
         </TabsContent>
       </Tabs>
 
-      {/* ================= Detail Drawer ================= */}
       <TicketDetailDrawer
-        ticket={selectedTicket}
+        ticket={selected}
         open={drawerOpen}
         onOpenChange={(open) => {
           setDrawerOpen(open);
-          if (!open) setSelectedTicket(null);
+          if (!open) setSelected(null);
         }}
       />
     </div>
+  );
+}
+
+/* ---------------------------------------------------- */
+/* Metrics */
+/* ---------------------------------------------------- */
+
+function Metrics({ metrics }) {
+  const items = [
+    { icon: ListChecks, label: "Ongoing", value: metrics.ongoing },
+    { icon: AlertTriangle, label: "Overdue", value: metrics.overdue },
+    { icon: CheckCircle2, label: "Closed", value: metrics.closed },
+    { icon: TrendingUp, label: "On-Time Rate", value: `${metrics.onTime}%` },
+  ];
+
+  return (
+    <div className="grid gap-4 md:grid-cols-4">
+      {items.map((m) => {
+        const Icon = m.icon;
+        return (
+          <Card key={m.label}>
+            <CardContent className="pt-6 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Icon className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{m.label}</p>
+                <p className="text-2xl font-bold">{m.value}</p>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------- */
+/* Filters */
+/* ---------------------------------------------------- */
+
+function Filters({
+  search,
+  setSearch,
+  category,
+  setCategory,
+  fy,
+  setFY,
+  status,
+  setStatus,
+  fyOptions,
+}) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      <div className="relative flex-1 min-w-[200px]">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by form name, category, FY..."
+          className="pl-9"
+        />
+      </div>
+
+      <Select value={category} onValueChange={setCategory}>
+        <SelectTrigger className="w-[160px]">
+          <SelectValue placeholder="Category" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Categories</SelectItem>
+          {CATEGORY_TAGS.map((c) => (
+            <SelectItem key={c} value={c}>
+              {c.toUpperCase()}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={fy} onValueChange={setFY}>
+        <SelectTrigger className="w-[140px]">
+          <SelectValue placeholder="FY" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All FYs</SelectItem>
+          {fyOptions.map((f) => (
+            <SelectItem key={f} value={f}>
+              FY {f}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={status} onValueChange={setStatus}>
+        <SelectTrigger className="w-[150px]">
+          <SelectValue placeholder="Status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Status</SelectItem>
+          {Object.entries(STATUS).map(([k, v]) => (
+            <SelectItem key={k} value={k}>
+              {v.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------- */
+/* Ticket List */
+/* ---------------------------------------------------- */
+
+function TicketList({ tickets, today, onClick }) {
+  return (
+    <Card>
+      <CardContent className="pt-6 space-y-2">
+        {tickets.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No obligations found
+          </div>
+        ) : (
+          tickets.map((t) => {
+            const due = t.due_date ? new Date(t.due_date) : null;
+            const days = due ? differenceInDays(due, today) : null;
+            const isOverdue = t.status === "overdue" || (due && isBefore(due, today) && t.status === "not_started");
+            const status = STATUS[t.status] || STATUS.not_started;
+
+            // Display name - prefer form_name if available, otherwise use category/subtype
+            const displayName = t.form_name || 
+              (t.compliance_subtype 
+                ? `${t.compliance_category?.toUpperCase()} - ${t.compliance_subtype}`
+                : t.compliance_category?.toUpperCase() || "Compliance");
+
+            return (
+              <div
+                key={t._id}
+                onClick={() => onClick(t)}
+                className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{displayName}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {t.form_description || t.compliance_description || `FY: ${t.financial_year || "N/A"}`}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 ml-4">
+                  {status && (
+                    <Badge className={`text-xs ${status.class}`}>
+                      {status.label}
+                    </Badge>
+                  )}
+
+                  {due && (
+                    <div className="text-right text-xs">
+                      <p>{format(due, "dd MMM")}</p>
+                      <p className={isOverdue ? "text-destructive" : "text-muted-foreground"}>
+                        {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d left`}
+                      </p>
+                    </div>
+                  )}
+
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
   );
 }
