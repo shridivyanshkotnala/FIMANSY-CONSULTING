@@ -25,6 +25,9 @@ import {
   useSignupMutation,
 } from "@/Redux/Slices/api/authApi";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8800/api";
+const AUTH_BASE = API_BASE.replace(/\/api\/?$/, "");
+
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
@@ -213,7 +216,7 @@ export default function Auth() {
                       variant="outline"
                       className="w-full mt-4 "
                       onClick={() => {
-                        window.location.href = "http://localhost:8800/auth/google";
+                        window.location.href = `${AUTH_BASE}/auth/google`;
                       }}
                     >
                       <svg
@@ -298,7 +301,7 @@ export default function Auth() {
                       variant="outline"
                       className="w-full mt-4"
                       onClick={() => {
-                        window.location.href = "http://localhost:8800/auth/google";
+                        window.location.href = `${AUTH_BASE}/auth/google`;
                       }}
                     >
                       <svg
