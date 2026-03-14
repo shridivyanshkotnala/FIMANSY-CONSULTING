@@ -47,6 +47,20 @@ app.use(morgan('dev')); //Only for development mode
 // passport MUST be initialized after session and before any route that uses it
 app.use(passport.initialize());
 // app.use(passport.session());
+
+app.get('/', (_req, res) => {
+    res.status(200).json({
+        ok: true,
+        service: 'fimansy-api',
+        message: 'API is running',
+        docs: '/api'
+    });
+});
+
+app.get('/health', (_req, res) => {
+    res.status(200).json({ ok: true });
+});
+
 app.use("/api/compliance", complianceRoutes);
 app.use("/api",router);
 app.use("/auth", userRoute);
