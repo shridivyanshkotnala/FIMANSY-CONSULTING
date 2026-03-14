@@ -1,5 +1,4 @@
-import { useMemo, useState, useCallback } from "react"; // Add useCallback
-import { useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
 
 import {
   Card,
@@ -13,7 +12,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
 import { ComplianceCalendar } from "./ComplianceCalendarWidget";
-import { TicketDetailDrawer } from "./TicketDetailDrawer";
 
 import { useCompliance } from "@/hooks/useCompliance";
 import { useTickets } from "@/hooks/useTickets";
@@ -35,10 +33,6 @@ import {
   Calendar,
   FileText,
   ChevronRight,
-  Ticket,
-  MessageCircle,
-  AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 
 import { useToast } from "@/hooks/use-toast";
@@ -76,25 +70,15 @@ function getCurrentQuarterRange() {
 /* ================= Component ================= */
 
 export function FixedScheduleTab() {
-  const navigate = useNavigate();
-
   const { obligations, loading, refetch: refetchCompliance } = useCompliance();
   const { createTicket, refetchTickets } = useTickets();
 
   const { toast } = useToast();
 
   const [filingModal, setFilingModal] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [selectedObligation, setSelectedObligation] = useState(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const today = startOfDay(new Date());
   const fy = getCurrentFinancialYear();
-
-  // Debug: Log obligations from backend
-  console.log("📊 Backend obligations:", obligations);
-  console.log("📊 Total obligations from backend:", obligations.length);
 
   /* ================= Filter obligations by time periods ================= */
 
@@ -140,85 +124,40 @@ export function FixedScheduleTab() {
     return obligations.filter((ob) => ob.status === "not_started" && !ob.ticket_id);
   }, [obligations]);
 
-  const thisMonthObligations = useMemo(() => {
-    return obligations.filter((ob) => {
-      if (!ob.due_date) return false;
-      const dueDate = parseISO(ob.due_date);
-      return isSameMonth(dueDate, today) && ob.recurrence_type === "monthly";
-    });
-  }, [obligations, today]);
-
-  const quarterlyObligations = useMemo(() => {
-    return obligations.filter((ob) => {
-      if (!ob.due_date) return false;
-
-      const isQuarterly =
-        ob.recurrence_type === "quarterly" ||
-        QUARTERLY_SUBTYPES.includes(ob.compliance_subtype);
-
-      if (!isQuarterly) return false;
-
-      const dueDate = parseISO(ob.due_date);
-      return isWithinInterval(dueDate, quarterRange);
-    });
-  }, [obligations, quarterRange]);
-
-  const thisFYObligations = useMemo(() => {
-    return obligations.filter((ob) => ob.financial_year === fy);
-  }, [obligations, fy]);
-
   /* ================= Ticket Creation ================= */
 
   const handleCreateTicket = async (data) => {
     if (!filingModal) return;
 
-    setIsSubmitting(true);
+    try {
+      const result = await createTicket({
+        obligation_id: filingModal._id,
+        comment: data.comment,
+        attachments: data.attachments || [],
+      });
 
-    const result = await createObligation({
-      compliance_category: filingModal.compliance_category || filingModal.primaryTag?.toLowerCase(),
-      compliance_subtype: filingModal.compliance_subtype || filingModal.name,
-      compliance_description: filingModal.compliance_description || filingModal.description,
-      form_name: filingModal.form_name || filingModal.name,
-      form_description: filingModal.form_description || filingModal.description,
-      due_date: format(filingModal.dueDate, "yyyy-MM-dd"),
-      status: "in_progress",
-      financial_year: fy,
-      notes: data.comment,
-      priority: 3,
-    });
+      if (result?.error) {
+        toast({
+          title: "Error creating ticket",
+          description: result.error.message || "Failed to create ticket",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    if (!result.error) {
       toast({
         title: "Filing initiated",
         description: `${filingModal.name} filing has been initiated.`,
       });
-    } else {
-      toast({
-        title: "Error",
-        description: "Failed to initiate filing",
-        variant: "destructive",
-      });
-    }
 
-        // Refresh both compliance and tickets data
-        await refreshAllData();
-
-        setFilingModal(null);
-      } else {
-        toast({
-          title: "Error creating ticket",
-          description: result.error.message,
-          variant: "destructive",
-        });
-      }
+      await Promise.all([refetchCompliance(), refetchTickets()]);
+      setFilingModal(null);
     } catch (error) {
       toast({
         title: "Error",
         description: "Failed to create ticket",
         variant: "destructive",
       });
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -409,15 +348,7 @@ export function FixedScheduleTab() {
         open={!!filingModal}
         onOpenChange={(open) => !open && setFilingModal(null)}
         compliance={filingModal}
-        onSubmit={handleFiling}
-        isSubmitting={isSubmitting}
-      />
-
-      <TicketDetailDrawer
-        ticket={selectedObligation}
-        open={drawerOpen}
-        onOpenChange={handleDrawerClose}
-        onStatusUpdate={handleTicketUpdate}
+        onSuccess={handleCreateTicket}
       />
     </div>
   );

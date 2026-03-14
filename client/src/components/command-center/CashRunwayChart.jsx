@@ -147,7 +147,7 @@ export function CashRunwayChart() {
 
       <CardContent>
         <div className="h-[250px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={250}>
             <AreaChart data={data}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={6} />

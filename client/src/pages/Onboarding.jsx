@@ -23,6 +23,11 @@ export default function Onboarding() {
 
   // already has org → go dashboard
   useEffect(() => {
+    if (!isLoading && !user) {
+      navigate("/auth", { replace: true });
+      return;
+    }
+
     if (!isLoading && user?.isOnboarded) {
       navigate("/dashboard", { replace: true });
     }
@@ -73,7 +78,13 @@ export default function Onboarding() {
     );
   }
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">

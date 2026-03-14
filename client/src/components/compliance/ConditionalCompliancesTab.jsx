@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 
 export function ConditionalCompliancesTab() {
   const { 
-    conditionalItems, 
+    conditionalItems = [], 
     loadingConditional, 
     fetchConditionalCompliances,
     generateConditionalObligation 
@@ -36,8 +36,10 @@ export function ConditionalCompliancesTab() {
 
   // Load conditional items when tab opens
   useEffect(() => {
-    fetchConditionalCompliances(fy);
-  }, []);
+    if (typeof fetchConditionalCompliances === "function") {
+      fetchConditionalCompliances(fy);
+    }
+  }, [fetchConditionalCompliances, fy]);
 
   const handleFileClick = (item) => {
     // Set the modal data directly from the DB item
@@ -49,6 +51,16 @@ export function ConditionalCompliancesTab() {
     if (!filingModal) return;
     
     setIsSubmitting(true);
+
+    if (typeof generateConditionalObligation !== "function") {
+      toast({
+        title: "Error",
+        description: "Conditional filing is not available right now.",
+        variant: "destructive",
+      });
+      setIsSubmitting(false);
+      return;
+    }
     
     const result = await generateConditionalObligation(filingModal._id, {
       comment: data.comment,

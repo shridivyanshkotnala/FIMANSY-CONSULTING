@@ -29,6 +29,7 @@ const pillars = [
 export function PillarSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const activeOrg = localStorage.getItem("activeOrgId");
 
   // SERVER AUTH STATE (single source of truth)
   const { data: user } = useMeQuery();
@@ -50,11 +51,12 @@ export function PillarSidebar() {
   };
 
 
-  const { data: zoho, isLoading } = useGetZohoStatusQuery();
+  const { data: zoho, isLoading } = useGetZohoStatusQuery(undefined, {
+    skip: !activeOrg,
+  });
 
   const zohoConnectionHandler = () => {
     if (!zoho?.connected) {
-      const activeOrg = localStorage.getItem("activeOrgId");
       const url = activeOrg ? `/api/zoho/connect?org=${activeOrg}` : "/api/zoho/connect";
       window.location.href = url;// url = /api/zoho/connect
     }

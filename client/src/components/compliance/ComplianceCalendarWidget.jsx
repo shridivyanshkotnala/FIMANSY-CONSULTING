@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+
+// Helper to parse dates consistently
 const parseDate = (dateStr) => {
   if (!dateStr) return null;
   try {
@@ -38,12 +40,6 @@ const parseDate = (dateStr) => {
   } catch {
     return null;
   }
-};
-
-// Helper to parse dates consistently
-const parseDate = (dateStr) => {
-  if (!dateStr) return null;
-  return parseISO(dateStr);
 };
 
 export function ComplianceCalendar() {

@@ -122,19 +122,29 @@ export const getComplianceRequests = async (req, res) => {
         ]);
 
         // === TEMPLATE DESCRIPTION BATCH LOOKUP ===
-        // form_description lives in ComplianceTemplate.description (matched by category_tag + subtag).
+        // form_description lives in ComplianceTemplate.(compliance_description|description)
+        // matched by (compliance_category|category_tag) + (compliance_subtype|subtag)
         // ComplianceObligation.form_description may be empty; template is the authoritative source.
         if (data.length > 0) {
             const uniquePairs = [...new Set(data.map(t => `${t.category_tag}|${(t.subtag || "").toLowerCase()}`))]
                 .map(key => {
                     const [cat, sub] = key.split("|");
-                    return { category_tag: cat, subtag: { $regex: new RegExp(`^${sub}$`, "i") } };
+                    return {
+                      $or: [
+                        { compliance_category: cat, compliance_subtype: { $regex: new RegExp(`^${sub}$`, "i") } },
+                        { category_tag: cat, subtag: { $regex: new RegExp(`^${sub}$`, "i") } },
+                      ],
+                    };
                 });
             const templates = await ComplianceTemplate.find({ $or: uniquePairs })
-                .select("category_tag subtag description").lean();
+                .select("compliance_category compliance_subtype compliance_description category_tag subtag description").lean();
             const templateMap = {};
             templates.forEach(tmpl => {
-                templateMap[`${tmpl.category_tag}|${tmpl.subtag.toLowerCase()}`] = tmpl.description || "";
+                const cat = tmpl.compliance_category || tmpl.category_tag;
+                const sub = (tmpl.compliance_subtype || tmpl.subtag || "").toLowerCase();
+                if (cat && sub) {
+                  templateMap[`${cat}|${sub}`] = tmpl.compliance_description || tmpl.description || "";
+                }
             });
             data = data.map(t => ({
                 ...t,
@@ -192,16 +202,20 @@ export const getComplianceRequestDetail = async (req, res) => {
         const companyProfile = orgId ? await fetchOrganizationCompanyProfile(String(orgId)) : null;
 
         // 2c️⃣ Template description lookup — ComplianceObligation.form_description is often empty;
-        //       ComplianceTemplate.description is the authoritative source (same logic as the list endpoint)
+        //       ComplianceTemplate.compliance_description/description is authoritative
         let resolvedFormDescription = ticket.obligation_id?.form_description || "";
         const catTag = ticket.category_tag;
         const subTag = (ticket.subtag || "").toLowerCase();
         if (catTag) {
             const tmpl = await ComplianceTemplate.findOne({
-                category_tag: catTag,
-                subtag: { $regex: new RegExp(`^${subTag}$`, "i") },
-            }).select("description").lean();
-            if (tmpl?.description) resolvedFormDescription = tmpl.description;
+              $or: [
+                { compliance_category: catTag, compliance_subtype: { $regex: new RegExp(`^${subTag}$`, "i") } },
+                { category_tag: catTag, subtag: { $regex: new RegExp(`^${subTag}$`, "i") } },
+              ],
+            }).select("compliance_description description").lean();
+            if (tmpl?.compliance_description || tmpl?.description) {
+              resolvedFormDescription = tmpl.compliance_description || tmpl.description;
+            }
         }
 
         // 3️⃣ Access control check (example placeholder)

@@ -133,6 +133,11 @@ export const generateConditionalObligation = async (req, res) => {
       );
     }
 
+    const requestedStatus = filingData?.status;
+    const status = ["not_started", "in_progress", "filed", "overdue", "not_applicable"].includes(requestedStatus)
+      ? requestedStatus
+      : "in_progress";
+
     // Create the obligation
     const obligation = new ComplianceObligation({
       organization_id: new mongoose.Types.ObjectId(organization_id),
@@ -146,7 +151,7 @@ export const generateConditionalObligation = async (req, res) => {
       form_description: template.compliance_description,
       
       due_date: dueDate,
-      status: filingData?.status || 'initiated',
+      status,
       financial_year: financialYear,
       
       is_recurring: false,

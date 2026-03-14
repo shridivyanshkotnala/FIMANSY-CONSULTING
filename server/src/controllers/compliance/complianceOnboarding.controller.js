@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
 import { Organization } from "../../models/organizationModel.js";
 import { asynchandler } from "../../utils/asynchandler.js";
@@ -8,15 +7,6 @@ import { generateObligationsForFY } from "../../Functions/complianceMainEngine.j
 
 // ==============================
 // Constants for company types
-// ==============================
-const COMPANY_TYPES = {
-  PRIVATE: "private_limited",
-  PUBLIC: "public_limited",
-  LLP: "llp",
-};
-
-// ==============================
-// Helper functions
 // ==============================
 const fetchProfile = async (organization_id) => {
   return CompanyComplianceProfile.findOne({ organization_id });
@@ -54,21 +44,6 @@ function getCurrentFinancialYear() {
   }
 }
 
-// Helper to check if profile is complete
-function isProfileComplete(profile) {
-  const missingFields = getMissingFields(profile);
-  return missingFields.length === 0;
-}
-
-// Create company compliance profile
-export const createCompanyProfile = asynchandler(async (req, res) => {
-  const { organization_id } = req.body;
-
-const isProfileComplete = (profile) => getMissingFields(profile).length === 0;
-
-// ==============================
-// Create company profile
-// ==============================
 export const createCompanyProfile = asynchandler(async (req, res) => {
   const { organization_id } = req.body;
 
@@ -166,41 +141,20 @@ export const updateCompanyProfile = asynchandler(async (req, res) => {
 });
 
 // Get company profile
-export const getCompanyProfile = async (req, res) => {
-  try {
-    const { organization_id } = req.query;
+export const getCompanyProfile = asynchandler(async (req, res) => {
+  const { organization_id } = req.query;
 
-    if (!organization_id) {
-      return res.status(400).json({
-        success: false,
-        message: "organization_id is required"
-      });
-    }
-
-    const profile = await CompanyComplianceProfile.findOne({
-      organization_id
-    });
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: "Profile not found"
-      });
-    }
-
-    res.json({
-      success: true,
-      data: profile
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+  if (!organization_id) {
+    throw new ApiError(400, "organization_id is required");
   }
-};
+
+  const profile = await CompanyComplianceProfile.findOne({ organization_id });
+  if (!profile) {
+    throw new ApiError(404, "Profile not found");
+  }
+
+  res.json(new ApiResponse(200, profile, "Profile fetched successfully"));
+});
 
 // Onboarding status
 export const getOnboardingStatus = asynchandler(async (req, res) => {

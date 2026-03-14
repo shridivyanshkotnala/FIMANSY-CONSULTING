@@ -29,10 +29,6 @@ export const orgMiddleware = async (req, res, next) => {
     req.organizationId = orgId;
     req.role = membership.role;
 
-    if (!req.user || !orgId) {
-  toast.error("Organization not ready");
-  return;
-    }
     next();
   } catch (err) {
     res.status(500).json({ message: "Organization validation failed" });

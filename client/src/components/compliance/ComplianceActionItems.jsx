@@ -115,7 +115,7 @@ export function useComplianceActions() {
             }
 
             actionItems.push({
-              id: `ob-${ob.id}`,
+              id: `ob-${ob._id || ob.id || ob.form_name || ob.due_date}`,
               type: "mca_filing",
               severity,
               icon: <FileText className="h-5 w-5" />,
@@ -143,7 +143,7 @@ export function useComplianceActions() {
 
           if (status.status === "expired") {
             actionItems.push({
-              id: `dsc-${dir.id}`,
+              id: `dsc-${dir._id || dir.id || dir.name}`,
               type: "dsc_expiry",
               severity: "critical",
               icon: <Shield className="h-5 w-5" />,
@@ -154,7 +154,7 @@ export function useComplianceActions() {
             });
           } else if (status.daysRemaining <= 30) {
             actionItems.push({
-              id: `dsc-${dir.id}`,
+              id: `dsc-${dir._id || dir.id || dir.name}`,
               type: "dsc_expiry",
               severity: status.daysRemaining <= 7 ? "critical" : "warning",
               icon: <Shield className="h-5 w-5" />,
@@ -190,7 +190,7 @@ export function useComplianceActions() {
                   : `₹${tax.shortfall.toLocaleString("en-IN")}`;
 
               actionItems.push({
-                id: `tax-${tax.id}`,
+                id: `tax-${tax._id || tax.id || tax.quarter || tax.due_date}`,
                 type: "advance_tax",
                 severity,
                 icon: <Calculator className="h-5 w-5" />,
@@ -224,7 +224,7 @@ export function useComplianceActions() {
                 : "warning";
 
             actionItems.push({
-              id: `evt-${evt.id}`,
+              id: `evt-${evt._id || evt.id || evt.event_type || evt.filing_deadline}`,
               type: "event_filing",
               severity,
               icon: <AlertTriangle className="h-5 w-5" />,

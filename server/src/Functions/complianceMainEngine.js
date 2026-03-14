@@ -4,6 +4,37 @@ import { CompanyComplianceProfile } from "../models/compliance/companyCompliance
 import { getFinancialYearDates } from "../utils/calenderLogic.js";
 import { generateMonthlyDueDates, generateQuarterlyDueDates, generateAnnualDueDate } from "../utils/calenderLogic.js";
 
+const VALID_CATEGORIES = new Set(["gst", "tds", "income_tax", "payroll", "mca"]);
+
+function inferCategoryFromName(name = "") {
+  const n = String(name).toLowerCase();
+  if (n.includes("gst")) return "gst";
+  if (n.includes("tds")) return "tds";
+  if (n.includes("income tax") || n.includes("itr") || n.includes("tax audit") || n.includes("transfer pricing") || n.includes("advance tax")) return "income_tax";
+  if (n.includes("pf") || n.includes("payroll") || n.includes("esic")) return "payroll";
+  if (n.includes("mca") || n.includes("roc")) return "mca";
+  return null;
+}
+
+function toSafeSubtype(value, fallbackName = "general") {
+  const base = String(value || fallbackName || "general")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return base || "general";
+}
+
+function mapComplianceType(category, subtype) {
+  if (category === "gst") return "gst";
+  if (category === "tds") return "tds";
+  if (category === "income_tax") {
+    if (String(subtype).includes("advance")) return "advance_tax";
+    return "income_tax";
+  }
+  if (category === "mca") return "mca_annual";
+  return undefined;
+}
+
 // Default templates to seed if none exist
 const DEFAULT_TEMPLATES = [
   {
@@ -96,10 +127,31 @@ export async function generateObligationsForFY(organization_id, financialYear) {
   const obligationsToInsert = [];
 
   for (const [index, template] of templates.entries()) {
+    const normalizedCategory =
+      template.compliance_category ||
+      template.category_tag ||
+      inferCategoryFromName(template.name);
+
+    const normalizedSubtype =
+      template.compliance_subtype ||
+      template.subtag ||
+      toSafeSubtype(template.name);
+
+    const normalizedDescription =
+      template.compliance_description ||
+      template.description ||
+      template.name ||
+      "Compliance obligation";
+
+    if (!normalizedCategory || !VALID_CATEGORIES.has(normalizedCategory)) {
+      console.warn(`      ⚠️ Template has invalid/missing category. Skipping template: ${template.name}`);
+      continue;
+    }
+
     console.log(`\n   🔄 Processing template ${index + 1}/${templates.length}: ${template.name}`);
     console.log(`      Type: ${template.recurrence_type}`);
-    console.log(`      Category: ${template.compliance_category}`);
-    console.log(`      Subtype: ${template.compliance_subtype}`);
+    console.log(`      Category: ${normalizedCategory}`);
+    console.log(`      Subtype: ${normalizedSubtype}`);
     
     let dueDates = [];
 
@@ -129,14 +181,15 @@ export async function generateObligationsForFY(organization_id, financialYear) {
     }
 
     for (const [dateIndex, dueDate] of dueDates.entries()) {
+      const mappedComplianceType = mapComplianceType(normalizedCategory, normalizedSubtype);
       const obligation = {
         organization_id,
         form_name: template.name,
-        form_description: template.compliance_description,
-        compliance_type: template.compliance_category,
-        compliance_category: template.compliance_category,
-        compliance_subtype: template.compliance_subtype,
-        compliance_description: template.compliance_description,
+        form_description: normalizedDescription,
+        ...(mappedComplianceType ? { compliance_type: mappedComplianceType } : {}),
+        compliance_category: normalizedCategory,
+        compliance_subtype: normalizedSubtype,
+        compliance_description: normalizedDescription,
         financial_year: financialYear,
 
         due_date: dueDate,

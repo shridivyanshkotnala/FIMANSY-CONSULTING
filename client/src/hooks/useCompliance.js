@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // ⚠️ CONTEXT API SHIM — MARKED FOR REMOVAL
 // 🔄 FUTURE: Replace this entire hook with Redux RTK Query endpoints
@@ -14,21 +14,51 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8800/api';
 
 async function apiFetch(endpoint, options = {}) {
   try {
+    const method = (options.method || "GET").toUpperCase();
+    const shouldSendJsonHeader = method !== "GET" && method !== "HEAD";
+
     const res = await fetch(`${API_BASE}${endpoint}`, {
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      headers: {
+        ...(shouldSendJsonHeader ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers,
+      },
       credentials: 'include',
+      cache: 'no-store',
       ...options,
     });
 
     if (endpoint.includes('/profile') && res.status === 404) {
-      return { data: null, error: null };
+      return { data: null, error: null, status: 404, endpoint };
     }
 
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    return { data: await res.json(), error: null };
+    let parsedData = null;
+    const text = await res.text();
+
+    if (text) {
+      try {
+        parsedData = JSON.parse(text);
+      } catch {
+        parsedData = text;
+      }
+    }
+
+    if (!res.ok) {
+      const message =
+        (parsedData && typeof parsedData === 'object' && (parsedData.message || parsedData.error)) ||
+        `API ${res.status}`;
+
+      console.error(`[useCompliance] ${method} ${endpoint} failed`, {
+        status: res.status,
+        response: parsedData,
+      });
+
+      throw new Error(message);
+    }
+
+    return { data: parsedData, error: null, status: res.status, endpoint };
   } catch (err) {
-    console.warn(`[useCompliance] API call failed: ${endpoint}`, err.message);
-    return { data: null, error: err };
+    console.error(`[useCompliance] API call failed: ${endpoint}`, err.message);
+    return { data: null, error: err, status: null, endpoint };
   }
 }
 
@@ -39,13 +69,15 @@ export function useCompliance() {
   const [directors, setDirectors] = useState([]);
   const [obligations, setObligations] = useState([]);
   const [events, setEvents] = useState([]);
+  const [conditionalItems, setConditionalItems] = useState([]);
+  const [loadingConditional, setLoadingConditional] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   /* ============================================================
      FETCH ALL DATA
   ============================================================ */
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     if (!organization?.id) {
       setLoading(false);
       return;
@@ -61,6 +93,12 @@ export function useCompliance() {
         apiFetch(`/compliance/obligations?organization_id=${organization.id}`),
         apiFetch(`/compliance/events?organization_id=${organization.id}`),
       ]);
+
+      [profileRes, dirsRes, obsRes, evtsRes].forEach((res) => {
+        if (res.error) {
+          console.error(`[useCompliance] Endpoint failed: ${res.endpoint}`, res.error.message);
+        }
+      });
 
       // Handle profile response
       if (profileRes.data?.data) {
@@ -85,36 +123,17 @@ export function useCompliance() {
         setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
       }
 
-      // Handle directors response
-      if (dirsRes.data) {
-        setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
+      const failedEndpoints = [profileRes, dirsRes, obsRes, evtsRes].filter((res) => res.error);
+      if (failedEndpoints.length > 0) {
+        setError(`Compliance API failures: ${failedEndpoints.map((r) => r.endpoint).join(', ')}`);
       }
-
-      // Handle obligations response
-      if (obsRes.data) {
-        setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
-      }
-
-      // Handle events response
-      if (evtsRes.data) {
-        setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
-      }
-
-      if (dirsRes.data)
-        setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
-
-      if (obsRes.data)
-        setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
-
-      if (evtsRes.data)
-        setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
     } catch (err) {
       setError('Failed to fetch compliance data');
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [organization?.id]);
 
   useEffect(() => {
     fetchAll();
@@ -290,6 +309,56 @@ export function useCompliance() {
     return { error };
   };
 
+  /* ============================================================
+     CONDITIONAL COMPLIANCES
+  ============================================================ */
+  const fetchConditionalCompliances = useCallback(async (financialYear) => {
+    if (!organization?.id) {
+      setConditionalItems([]);
+      return { error: new Error('No organization') };
+    }
+
+    const fy = financialYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+
+    setLoadingConditional(true);
+    const { data, error } = await apiFetch(
+      `/compliance/conditional?organization_id=${organization.id}&financialYear=${fy}`
+    );
+
+    if (!error) {
+      const items = Array.isArray(data) ? data : data?.data || [];
+      setConditionalItems(items);
+    }
+
+    setLoadingConditional(false);
+    return { data, error };
+  }, [organization?.id]);
+
+  const generateConditionalObligation = useCallback(async (templateId, filingData = {}) => {
+    if (!organization?.id) return { error: new Error('No organization') };
+
+    const now = new Date();
+    const fy = now.getMonth() >= 3
+      ? `${now.getFullYear()}-${now.getFullYear() + 1}`
+      : `${now.getFullYear() - 1}-${now.getFullYear()}`;
+
+    const { data, error } = await apiFetch('/compliance/conditional/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        organization_id: organization.id,
+        template_id: templateId,
+        financialYear: fy,
+        filingData,
+      }),
+    });
+
+    if (!error) {
+      await Promise.all([fetchAll(), fetchConditionalCompliances(fy)]);
+    }
+
+    return { data, error };
+  }, [organization?.id, fetchAll, fetchConditionalCompliances]);
+
   // =========================
   // Return Hook API
   // =========================
@@ -298,6 +367,8 @@ export function useCompliance() {
     directors,
     obligations,
     events,
+    conditionalItems,
+    loadingConditional,
     loading,
     error,
     refetch: fetchAll,
@@ -310,5 +381,7 @@ export function useCompliance() {
     deleteObligation,
     acknowledgeEvent,
     createEvent,
+    fetchConditionalCompliances,
+    generateConditionalObligation,
   };
 }

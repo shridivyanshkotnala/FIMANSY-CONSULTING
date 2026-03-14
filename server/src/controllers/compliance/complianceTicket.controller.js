@@ -95,6 +95,15 @@ export const createTicket = async (req, res) => {
     const ticket_number = await generateTicketNumber();
     console.log("Generated ticket number:", ticket_number);
 
+    const categoryTag = obligation.compliance_category || "other";
+    const subtag =
+      obligation.compliance_subtype ||
+      String(obligation.form_name || "general")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") ||
+      "general";
+
     // Create ticket with error handling for each step
     let ticket;
     try {
@@ -104,6 +113,8 @@ export const createTicket = async (req, res) => {
         ticket_number,
         compliance_category: obligation.compliance_category,
         compliance_subtype: obligation.compliance_subtype,
+        category_tag: categoryTag,
+        subtag,
         financial_year: obligation.financial_year,
         due_date: obligation.due_date,
         created_by: user_id,

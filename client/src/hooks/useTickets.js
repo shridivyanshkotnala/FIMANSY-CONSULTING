@@ -10,9 +10,12 @@ Reusable API Fetch
 */
 async function apiFetch(endpoint, options = {}) {
   try {
+    const method = (options.method || "GET").toUpperCase();
+    const shouldSendJsonHeader = method !== "GET" && method !== "HEAD";
+
     const res = await fetch(`${API_BASE}${endpoint}`, {
       headers: {
-        "Content-Type": "application/json",
+        ...(shouldSendJsonHeader ? { "Content-Type": "application/json" } : {}),
         ...(options.headers || {}),
       },
       credentials: "include",

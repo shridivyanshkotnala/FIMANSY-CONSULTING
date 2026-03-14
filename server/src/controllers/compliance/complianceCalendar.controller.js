@@ -1,6 +1,18 @@
 import mongoose from "mongoose";
 import { ComplianceObligation } from "../../models/compliance/complianceObligationModel.js";
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
+import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
+
+function getCurrentFinancialYear() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+
+  if (month >= 3) {
+    return `${year}-${year + 1}`;
+  }
+  return `${year - 1}-${year}`;
+}
 
 // ==============================
 // GENERATE FINANCIAL YEAR
@@ -66,11 +78,50 @@ export const getObligations = async (req, res) => {
 
     console.log("🔍 Obligations filter:", JSON.stringify(filter, null, 2));
 
-    const obligations = await ComplianceObligation.find(filter)
+    let obligations = await ComplianceObligation.find(filter)
       .sort({ due_date: 1 })
       .lean();
 
     console.log(`📊 Found ${obligations.length} obligations`);
+
+    const shouldAutoGenerate =
+      obligations.length === 0 &&
+      !status &&
+      !financialYear &&
+      !compliance_category;
+
+    if (shouldAutoGenerate) {
+      console.log("⚠️ No obligations found. Running auto-heal obligation generation...");
+
+      const profile = await CompanyComplianceProfile.findOne({
+        organization_id: new mongoose.Types.ObjectId(organization_id),
+      });
+
+      if (profile) {
+        const currentFY = getCurrentFinancialYear();
+        console.log(`🛠️ Auto-heal target FY: ${currentFY}`);
+
+        try {
+          const generatedCount = await generateObligationsForFY(organization_id, currentFY);
+          console.log(`✅ Auto-heal generated obligations: ${generatedCount}`);
+
+          if (generatedCount > 0 && !profile.obligations_generated) {
+            profile.obligations_generated = true;
+            await profile.save();
+          }
+        } catch (generationError) {
+          console.error("❌ Auto-heal generation failed:", generationError.message);
+        }
+
+        obligations = await ComplianceObligation.find(filter)
+          .sort({ due_date: 1 })
+          .lean();
+
+        console.log(`📊 After auto-heal, found ${obligations.length} obligations`);
+      } else {
+        console.warn("⚠️ No compliance profile found. Skipping auto-heal generation.");
+      }
+    }
 
     res.json({
       success: true,

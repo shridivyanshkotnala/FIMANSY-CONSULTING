@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,6 @@ import { z } from "zod";
 import {
   useLoginMutation,
   useSignupMutation,
-  useMeQuery,
 } from "@/Redux/Slices/api/authApi";
 
 const loginSchema = z.object({
@@ -53,17 +52,6 @@ export default function Auth() {
   const [login, { isLoading: loginLoading }] = useLoginMutation();
   const [signup, { isLoading: signupLoading }] = useSignupMutation();
 
-  // Check if already logged in — do NOT block render; redirect via effect
-  const { data: me, isLoading: checkingAuth } = useMeQuery();
-
-  // redirect AFTER render once /me resolves
-  useEffect(() => {
-    if (!checkingAuth && me) {
-      navigate(from, { replace: true });
-    }
-  }, [checkingAuth, me, from, navigate]);
-
-
   // ---------------- LOGIN ----------------
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -83,10 +71,17 @@ export default function Auth() {
     }
 
     try {
-      await login({
+      const res = await login({
         email: loginEmail,
         password: loginPassword,
       }).unwrap();
+
+      const loggedInUser = res?.data?.user;
+      if (loggedInUser?.isOnboarded) {
+        navigate(from, { replace: true });
+      } else {
+        navigate("/onboarding", { replace: true });
+      }
 
     } catch (err) {
       toast({
@@ -127,6 +122,8 @@ export default function Auth() {
         title: "Account Created",
         description: "Welcome! Your account has been created successfully.",
       });
+
+      navigate("/onboarding", { replace: true });
 
     } catch (err) {
       toast({
