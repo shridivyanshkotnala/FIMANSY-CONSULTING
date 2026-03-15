@@ -6,6 +6,15 @@ import { Organization } from '../models/organizationModel.js';
 import { Membership } from '../models/membershipModel.js';
 import jwt from 'jsonwebtoken';
 
+const isProduction = process.env.NODE_ENV === "production";
+
+const authCookieOptions = {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
+    path: "/",
+};
+
 const generateAccessAndRefreshToken = async (userId) => {
     try {
         const user = await User.findById(userId)
@@ -36,10 +45,7 @@ const googleAuthCallback = asynchandler(async (req, res) => {
         await generateAccessAndRefreshToken(req.user._id);
 
     const cookieOptions = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax", // IMPORTANT for localhost OAuth
-        path: "/",
+        ...authCookieOptions,
     };
 
     // set session cookies
@@ -91,8 +97,7 @@ const registerUser = asynchandler(async (req, res) => {
     const { accessToken, refreshToken } = await generateAccessAndRefreshToken(newUser._id)
 
     const cookieOptions = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        ...authCookieOptions,
     }
 
     // send cookies + response
@@ -163,13 +168,11 @@ const loginUser = asynchandler(async (req, res) => {
 
     return res.status(200)
         .cookie("accessToken", accessToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
+            ...authCookieOptions,
             maxAge: 24 * 60 * 60 * 1000, //1 day in milliseconds
         })
         .cookie("refreshToken", refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
+            ...authCookieOptions,
             maxAge: 7 * 24 * 60 * 60 * 1000, //7 days in milliseconds
         })
         .json(
@@ -203,16 +206,10 @@ const logoutUser = asynchandler(async (req, res) => {
     return res.status(200)
         .clearCookie(
             "accessToken",
-            {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production"
-            })
+            authCookieOptions)
         .clearCookie(
             "refreshToken",
-            {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production"
-            }
+            authCookieOptions
         )
         .json(new ApiResponse(201, {}, "User logged out succesfully"))
 
@@ -251,8 +248,7 @@ const refreshRefreshToken = asynchandler(async (req, res) => {
     const { accessToken, refreshToken: newrefreshToken } = await generateAccessAndRefreshToken(user._id)
 
     const options = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        ...authCookieOptions,
     }
     //sending new tokens back to frontend in cookies and response
     return res.status(200)
