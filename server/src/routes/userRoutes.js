@@ -15,23 +15,41 @@ import { completeOnboarding } from "../controllers/userController.js";
 
 const userRoute = express.Router();
 
-userRoute.get(
-  "/google",
-  passport.authenticate("google", {
-    scope: ["profile", "email"],
-    session: false,
-  })
-);
+const isGoogleOAuthConfigured =
+  !!process.env.GOOGLE_CLIENT_ID &&
+  !!process.env.GOOGLE_CLIENT_SECRET &&
+  !!process.env.GOOGLE_CALLBACK_URL;
 
+if (isGoogleOAuthConfigured) {
+  userRoute.get(
+    "/google",
+    passport.authenticate("google", {
+      scope: ["profile", "email"],
+      session: false,
+    })
+  );
 
-userRoute.get(
-  "/google/callback",
-  passport.authenticate("google", {
-    failureRedirect: "/login",
-    session: false,
-  }),
-  googleAuthCallback
-);
+  userRoute.get(
+    "/google/callback",
+    passport.authenticate("google", {
+      failureRedirect: "/login",
+      session: false,
+    }),
+    googleAuthCallback
+  );
+} else {
+  userRoute.get("/google", (_req, res) => {
+    res.status(503).json({
+      message: "Google OAuth is not configured on server",
+    });
+  });
+
+  userRoute.get("/google/callback", (_req, res) => {
+    res.status(503).json({
+      message: "Google OAuth is not configured on server",
+    });
+  });
+}
 
 
 userRoute.post("/register", validateSignup, registerUser)
