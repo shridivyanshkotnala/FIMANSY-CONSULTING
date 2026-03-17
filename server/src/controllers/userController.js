@@ -56,11 +56,12 @@ const googleAuthCallback = asynchandler(async (req, res) => {
       Now decide where user should land.
       Backend already knows onboarding status.
     */
-    if (!req.user.isOnboarded) {
-        return res.redirect(`${process.env.CLIENT_URL}/onboarding`);
-    }
+    const callbackUrl = new URL(`${process.env.CLIENT_URL}/auth/callback`);
+    callbackUrl.searchParams.set("accessToken", accessToken);
+    callbackUrl.searchParams.set("refreshToken", refreshToken);
+    callbackUrl.searchParams.set("onboarded", req.user.isOnboarded ? "1" : "0");
 
-    return res.redirect(`${process.env.CLIENT_URL}/dashboard`);
+    return res.redirect(callbackUrl.toString());
 });
 
 

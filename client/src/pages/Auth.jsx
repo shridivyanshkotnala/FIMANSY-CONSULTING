@@ -25,7 +25,11 @@ import {
   useSignupMutation,
 } from "@/Redux/Slices/api/authApi";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8800/api";
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://fimansy-consulting.onrender.com/api"
+    : "http://localhost:8800/api");
 const AUTH_BASE = API_BASE.replace(/\/api\/?$/, "");
 
 const loginSchema = z.object({

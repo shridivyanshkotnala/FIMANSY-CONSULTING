@@ -25,6 +25,7 @@ import AccountantLogin from "./pages/AccountantLogin";
 import AccountantDashboard from "./pages/AccountantDashboard";
 import AccountantReconciliation from "./pages/AccountantReconciliation";
 import AccountantQueries from "./pages/AccountantQueries";
+import AuthCallback from "./pages/AuthCallback";
 
 
 const App = () => {
@@ -59,6 +60,7 @@ const App = () => {
             />
 
             <Route path="/auth" element={<Auth />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/onboarding" element={<Onboarding />} />
 
             <Route
