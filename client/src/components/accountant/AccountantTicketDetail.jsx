@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Building2,
   Calendar,
@@ -59,10 +60,22 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
   const { selectedTicketId, open: drawerOpen } = useSelector((state) => state.complianceUi.drawer);
 
   // RTK Query hooks — fetch only when we have a selected ticket and drawer is open
-  const { data: ticketData, isLoading: _ticketLoading } = useGetTicketByIdQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
-  const { data: commentsData = [], refetch: refetchComments } = useGetCommentsQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
-  const { data: meta } = useGetTicketMetaQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen, pollingInterval: drawerOpen ? 20000 : 0 });
-  const { data: statusHistory = [] } = useGetTicketStatusHistoryQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
+  const {
+    data: ticketData,
+    currentData: currentTicketData,
+    isLoading: ticketLoading,
+    isFetching: ticketFetching,
+  } = useGetTicketByIdQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
+  const {
+    data: commentsData = [],
+    currentData: currentCommentsData = [],
+    refetch: refetchComments,
+  } = useGetCommentsQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
+  const { currentData: meta } = useGetTicketMetaQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen, pollingInterval: drawerOpen ? 20000 : 0 });
+  const {
+    data: statusHistory = [],
+    currentData: currentStatusHistory = [],
+  } = useGetTicketStatusHistoryQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
   const [postComment, { isLoading: posting }] = usePostCommentMutation();
   const [markRead] = useMarkTicketReadMutation();
 
@@ -100,10 +113,10 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
 
   // If we have fetched ticket detail from the server, explicitly map all nested fields.
   // Server response: { ticket: {...}, organization: { name, cin, gstin, pan, ... }, obligation: { form_description, ... } }
-  if (ticketData) {
-    const t   = ticketData.ticket       || {};
-    const org = ticketData.organization || {};
-    const obl = ticketData.obligation   || {};
+  if (currentTicketData) {
+    const t   = currentTicketData.ticket       || {};
+    const org = currentTicketData.organization || {};
+    const obl = currentTicketData.obligation   || {};
 
     ticket = {
       ...ticket, // keep list-level fields as base (ticket_number, etc.)
@@ -194,7 +207,12 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
 
   // Derived comment list: prefer server comments, fall back to local mock comments
   // commentsData is the array returned directly by RTK transformResponse
-  const commentsToRender = Array.isArray(commentsData) ? commentsData : [];
+  const commentsToRender = Array.isArray(currentCommentsData)
+    ? currentCommentsData
+    : (Array.isArray(commentsData) ? commentsData : []);
+  const statusHistoryToRender = Array.isArray(currentStatusHistory)
+    ? currentStatusHistory
+    : (Array.isArray(statusHistory) ? statusHistory : []);
 
   const handleUpdateStatus = async (nextStatus) => {
     const id = selectedTicketId || ticket.id;
@@ -219,6 +237,7 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
 
   const cfg = STATUS_CONFIG[ticket.status] || STATUS_CONFIG.not_started;
   const allowedTransitions = STATUS_TRANSITIONS[ticket.status] || [];
+  const showTicketLoading = drawerOpen && !!selectedTicketId && (ticketLoading || ticketFetching || !currentTicketData);
 
   const effectiveOpen = typeof drawerOpen === "boolean" ? drawerOpen : open;
 
@@ -233,6 +252,17 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
   return (
     <Sheet open={effectiveOpen} onOpenChange={handleOpenChange}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+        {showTicketLoading ? (
+          <div className="space-y-4 mt-2">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-7 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-28 w-full" />
+            <Skeleton className="h-28 w-full" />
+          </div>
+        ) : (
+          <>
         <SheetHeader className="space-y-3 pb-4">
           {/* Row 1: status badge + tag badges + ticket number */}
           <div className="flex items-center gap-2 flex-wrap pr-6">
@@ -589,7 +619,7 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
 
                   {(() => {
                       const PIPELINE = ["initiated", "pending_docs", "in_progress", "filed", "approved", "closed"];
-                      const server = Array.isArray(statusHistory) ? statusHistory : [];
+                      const server = Array.isArray(statusHistoryToRender) ? statusHistoryToRender : [];
                       const serverMap = server.reduce((m, h) => { if (h && h.status) m[h.status] = h; return m; }, {});
                       const createdAt = ticket.created_at || ticket.createdAt;
                       const lastActivity = ticket.updated_at || ticket.last_activity_at || ticket.lastActivity;
@@ -687,6 +717,8 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
           </TabsContent>
 
         </Tabs>
+          </>
+        )}
       </SheetContent>
     </Sheet>
   );

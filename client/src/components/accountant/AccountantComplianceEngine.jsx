@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search,
   AlertTriangle,
@@ -250,14 +251,19 @@ export function AccountantComplianceEngine() {
 
   // === ORGANIZATIONS API — filtered + sorted list for display ===
   // Replaces: orgSummaries useMemo + filteredOrgs useMemo
-  const { data: orgResponse, isLoading: orgLoading } = useGetOrganizationsQuery({
+  const {
+    data: orgResponse,
+    currentData: orgCurrentData,
+    isLoading: orgLoading,
+    isFetching: orgFetching,
+  } = useGetOrganizationsQuery({
     search:         searchQuery || undefined,
     classification: orgView.classification !== "all" ? orgView.classification : undefined,
     sort_by:        orgView.sortBy,
     page:           orgView.page,
     limit:          orgView.limit,
   });
-  const orgSummaries = orgResponse?.data || [];
+  const orgSummaries = orgCurrentData?.data || [];
   // filteredOrgs is now the same as orgSummaries — backend already applied filter + sort
   const filteredOrgs = orgSummaries;
 
@@ -281,7 +287,12 @@ export function AccountantComplianceEngine() {
 
   // === COMPLIANCE REQUESTS API — All Requests tab ===
   // Replaces: openTickets useMemo (backend now handles category/status/sort/search/pagination)
-  const { data: ticketResponse, isLoading: ticketLoading } = useGetComplianceRequestsQuery({
+  const {
+    data: ticketResponse,
+    currentData: ticketCurrentData,
+    isLoading: ticketLoading,
+    isFetching: ticketFetching,
+  } = useGetComplianceRequestsQuery({
     search:              searchQuery || undefined,
     // Map display label ("GST") → backend enum ("gst") — CATEGORY_API_MAP defined above in normalizer section
     category:            ticketView.category !== "all" ? (CATEGORY_API_MAP[ticketView.category] ?? ticketView.category) : undefined,
@@ -292,7 +303,7 @@ export function AccountantComplianceEngine() {
     limit:               ticketView.limit,
   });
   // Normalize backend field names → UI component expected names
-  const openTickets = (ticketResponse?.data || []).map(normalizeTicket);
+  const openTickets = (ticketCurrentData?.data || []).map(normalizeTicket);
 
   // === SELECTED ORG: use the object cached at click-time ===
   // Replaces: const selectedOrg = selectedOrgId ? orgSummaries.find(...) : null;
@@ -301,19 +312,32 @@ export function AccountantComplianceEngine() {
 
   // === ORG DETAIL TICKETS API — fetches tickets scoped to the selected org ===
   // Replaces: selectedOrgTickets useMemo (was filtering the full processed[] array by organization_id)
-  const { data: orgTicketResponse } = useGetComplianceRequestsQuery(
+  const {
+    currentData: orgTicketCurrentData,
+    isLoading: orgTicketsLoading,
+    isFetching: orgTicketsFetching,
+  } = useGetComplianceRequestsQuery(
     { organization_id: selectedOrgId, limit: 100 },
     { skip: !selectedOrgId }
   );
-  const orgTicketsRaw = (orgTicketResponse?.data || []).map(normalizeTicket);
+  const orgTicketsRaw = (orgTicketCurrentData?.data || []).map(normalizeTicket);
 
   // === ORG COMPANY PROFILE API ===
   // Fetches CompanyComplianceProfile for the selected org (CIN, GSTIN, PAN, TAN, company_type, etc.)
   // Used by OrgCompanyInfoTab — skipped until an org is selected to avoid unnecessary requests
-  const { data: companyProfileData } = useGetOrgCompanyProfileQuery(
+  const {
+    currentData: companyProfileData,
+    isLoading: companyProfileLoading,
+    isFetching: companyProfileFetching,
+  } = useGetOrgCompanyProfileQuery(
     selectedOrgId,
     { skip: !selectedOrgId }
   );
+
+  const showOrgListLoading = orgLoading || orgFetching;
+  const showTicketListLoading = ticketLoading || ticketFetching;
+  const showOrgTicketLoading = orgTicketsLoading || orgTicketsFetching;
+  const showCompanyLoading = companyProfileLoading || companyProfileFetching;
 
   // Org detail sub-filters applied locally (scoped to drill-down, not worth an extra API round-trip)
   let selectedOrgTickets = orgTicketsRaw;
@@ -356,11 +380,11 @@ export function AccountantComplianceEngine() {
         <TabsList>
           <TabsTrigger value="by_org" className="gap-1.5">
             <Building2 className="h-3.5 w-3.5" />
-            All Organizations ({orgResponse?.total ?? orgSummaries.length})
+            All Organizations ({orgCurrentData?.total ?? orgSummaries.length})
           </TabsTrigger>
           <TabsTrigger value="all_requests" className="gap-1.5">
             <FileText className="h-3.5 w-3.5" />
-            Compliance Requests ({ticketResponse?.total ?? openTickets.length})
+            Compliance Requests ({ticketCurrentData?.total ?? openTickets.length})
           </TabsTrigger>
         </TabsList>
 
@@ -461,7 +485,13 @@ export function AccountantComplianceEngine() {
                 </div>
 
                 <TabsContent value="ongoing" className="space-y-2">
-                  {selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).length === 0 ? (
+                  {showOrgTicketLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton key={i} className="h-20 w-full rounded-xl" />
+                      ))}
+                    </div>
+                  ) : selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).length === 0 ? (
                     <EmptyState message="No ongoing tickets" />
                   ) : (
                     selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).map((t) => (
@@ -479,7 +509,13 @@ export function AccountantComplianceEngine() {
                 </TabsContent>
 
                 <TabsContent value="closed" className="space-y-2">
-                  {selectedOrgTickets.filter((t) => CLOSED_STATUSES.includes(t.status)).length === 0 ? (
+                  {showOrgTicketLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton key={i} className="h-20 w-full rounded-xl" />
+                      ))}
+                    </div>
+                  ) : selectedOrgTickets.filter((t) => CLOSED_STATUSES.includes(t.status)).length === 0 ? (
                     <EmptyState message="No closed tickets" />
                   ) : (
                     selectedOrgTickets.filter((t) => CLOSED_STATUSES.includes(t.status)).map((t) => (
@@ -497,12 +533,19 @@ export function AccountantComplianceEngine() {
                 </TabsContent>
 
                 <TabsContent value="company">
-                  {/* companyProfileData: from GET /accountant/organizations/:orgId/company API */}
-                  <OrgCompanyInfoTab
-                    orgTickets={orgTicketsRaw}
-                    companyProfile={companyProfileData}
-                    orgName={selectedOrg?.organization_name}
-                  />
+                  {showCompanyLoading ? (
+                    <div className="space-y-3">
+                      <Skeleton className="h-28 w-full rounded-xl" />
+                      <Skeleton className="h-28 w-full rounded-xl" />
+                      <Skeleton className="h-28 w-full rounded-xl" />
+                    </div>
+                  ) : (
+                    <OrgCompanyInfoTab
+                      orgTickets={orgTicketsRaw}
+                      companyProfile={companyProfileData}
+                      orgName={selectedOrg?.organization_name}
+                    />
+                  )}
                 </TabsContent>
               </Tabs>
             </div>
@@ -539,7 +582,13 @@ export function AccountantComplianceEngine() {
 
               </div>
 
-              {filteredOrgs.length === 0 ? (
+              {showOrgListLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-24 w-full rounded-xl" />
+                  ))}
+                </div>
+              ) : filteredOrgs.length === 0 ? (
                 <EmptyState message="No organizations match your filters" />
               ) : (
                 <div className="space-y-2">
@@ -557,10 +606,10 @@ export function AccountantComplianceEngine() {
               )}
 
               {/* ===== PAGINATION — Org List ===== */}
-              {(orgResponse?.total_pages ?? 1) > 1 && (
+              {(orgCurrentData?.total_pages ?? 1) > 1 && (
                 <div className="flex items-center justify-between pt-2 border-t border-border/40">
                   <p className="text-xs text-muted-foreground">
-                    Page {orgView.page} of {orgResponse.total_pages} &middot; {orgResponse.total} organizations
+                    Page {orgView.page} of {orgCurrentData.total_pages} &middot; {orgCurrentData.total} organizations
                   </p>
                   <div className="flex items-center gap-1">
                     <Button
@@ -570,7 +619,7 @@ export function AccountantComplianceEngine() {
                     >
                       &larr; Prev
                     </Button>
-                    {Array.from({ length: orgResponse.total_pages }, (_, i) => i + 1)
+                    {Array.from({ length: orgCurrentData.total_pages }, (_, i) => i + 1)
                       .filter((p) => Math.abs(p - orgView.page) <= 2)
                       .map((p) => (
                         <Button
@@ -585,7 +634,7 @@ export function AccountantComplianceEngine() {
                       ))}
                     <Button
                       variant="outline" size="sm" className="h-7 px-2.5 text-xs"
-                      disabled={orgView.page >= (orgResponse?.total_pages ?? 1)}
+                      disabled={orgView.page >= (orgCurrentData?.total_pages ?? 1)}
                       onClick={() => dispatch(setOrgPage(orgView.page + 1))}
                     >
                       Next &rarr;
@@ -649,7 +698,7 @@ export function AccountantComplianceEngine() {
             </Button>
 
             <span className="text-xs text-muted-foreground">
-              {ticketResponse?.total ?? openTickets.length} request{(ticketResponse?.total ?? openTickets.length) !== 1 ? "s" : ""}
+              {ticketCurrentData?.total ?? 0} request{(ticketCurrentData?.total ?? 0) !== 1 ? "s" : ""}
             </span>
 
             {/* ─── CREATE TICKET BUTTON ─── */}
@@ -663,7 +712,13 @@ export function AccountantComplianceEngine() {
             </Button>
           </div>
 
-          {openTickets.length === 0 ? (
+          {showTicketListLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-20 w-full rounded-xl" />
+              ))}
+            </div>
+          ) : openTickets.length === 0 ? (
             <EmptyState message="No requests match your filters" />
           ) : (
             <div className="space-y-2">
@@ -683,10 +738,10 @@ export function AccountantComplianceEngine() {
           )}
 
           {/* ===== PAGINATION — Compliance Requests ===== */}
-          {(ticketResponse?.pages ?? 1) > 1 && (
+          {(ticketCurrentData?.pages ?? 1) > 1 && (
             <div className="flex items-center justify-between pt-2 border-t border-border/40">
               <p className="text-xs text-muted-foreground">
-                Page {ticketView.page} of {ticketResponse.pages} &middot; {ticketResponse.total} requests
+                Page {ticketView.page} of {ticketCurrentData.pages} &middot; {ticketCurrentData.total} requests
               </p>
               <div className="flex items-center gap-1">
                 <Button
@@ -696,7 +751,7 @@ export function AccountantComplianceEngine() {
                 >
                   &larr; Prev
                 </Button>
-                {Array.from({ length: ticketResponse.pages }, (_, i) => i + 1)
+                {Array.from({ length: ticketCurrentData.pages }, (_, i) => i + 1)
                   .filter((p) => Math.abs(p - ticketView.page) <= 2)
                   .map((p) => (
                     <Button
@@ -711,7 +766,7 @@ export function AccountantComplianceEngine() {
                   ))}
                 <Button
                   variant="outline" size="sm" className="h-7 px-2.5 text-xs"
-                  disabled={ticketView.page >= (ticketResponse?.pages ?? 1)}
+                  disabled={ticketView.page >= (ticketCurrentData?.pages ?? 1)}
                   onClick={() => dispatch(setTicketPage(ticketView.page + 1))}
                 >
                   Next &rarr;
