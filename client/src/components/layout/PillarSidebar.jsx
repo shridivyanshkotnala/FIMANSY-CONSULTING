@@ -1,11 +1,13 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { Upload, BarChart3, Zap, LogOut } from "lucide-react";
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMeQuery, useLogoutMutation } from "@/Redux/Slices/api/authApi";
 import zohoLogo from "@/assets/zohoLogo.jpeg";
 import { useGetZohoStatusQuery } from "@/Redux/Slices/api/zohoApi";
+import { useGetMyOrganizationsQuery } from "@/Redux/Slices/api/orgApi";
 //   PillarSidebar
 
 //   Main desktop navigation rail.
@@ -35,11 +37,23 @@ const API_BASE =
 export function PillarSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const activeOrg = localStorage.getItem("activeOrgId");
 
   // SERVER AUTH STATE (single source of truth)
   const { data: user } = useMeQuery();
   const [logout] = useLogoutMutation();
+  const { data: orgs = [] } = useGetMyOrganizationsQuery(undefined, {
+    skip: !user,
+  });
+
+  const activeOrg = localStorage.getItem("activeOrgId");
+  const fallbackOrg = orgs[0]?.organizationId ? String(orgs[0].organizationId) : null;
+  const effectiveOrgId = activeOrg || fallbackOrg;
+
+  useEffect(() => {
+    if (!activeOrg && fallbackOrg) {
+      localStorage.setItem("activeOrgId", fallbackOrg);
+    }
+  }, [activeOrg, fallbackOrg]);
 
   const handlePillarClick = (pillar) => navigate(pillar.path);
 
@@ -58,12 +72,13 @@ export function PillarSidebar() {
 
 
   const { data: zoho, isLoading } = useGetZohoStatusQuery(undefined, {
-    skip: !activeOrg,
+    skip: !effectiveOrgId,
   });
 
   const zohoConnectionHandler = () => {
     if (!zoho?.connected) {
-      const query = activeOrg ? `?org=${encodeURIComponent(activeOrg)}` : "";
+      if (!effectiveOrgId) return;
+      const query = `?org=${encodeURIComponent(effectiveOrgId)}`;
       const url = `${API_BASE}/zoho/connect${query}`;
       window.location.href = url;
     }
