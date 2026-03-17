@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { clearAuth, setTokens } from "../authSlice";
 
 export const authApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -10,6 +11,19 @@ export const authApi = baseApi.injectEndpoints({
         method: "POST",
         body: credentials,
       }),
+      async onQueryStarted(_, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          const accessToken = data?.data?.accessToken;
+          const refreshToken = data?.data?.refreshToken;
+
+          if (accessToken) {
+            dispatch(setTokens({ accessToken, refreshToken }));
+          }
+        } catch {
+          // handled by caller
+        }
+      },
       // after login -> refetch current user
       invalidatesTags: ["Auth"],
     }),
@@ -21,6 +35,19 @@ export const authApi = baseApi.injectEndpoints({
         method: "POST",
         body,
       }),
+      async onQueryStarted(_, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          const accessToken = data?.data?.accessToken;
+          const refreshToken = data?.data?.refreshToken;
+
+          if (accessToken) {
+            dispatch(setTokens({ accessToken, refreshToken }));
+          }
+        } catch {
+          // handled by caller
+        }
+      },
       invalidatesTags: ["Auth"],
     }),
 
@@ -49,6 +76,7 @@ export const authApi = baseApi.injectEndpoints({
         try {
           await queryFulfilled;
         } finally {
+          dispatch(clearAuth());
           // clear org context so the next user doesn't inherit stale org
           localStorage.removeItem("activeOrgId");
           // wipe every cached API response (VERY IMPORTANT)

@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { clearAuth, setTokens } from "../authSlice";
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: import.meta.env.VITE_API_URL || "/api",
@@ -7,7 +8,11 @@ const rawBaseQuery = fetchBaseQuery({
   prepareHeaders: (headers, { getState }) => {
     const state = getState();
 
-    const token = state.auth?.accessToken;
+    const token =
+      state.auth?.accessToken ||
+      (typeof window !== "undefined"
+        ? window.localStorage.getItem("accessToken")
+        : null);
     const orgId = localStorage.getItem("activeOrgId");
 
     if (token) headers.set("authorization", `Bearer ${token}`);
@@ -24,15 +29,38 @@ const baseQueryWithRefresh = async (args, api, extraOptions) => {
 
     // access token expired → attempt refresh
     if (result?.error?.status === 401) {
+      const state = api.getState();
+      const refreshToken =
+        state.auth?.refreshToken ||
+        (typeof window !== "undefined"
+          ? window.localStorage.getItem("refreshToken")
+          : null);
+
       const refreshResult = await rawBaseQuery(
-        { url: "/user/refresh-token", method: "POST" },
+        {
+          url: "/user/refresh-token",
+          method: "POST",
+          headers: refreshToken ? { "x-refresh-token": refreshToken } : undefined,
+        },
         api,
         extraOptions
       );
 
-      if (refreshResult?.data) {
+      const refreshedAccessToken = refreshResult?.data?.data?.accessToken;
+      const refreshedRefreshToken = refreshResult?.data?.data?.refreshToken;
+
+      if (refreshedAccessToken) {
+        api.dispatch(
+          setTokens({
+            accessToken: refreshedAccessToken,
+            refreshToken: refreshedRefreshToken,
+          })
+        );
+
         // retry original request after refresh
         result = await rawBaseQuery(args, api, extraOptions);
+      } else {
+        api.dispatch(clearAuth());
       }
 
       // if refresh fails → DO NOTHING
@@ -59,6 +87,7 @@ export const baseApi = createApi({
     "Comment",
     "TicketStatusHistory",
     "ComplianceTemplate",
+    "TicketDocument",
   ],
   endpoints: () => ({}),
 });

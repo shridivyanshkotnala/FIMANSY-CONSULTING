@@ -11,8 +11,30 @@ import complianceRoutes from './src/routes/complianceRoutes.js'; //complianceonb
 
 const app = express()
 
+app.set('trust proxy', 1);
+
+const allowedOrigins = [
+    process.env.CLIENT_URL,
+    process.env.CORS_ORIGIN,
+    ...(process.env.ALLOWED_ORIGINS || '').split(',')
+]
+    .map((origin) => origin?.trim())
+    .filter(Boolean)
+    .map((origin) => origin.replace(/\/$/, ''));
+
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+
+        const normalizedOrigin = origin.replace(/\/$/, '');
+        const isAllowed =
+            allowedOrigins.includes(normalizedOrigin) ||
+            /\.vercel\.app$/.test(new URL(normalizedOrigin).hostname);
+
+        if (isAllowed) return callback(null, true);
+
+        return callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: true
 }))

@@ -220,7 +220,11 @@ const logoutUser = asynchandler(async (req, res) => {
 
 const refreshRefreshToken = asynchandler(async (req, res) => {
 
-    const incomingRefreshTokenByUser = req.cookies?.refreshToken || req.header.refreshToken
+    const incomingRefreshTokenByUser =
+        req.cookies?.refreshToken ||
+        req.header("x-refresh-token") ||
+        req.header("refresh-token") ||
+        req.header("Authorization")?.replace(/^Bearer\s+/i, "")
 
     if (!incomingRefreshTokenByUser) {
         throw new ApiError(401, "Refresh token not found, unauthorized access")
@@ -249,6 +253,7 @@ const refreshRefreshToken = asynchandler(async (req, res) => {
 
     const options = {
         ...authCookieOptions,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
     }
     //sending new tokens back to frontend in cookies and response
     return res.status(200)
