@@ -30,6 +30,10 @@ const connectZoho = asynchandler(async (req, res) => {
     `&redirect_uri=${redirect}` +
     `&state=${state}`;
 
+  if (req.query?.returnUrl === "1") {
+    return res.status(200).json({ url });
+  }
+
   res.redirect(url);
 });
 

@@ -81,9 +81,32 @@ export function PillarSidebar() {
   const zohoConnectionHandler = () => {
     if (!zoho?.connected) {
       if (!effectiveOrgId) return;
-      const query = `?org=${encodeURIComponent(effectiveOrgId)}`;
-      const url = `${API_BASE}/zoho/connect${query}`;
-      window.location.href = url;
+
+      const redirectToZoho = async () => {
+        const token = localStorage.getItem("accessToken");
+        const query = `?org=${encodeURIComponent(effectiveOrgId)}&returnUrl=1`;
+        const url = `${API_BASE}/zoho/connect${query}`;
+
+        const res = await fetch(url, {
+          method: "GET",
+          credentials: "include",
+          headers: token
+            ? {
+              Authorization: `Bearer ${token}`,
+              "x-access-token": token,
+            }
+            : undefined,
+        });
+
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (data?.url) {
+          window.location.href = data.url;
+        }
+      };
+
+      redirectToZoho();
     }
   };
 
