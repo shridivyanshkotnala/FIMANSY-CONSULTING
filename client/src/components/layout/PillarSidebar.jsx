@@ -46,14 +46,17 @@ export function PillarSidebar() {
   });
 
   const activeOrg = localStorage.getItem("activeOrgId");
+  const isActiveOrgValid = orgs.some(
+    (o) => String(o.organizationId) === String(activeOrg)
+  );
   const fallbackOrg = orgs[0]?.organizationId ? String(orgs[0].organizationId) : null;
-  const effectiveOrgId = activeOrg || fallbackOrg;
+  const effectiveOrgId = isActiveOrgValid ? activeOrg : fallbackOrg;
 
   useEffect(() => {
-    if (!activeOrg && fallbackOrg) {
-      localStorage.setItem("activeOrgId", fallbackOrg);
+    if (effectiveOrgId && effectiveOrgId !== activeOrg) {
+      localStorage.setItem("activeOrgId", effectiveOrgId);
     }
-  }, [activeOrg, fallbackOrg]);
+  }, [activeOrg, effectiveOrgId]);
 
   const handlePillarClick = (pillar) => navigate(pillar.path);
 
