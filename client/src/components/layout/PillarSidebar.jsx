@@ -26,6 +26,12 @@ const pillars = [
   { id: "reports", title: "Reports", icon: BarChart3, path: "/reports", description: "Insights & Output" },
 ];
 
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://fimansy-consulting.onrender.com/api"
+    : "/api");
+
 export function PillarSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -57,8 +63,9 @@ export function PillarSidebar() {
 
   const zohoConnectionHandler = () => {
     if (!zoho?.connected) {
-      const url = activeOrg ? `/api/zoho/connect?org=${activeOrg}` : "/api/zoho/connect";
-      window.location.href = url;// url = /api/zoho/connect
+      const query = activeOrg ? `?org=${encodeURIComponent(activeOrg)}` : "";
+      const url = `${API_BASE}/zoho/connect${query}`;
+      window.location.href = url;
     }
   };
 
