@@ -8,6 +8,7 @@ async function apiFetch(endpoint, options = {}) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       headers: { 'Content-Type': 'application/json', ...options.headers },
       credentials: 'include',
+      cache: 'no-store',
       ...options,
     });
 

@@ -204,6 +204,55 @@ const DEFAULT_TEMPLATES = [
 },
 ];
 
+const ALLOWED_COMPLIANCE_CATEGORIES = new Set([
+  "gst",
+  "tds",
+  "income_tax",
+  "payroll",
+  "mca",
+]);
+
+function normalizeComplianceCategory(rawCategory) {
+  if (!rawCategory) return null;
+
+  const normalized = String(rawCategory)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+
+  const map = {
+    gst: "gst",
+    tds: "tds",
+    income_tax: "income_tax",
+    incometax: "income_tax",
+    itr: "income_tax",
+    advance_tax: "income_tax",
+    payroll: "payroll",
+    mca: "mca",
+    mca_annual: "mca",
+    mca_event: "mca",
+    roc: "mca",
+  };
+
+  const mapped = map[normalized] || normalized;
+  return ALLOWED_COMPLIANCE_CATEGORIES.has(mapped) ? mapped : null;
+}
+
+function resolveLegacyComplianceType(complianceCategory, complianceSubtype) {
+  if (complianceCategory === "gst") return "gst";
+  if (complianceCategory === "tds") return "tds";
+  if (complianceCategory === "income_tax") {
+    return String(complianceSubtype || "").includes("advance_tax")
+      ? "advance_tax"
+      : "income_tax";
+  }
+  if (complianceCategory === "mca") return "mca_annual";
+
+  // Do not set for payroll since legacy enum does not include payroll.
+  return undefined;
+}
+
 export async function generateObligationsForFY(organization_id, financialYear) {
   console.log("\n========== 🚀 GENERATE OBLIGATIONS STARTED ==========");
   console.log(`📌 Input - organization_id: ${organization_id}, financialYear: ${financialYear}`);
@@ -274,6 +323,33 @@ export async function generateObligationsForFY(organization_id, financialYear) {
     console.log(`   Name: ${template.name}`);
     console.log(`   Type: ${template.recurrence_type}`);
 
+    // Backward compatibility for legacy template field names.
+    const complianceCategory = normalizeComplianceCategory(
+      template.compliance_category ?? template.category_tag
+    );
+    const complianceSubtype = template.compliance_subtype ?? template.subtag;
+    const complianceDescription =
+      template.compliance_description ?? template.description;
+
+    if (!complianceCategory) {
+      console.warn(
+        `⚠️ Skipping template \"${template.name}\" due to invalid/missing compliance category`
+      );
+      continue;
+    }
+
+    if (!complianceSubtype) {
+      console.warn(
+        `⚠️ Skipping template \"${template.name}\" due to missing compliance subtype`
+      );
+      continue;
+    }
+
+    const complianceType = resolveLegacyComplianceType(
+      complianceCategory,
+      complianceSubtype
+    );
+
     let dueDates = [];
 
     switch (template.recurrence_type) {
@@ -324,12 +400,12 @@ export async function generateObligationsForFY(organization_id, financialYear) {
         organization_id,
 
         form_name: template.name,
-        form_description: template.compliance_description,
+        form_description: complianceDescription,
 
-        compliance_type: template.compliance_category,
-        compliance_category: template.compliance_category,
-        compliance_subtype: template.compliance_subtype,
-        compliance_description: template.compliance_description,
+        ...(complianceType ? { compliance_type: complianceType } : {}),
+        compliance_category: complianceCategory,
+        compliance_subtype: complianceSubtype,
+        compliance_description: complianceDescription,
 
         financial_year: financialYear,
 
