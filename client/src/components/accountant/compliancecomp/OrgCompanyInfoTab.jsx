@@ -3,8 +3,9 @@ import { Badge } from "@/components/ui/badge";
 import { Building2, Shield } from "lucide-react";
 import { format } from "date-fns";
 import { EmptyState } from "./EmptyState";
+import { useGetOrgDirectorsQuery } from "@/Redux/Slices/api/complianceApi";
 
-export function OrgCompanyInfoTab({ orgTickets = [], companyProfile, orgName }) {
+export function OrgCompanyInfoTab({ orgTickets = [], companyProfile, orgName, orgId }) {
   // companyProfile: data from GET /accountant/organizations/:orgId/company (CompanyComplianceProfile)
   // orgName: org display name from the parent (Organization.name)
   // orgTickets: still passed for potential future use (currently only directors uses mock)
@@ -26,35 +27,12 @@ export function OrgCompanyInfoTab({ orgTickets = [], companyProfile, orgName }) 
   // Note: backend service returns registered_office_address (profile schema field name)
   const registeredAddress = companyProfile?.registered_office_address || t?.registered_address || null;
 
-  const mockDirectors = [
-    {
-      name: "Rahul Sharma",
-      designation: "Managing Director",
-      din: "01234567",
-      email: "rahul@stratzi.com",
-      phone: "+91 98765 43210",
-      dsc_expiry: "15 Dec 2026",
-      is_active: true,
-    },
-    {
-      name: "Priya Mehta",
-      designation: "Director",
-      din: "07654321",
-      email: "priya@stratzi.com",
-      phone: "+91 98765 12345",
-      dsc_expiry: "22 Mar 2027",
-      is_active: true,
-    },
-    {
-      name: "Amit Patel",
-      designation: "Independent Director",
-      din: "04567890",
-      email: "amit.p@gmail.com",
-      phone: null,
-      dsc_expiry: null,
-      is_active: false,
-    },
-  ];
+  const resolvedOrgId = orgId || t?.organization_id?._id || t?.organization_id || null;
+  const { currentData: orgDirectorsData } = useGetOrgDirectorsQuery(resolvedOrgId, {
+    skip: !resolvedOrgId,
+  });
+
+  const directors = Array.isArray(orgDirectorsData?.data) ? orgDirectorsData.data : [];
 
   return (
     <div className="space-y-4">
@@ -170,56 +148,54 @@ export function OrgCompanyInfoTab({ orgTickets = [], companyProfile, orgName }) 
           <div className="flex items-center gap-2 mb-1">
             <Shield className="h-4 w-4 text-muted-foreground" />
             <h3 className="font-semibold text-sm">
-              Directors ({mockDirectors.length})
+              Directors ({directors.length})
             </h3>
           </div>
 
           <div className="space-y-3">
-            {mockDirectors.map((dir, i) => (
-              <div
-                key={i}
-                className="flex items-start justify-between p-3 border rounded-lg bg-muted/30"
-              >
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">
-                    {dir.name}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {dir.designation} · DIN: {dir.din}
-                  </p>
-
-                  {dir.dsc_expiry && (
+            {directors.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No directors on record</p>
+            ) : (
+              directors.map((dir, i) => (
+                <div
+                  key={i}
+                  className="flex items-start justify-between p-3 border rounded-lg bg-muted/30"
+                >
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{dir.name}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      DSC Expiry: {dir.dsc_expiry}
+                      {dir.designation || "Director"} · DIN: {dir.din || "N/A"}
                     </p>
-                  )}
+
+                    {dir.dsc_expiry_date && (
+                      <p className="text-[10px] text-muted-foreground">
+                        DSC Expiry: {format(new Date(dir.dsc_expiry_date), "dd MMM yyyy")}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="text-right space-y-1">
+                    {dir.email && (
+                      <p className="text-[10px] text-muted-foreground">{dir.email}</p>
+                    )}
+
+                    {dir.phone && (
+                      <p className="text-[10px] text-muted-foreground">{dir.phone}</p>
+                    )}
+
+                    <Badge
+                      className={
+                        dir.is_active
+                          ? "bg-success/10 text-success border-success/20 text-[10px]"
+                          : "bg-muted text-muted-foreground text-[10px]"
+                      }
+                    >
+                      {dir.is_active ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
                 </div>
-
-                <div className="text-right space-y-1">
-                  {dir.email && (
-                    <p className="text-[10px] text-muted-foreground">
-                      {dir.email}
-                    </p>
-                  )}
-
-                  {dir.phone && (
-                    <p className="text-[10px] text-muted-foreground">
-                      {dir.phone}
-                    </p>
-                  )}
-
-                  <Badge
-                    className={
-                      dir.is_active
-                        ? "bg-success/10 text-success border-success/20 text-[10px]"
-                        : "bg-muted text-muted-foreground text-[10px]"
-                    }
-                  >
-                    {dir.is_active ? "Active" : "Inactive"}
-                  </Badge>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
 
         </CardContent>

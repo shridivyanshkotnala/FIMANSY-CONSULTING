@@ -12,6 +12,7 @@ import {
   useInitTicketDocumentUploadMutation,
   useCompleteTicketDocumentUploadMutation,
   useMarkTicketDocumentFinalVerifiedMutation,
+  useGetOrgDirectorsQuery,
 } from "@/Redux/Slices/api/complianceApi";
 import { closeDrawer } from "@/Redux/Slices/complianceSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -148,13 +149,19 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
       created_at:       t.created_at       || ticket.created_at   || ticket.createdAt,
       status_history:   t.status_history   || ticket.status_history || [],
       // canonical tag fields from ticket or obligation
-      category_tag: t.category_tag || obl.category_tag || ticket.category_tag,
-      subtag:       t.subtag       || obl.subtag       || ticket.subtag,
+      compliance_category: t.compliance_category || t.category_tag || ticket.compliance_category || ticket.category_tag,
+      compliance_subtype:  t.compliance_subtype  || t.subtag       || ticket.compliance_subtype  || ticket.subtag,
+      category_tag: t.compliance_category || t.category_tag || obl.category_tag || ticket.category_tag,
+      subtag:       t.compliance_subtype  || t.subtag       || obl.subtag       || ticket.subtag,
       // derived display fields expected by UI
-      form_name:        t.subtag       || obl.subtag       || ticket.subtag       || ticket.form_name,
-      form_description: obl.form_description || ticket.form_description,
+      form_name:        t.form_name || t.compliance_subtype || t.subtag || obl.subtag || ticket.subtag || ticket.form_name,
+      form_description:
+        t.form_description ||
+        obl.form_description ||
+        obl.compliance_description ||
+        ticket.form_description,
       primary_tag:   (t.category_tag || obl.category_tag || ticket.category_tag || "").toUpperCase(),
-      secondary_tag:  t.subtag       || obl.subtag       || ticket.subtag        || ticket.secondary_tag,
+      secondary_tag:  t.compliance_subtype || t.subtag || obl.subtag || ticket.subtag || ticket.secondary_tag,
       // ticket_number: generated in list view; keep or re-derive
       ticket_number: ticket.ticket_number || (t.id ? `TKT-${String(t.id).slice(-4).toUpperCase()}` : null),
       // organisation fields — org.name is the company name
@@ -169,6 +176,21 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
       registered_address:      org.registered_address     || ticket.registered_address,
     };
   }
+
+  const directorOrgId =
+    ticket.organization_id?._id ||
+    ticket.organization_id?.id ||
+    ticket.organization_id ||
+    currentTicketData?.ticket?.organization_id ||
+    null;
+
+  const { currentData: orgDirectorsData } = useGetOrgDirectorsQuery(directorOrgId, {
+    skip: !directorOrgId,
+  });
+
+  const directorsToRender = Array.isArray(orgDirectorsData?.data)
+    ? orgDirectorsData.data
+    : [];
 
   // No mock comments — real comments come from RTK Query (getComments)
 
@@ -320,12 +342,6 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
       setOptimisticStatus(null);
     }
   };
-
-  const mockDirectors = [
-    { name: "Rahul Sharma", designation: "Managing Director", din: "01234567", email: "rahul@stratzi.com", phone: "+91 98765 43210", dsc_expiry: "15 Dec 2026", is_active: true },
-    { name: "Priya Mehta", designation: "Director", din: "07654321", email: "priya@stratzi.com", phone: "+91 98765 12345", dsc_expiry: "22 Mar 2027", is_active: true },
-    { name: "Amit Patel", designation: "Independent Director", din: "04567890", email: "amit.p@gmail.com", phone: null, dsc_expiry: null, is_active: false },
-  ];
 
   const cfg = STATUS_CONFIG[ticket.status] || STATUS_CONFIG.not_started;
   const allowedTransitions = STATUS_TRANSITIONS[ticket.status] || [];
@@ -530,17 +546,17 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-1.5">
-                  <Shield className="h-4 w-4" /> Directors ({mockDirectors.length})
+                  <Shield className="h-4 w-4" /> Directors ({directorsToRender.length})
                 </CardTitle>
               </CardHeader>
 
               <CardContent className="p-4 pt-0 space-y-3">
-                {mockDirectors.length === 0 ? (
+                {directorsToRender.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     No directors on record
                   </p>
                 ) : (
-                  mockDirectors.map((dir, i) => (
+                  directorsToRender.map((dir, i) => (
                     <div
                       key={i}
                       className="flex items-start justify-between p-3 border rounded-lg bg-muted/30"
@@ -550,9 +566,9 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
                         <p className="text-[10px] text-muted-foreground">
                           {dir.designation}{" · "}DIN: {dir.din}
                         </p>
-                        {dir.dsc_expiry && (
+                        {(dir.dsc_expiry_date || dir.dsc_expiry) && (
                           <p className="text-[10px] text-muted-foreground">
-                            DSC Expiry: {dir.dsc_expiry}
+                            DSC Expiry: {safeFormat(dir.dsc_expiry_date || dir.dsc_expiry, "dd MMM yyyy") || "—"}
                           </p>
                         )}
                       </div>

@@ -544,6 +544,7 @@ export function AccountantComplianceEngine() {
                       orgTickets={orgTicketsRaw}
                       companyProfile={companyProfileData}
                       orgName={selectedOrg?.organization_name}
+                      orgId={selectedOrgId}
                     />
                   )}
                 </TabsContent>

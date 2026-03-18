@@ -38,7 +38,7 @@ export const getComplianceRequests = async (req, res) => {
 
         // CATEGORY FILTER
         if (category && category !== "all") {
-            match.category_tag = category;
+          match.compliance_category = category;
         }
 
         // STATUS FILTER
@@ -56,7 +56,8 @@ export const getComplianceRequests = async (req, res) => {
             const q = search.trim();
 
             match.$or = [
-                { subtag: { $regex: q, $options: "i" } },
+              { compliance_subtype: { $regex: q, $options: "i" } },
+              { ticket_number: { $regex: q, $options: "i" } },
                 { financial_year: { $regex: q, $options: "i" } }
             ];
 
@@ -82,7 +83,7 @@ export const getComplianceRequests = async (req, res) => {
                 break;
 
             case "category":
-                sort = { category_tag: 1 };
+              sort = { compliance_category: 1 };
                 break;
 
             case "organization":
@@ -115,7 +116,8 @@ export const getComplianceRequests = async (req, res) => {
                 // so Mongoose's populate() requires an explicit model: option to know which collection to query.
                 // Without this, populate silently returns the raw ObjectId and organization_name is always empty.
                 .populate({ path: "organization_id", model: "Organization", select: "name" })
-                .populate({ path: "obligation_id", select: "form_description" })
+                .populate({ path: "obligation_id", select: "form_description compliance_description" })
+                .populate({ path: "template_id", select: "name compliance_description description" })
                 .lean(),
 
             ComplianceTicket.countDocuments(match)
@@ -126,7 +128,7 @@ export const getComplianceRequests = async (req, res) => {
         // matched by (compliance_category|category_tag) + (compliance_subtype|subtag)
         // ComplianceObligation.form_description may be empty; template is the authoritative source.
         if (data.length > 0) {
-            const uniquePairs = [...new Set(data.map(t => `${t.category_tag}|${(t.subtag || "").toLowerCase()}`))]
+          const uniquePairs = [...new Set(data.map(t => `${t.compliance_category}|${(t.compliance_subtype || "").toLowerCase()}`))]
                 .map(key => {
                     const [cat, sub] = key.split("|");
                     return {
@@ -146,13 +148,30 @@ export const getComplianceRequests = async (req, res) => {
                   templateMap[`${cat}|${sub}`] = tmpl.compliance_description || tmpl.description || "";
                 }
             });
-            data = data.map(t => ({
+            data = data.map((t) => {
+              const compliance_category = t.compliance_category || t.category_tag || null;
+              const compliance_subtype = t.compliance_subtype || t.subtag || null;
+              const templateDescription = templateMap[
+                `${compliance_category}|${(compliance_subtype || "").toLowerCase()}`
+              ];
+
+              return {
                 ...t,
-                // Prefer template description → obligation form_description → empty string
-                form_description: templateMap[`${t.category_tag}|${(t.subtag || "").toLowerCase()}`]
-                    || t.obligation_id?.form_description
-                    || "",
-            }));
+                // Backward-compatible aliases for old UI code
+                category_tag: compliance_category,
+                subtag: compliance_subtype,
+                // Prefer template.name for conditional tickets
+                form_name: t.template_id?.name || compliance_subtype || "",
+                // Prefer template description → populated template → obligation description
+                form_description:
+                  templateDescription ||
+                  t.template_id?.compliance_description ||
+                  t.template_id?.description ||
+                  t.obligation_id?.form_description ||
+                  t.obligation_id?.compliance_description ||
+                  "",
+              };
+            });
         }
 
         return res.status(200).json({
@@ -189,8 +208,12 @@ export const getComplianceRequestDetail = async (req, res) => {
             })
             .populate({
                 path: "obligation_id",
-                select: "category_tag subtag form_description financial_year due_date recurrence_type"
+            select: "form_description compliance_description financial_year due_date recurrence_type"
             })
+          .populate({
+            path: "template_id",
+            select: "name compliance_description description compliance_category compliance_subtype category_tag subtag"
+          })
             .lean();
 
         if (!ticket) {
@@ -204,8 +227,8 @@ export const getComplianceRequestDetail = async (req, res) => {
         // 2c️⃣ Template description lookup — ComplianceObligation.form_description is often empty;
         //       ComplianceTemplate.compliance_description/description is authoritative
         let resolvedFormDescription = ticket.obligation_id?.form_description || "";
-        const catTag = ticket.category_tag;
-        const subTag = (ticket.subtag || "").toLowerCase();
+        const catTag = ticket.compliance_category || ticket.category_tag;
+        const subTag = (ticket.compliance_subtype || ticket.subtag || "").toLowerCase();
         if (catTag) {
             const tmpl = await ComplianceTemplate.findOne({
               $or: [
@@ -232,12 +255,22 @@ export const getComplianceRequestDetail = async (req, res) => {
         return res.status(200).json({
           ticket: {
             id: ticket._id,
+            organization_id: ticket.organization_id?._id || ticket.organization_id,
             status: ticket.status,
             due_date: ticket.due_date,
             financial_year: ticket.financial_year,
-            category_tag: ticket.category_tag,
-            subtag: ticket.subtag,
-            form_description: resolvedFormDescription,
+            compliance_category: ticket.compliance_category || ticket.category_tag,
+            compliance_subtype: ticket.compliance_subtype || ticket.subtag,
+            category_tag: ticket.compliance_category || ticket.category_tag,
+            subtag: ticket.compliance_subtype || ticket.subtag,
+            form_name: ticket.template_id?.name || ticket.compliance_subtype || ticket.subtag || "",
+            form_description:
+              resolvedFormDescription ||
+              ticket.template_id?.compliance_description ||
+              ticket.template_id?.description ||
+              ticket.obligation_id?.form_description ||
+              ticket.obligation_id?.compliance_description ||
+              "",
             filing_metadata: ticket.filing_metadata,
             last_activity_at: ticket.last_activity_at,
             created_at: ticket.createdAt,
