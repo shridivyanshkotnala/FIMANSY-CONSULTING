@@ -27,6 +27,24 @@ const complianceTemplateSchema = new mongoose.Schema(
     trim: true,
   },
 
+  // Legacy fields retained for backward compatibility with existing DB indexes/data
+  category_tag: {
+    type: String,
+    trim: true,
+    index: true,
+  },
+
+  subtag: {
+    type: String,
+    trim: true,
+    index: true,
+  },
+
+  description: {
+    type: String,
+    trim: true,
+  },
+
   recurrence_type: {
     type: String,
     enum: ['monthly','quarterly','annual','one_time'],
@@ -56,6 +74,32 @@ const complianceTemplateSchema = new mongoose.Schema(
   timestamps: true,
 }
 );
+
+// Keep legacy and new fields in sync so old and new code paths both work.
+complianceTemplateSchema.pre("validate", function (next) {
+  if (!this.compliance_category && this.category_tag) {
+    this.compliance_category = this.category_tag;
+  }
+  if (!this.category_tag && this.compliance_category) {
+    this.category_tag = this.compliance_category;
+  }
+
+  if (!this.compliance_subtype && this.subtag) {
+    this.compliance_subtype = this.subtag;
+  }
+  if (!this.subtag && this.compliance_subtype) {
+    this.subtag = this.compliance_subtype;
+  }
+
+  if (!this.compliance_description && this.description) {
+    this.compliance_description = this.description;
+  }
+  if (!this.description && this.compliance_description) {
+    this.description = this.compliance_description;
+  }
+
+  next();
+});
 
 // Update the compound index with new field names
 complianceTemplateSchema.index({ compliance_category: 1, compliance_subtype: 1 }, { unique: true });

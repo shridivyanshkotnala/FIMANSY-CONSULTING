@@ -4,6 +4,136 @@ import { ComplianceTicket } from "../../models/compliance/complianceTicketModel.
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
 import mongoose from "mongoose";
 
+const DEFAULT_CONDITIONAL_TEMPLATES = [
+  {
+    name: "Professional Tax",
+    compliance_category: "payroll",
+    compliance_subtype: "professional_tax_conditional",
+    compliance_description:
+      "Monthly/Annual professional tax payment where state law applies.",
+    recurrence_type: "one_time",
+    trigger_type: "conditional",
+    recurrence_config: {
+      due_day: null,
+      rule: "Varies by state — typically monthly or half-yearly",
+      applicable_states: ["Maharashtra", "Karnataka", "West Bengal", "Telangana"],
+    },
+    is_active: true,
+  },
+  {
+    name: "Form 15CA / 15CB",
+    compliance_category: "income_tax",
+    compliance_subtype: "form_15ca_15cb",
+    compliance_description:
+      "Required for foreign remittance before payment is made.",
+    recurrence_type: "one_time",
+    trigger_type: "conditional",
+    recurrence_config: {
+      due_day: null,
+      rule: "Before making foreign remittance",
+      condition: "Triggered when foreign remittance is made",
+    },
+    is_active: true,
+  },
+  {
+    name: "Gratuity Compliance",
+    compliance_category: "payroll",
+    compliance_subtype: "gratuity_conditional",
+    compliance_description:
+      "Applicable when organization has 10+ employees and exit criteria are met.",
+    recurrence_type: "one_time",
+    trigger_type: "conditional",
+    recurrence_config: {
+      due_day: null,
+      rule: "Triggered on employee exit",
+      threshold: { employee_count: 10, min_service_years: 5 },
+    },
+    is_active: true,
+  },
+  {
+    name: "Trust Registration & Audit (Form 10A / 10B)",
+    compliance_category: "income_tax",
+    compliance_subtype: "form_10a_10b",
+    compliance_description:
+      "Form 10A registration and Form 10B audit filing for eligible trusts.",
+    recurrence_type: "one_time",
+    trigger_type: "conditional",
+    recurrence_config: {
+      due_month: 8,
+      due_day: 30,
+      rule: "Form 10A: at registration | Form 10B: 30 September of assessment year",
+      condition:
+        "Triggered when trust applies for registration or audit is applicable",
+      threshold: { audit_required: true },
+    },
+    is_active: true,
+  },
+];
+
+const ALLOWED_CATEGORY = new Set(["gst", "tds", "income_tax", "payroll", "mca"]);
+
+function normalizeCategory(value) {
+  if (!value) return null;
+  const normalized = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+  const map = {
+    income_tax: "income_tax",
+    incometax: "income_tax",
+    itr: "income_tax",
+    advance_tax: "income_tax",
+    mca_annual: "mca",
+    mca_event: "mca",
+    roc: "mca",
+  };
+  const mapped = map[normalized] || normalized;
+  return ALLOWED_CATEGORY.has(mapped) ? mapped : null;
+}
+
+function getTemplateCategory(template) {
+  return (
+    normalizeCategory(template?.compliance_category) ||
+    normalizeCategory(template?.category_tag) ||
+    "other"
+  );
+}
+
+function getTemplateSubtype(template) {
+  return template?.compliance_subtype || template?.subtag || template?.name || "conditional_item";
+}
+
+function getTemplateDescription(template) {
+  return template?.compliance_description || template?.description || "Conditional compliance item";
+}
+
+async function ensureConditionalTemplates() {
+  const count = await ComplianceTemplate.countDocuments({
+    trigger_type: "conditional",
+    is_active: true,
+  });
+
+  if (count < DEFAULT_CONDITIONAL_TEMPLATES.length) {
+    console.log("🌱 Ensuring default conditional templates are present...");
+  }
+
+  for (const tpl of DEFAULT_CONDITIONAL_TEMPLATES) {
+    const setOnInsert = {
+      ...tpl,
+      category_tag: tpl.compliance_category,
+      subtag: tpl.compliance_subtype,
+      description: tpl.compliance_description,
+    };
+
+    await ComplianceTemplate.updateOne(
+      { name: tpl.name, trigger_type: "conditional" },
+      { $setOnInsert: setOnInsert },
+      { upsert: true }
+    );
+  }
+}
+
 /**
  * Get conditional templates with ticket + obligation status
  */
@@ -17,6 +147,8 @@ export const getConditionalCompliances = async (req, res) => {
         message: "organization_id is required"
       });
     }
+
+    await ensureConditionalTemplates();
 
     // 1️⃣ Get all conditional templates
     const templates = await ComplianceTemplate.find({
@@ -74,7 +206,10 @@ export const getConditionalCompliances = async (req, res) => {
 
     // 4️⃣ Combine template data with obligation + ticket status
     const conditionalItems = templates.map(template => {
-      const existingObligation = obligationsMap.get(template.compliance_subtype);
+      const templateSubtype = getTemplateSubtype(template);
+      const templateCategory = getTemplateCategory(template);
+      const templateDescription = getTemplateDescription(template);
+      const existingObligation = obligationsMap.get(templateSubtype);
       const templateIdStr = template._id.toString();
       const templateTickets = ticketsMap.get(templateIdStr) || [];
       const latestTicket = templateTickets[0]; // Most recent ticket
@@ -85,13 +220,13 @@ export const getConditionalCompliances = async (req, res) => {
         // Template fields
         _id: template._id,
         name: template.name,
-        compliance_category: template.compliance_category,
-        compliance_subtype: template.compliance_subtype,
-        compliance_description: template.compliance_description,
+        compliance_category: templateCategory,
+        compliance_subtype: templateSubtype,
+        compliance_description: templateDescription,
         recurrence_config: template.recurrence_config,
 
         // For UI display
-        primaryTag: template.compliance_category?.toUpperCase() || 'Other',
+        primaryTag: templateCategory?.toUpperCase() || 'OTHER',
         secondaryTag: 'Conditional',
         applicability_info: getApplicabilityInfo(template),
         due_date_rule: getDueDateRule(template),
@@ -160,9 +295,13 @@ export const generateConditionalObligation = async (req, res) => {
       });
     }
 
+    const templateCategory = getTemplateCategory(template);
+    const templateSubtype = getTemplateSubtype(template);
+    const templateDescription = getTemplateDescription(template);
+
     const existingObligation = await ComplianceObligation.findOne({
       organization_id: new mongoose.Types.ObjectId(organization_id),
-      compliance_subtype: template.compliance_subtype,
+      compliance_subtype: templateSubtype,
       financial_year: financialYear
     });
 
@@ -185,11 +324,11 @@ export const generateConditionalObligation = async (req, res) => {
 
     const obligation = new ComplianceObligation({
       organization_id: new mongoose.Types.ObjectId(organization_id),
-      compliance_category: template.compliance_category,
-      compliance_subtype: template.compliance_subtype,
-      compliance_description: template.compliance_description,
+      compliance_category: templateCategory === "other" ? "mca" : templateCategory,
+      compliance_subtype: templateSubtype,
+      compliance_description: templateDescription,
       form_name: template.name,
-      form_description: template.compliance_description,
+      form_description: templateDescription,
       due_date: dueDate,
       status: filingData?.status || 'initiated',
       financial_year: financialYear,

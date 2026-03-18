@@ -3,6 +3,27 @@ import { ComplianceTicket } from "../../models/compliance/complianceTicketModel.
 import { ComplianceComment } from "../../models/compliance/complianceCommentModel.js";
 import { ComplianceTemplate } from "../../models/compliance/complianceTemplateModel.js";
 
+const ALLOWED_CATEGORY = new Set(["gst", "tds", "income_tax", "mca", "payroll", "other"]);
+
+function normalizeCategory(value) {
+  if (!value) return null;
+  const normalized = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+  const map = {
+    mca_annual: "mca",
+    mca_event: "mca",
+    advance_tax: "income_tax",
+    income_tax: "income_tax",
+    incometax: "income_tax",
+    roc: "mca",
+  };
+  const mapped = map[normalized] || normalized;
+  return ALLOWED_CATEGORY.has(mapped) ? mapped : null;
+}
+
 /**
  * Generate Ticket Number
  * Format: TKT-YYYY-00001
@@ -93,8 +114,11 @@ export const createConditionalTicket = async (req, res) => {
     }
 
     // Get data from template
-    const compliance_category = template.compliance_category;
-    const compliance_subtype = template.compliance_subtype;
+    const compliance_category =
+      normalizeCategory(template.compliance_category) ||
+      normalizeCategory(template.category_tag) ||
+      "other";
+    const compliance_subtype = template.compliance_subtype || template.subtag || template.name;
     const financial_year = getCurrentFinancialYear();
 
     // Calculate due date from template
