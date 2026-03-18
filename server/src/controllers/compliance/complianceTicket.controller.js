@@ -280,6 +280,7 @@ export const getTicketComments = async (req, res) => {
     const comments = await ComplianceComment
       .find({ ticket_id: ticketId })
       .sort({ createdAt: 1 })
+      .populate("user_id", "name email")
       .lean();
 
     console.log(`📊 Found ${comments.length} comments for ticket ${ticketId}`);
@@ -291,9 +292,16 @@ export const getTicketComments = async (req, res) => {
       'Expires': '0'
     });
 
+    const normalised = comments.map((c) => ({
+      ...c,
+      author_role: c.role === "admin" ? "accountant" : "client",
+      author_name: c.user_id?.name || null,
+      author_email: c.user_id?.email || null,
+    }));
+
     res.json({
       success: true,
-      data: comments
+      data: normalised
     });
 
   } catch (error) {
@@ -320,7 +328,8 @@ export const addComment = async (req, res) => {
     const user_id = req.user._id;
     // ✅ FIX: Get organization_id from the ticket, not from req.user
     const organization_id = ticket.organization_id;
-    const user_role = (req.role === "owner" || req.role === "admin") ? "admin" : "user";
+    // This endpoint is for client/org users. Treat all comments here as client-side.
+    const user_role = "user";
 
     console.log("=== ADD COMMENT DEBUG ===");
     console.log("ticket_id:", ticket_id);
@@ -359,9 +368,8 @@ export const addComment = async (req, res) => {
     ticket.last_comment_by_role = user_role;
     ticket.last_activity_at = new Date();
 
-    if (user_role === "user") {
-      ticket.has_unread_client_update = true;
-    }
+    // Client comment should always trigger "Client Updates" highlight for accountant.
+    ticket.has_unread_client_update = true;
 
     await ticket.save();
 
@@ -384,6 +392,16 @@ export const addComment = async (req, res) => {
  */
 export const updateTicketStatus = async (req, res) => {
   try {
+    // Only accountant/admin side can update ticket status.
+    const actorRole = req.user?.role || req.role;
+    const isAdminActor = actorRole === "admin" || actorRole === "accountant";
+    if (!isAdminActor) {
+      return res.status(403).json({
+        success: false,
+        message: "Only admin can update ticket status"
+      });
+    }
+
     const ticket = await ComplianceTicket.findById(req.params.id);
 
     if (!ticket) {
@@ -395,7 +413,7 @@ export const updateTicketStatus = async (req, res) => {
     const { status, note } = req.body;
 
     const user_id = req.user._id;
-    const user_role = (req.role === "owner" || req.role === "admin") ? "admin" : "user";
+    const user_role = "admin";
     
     ticket.status = status;
 

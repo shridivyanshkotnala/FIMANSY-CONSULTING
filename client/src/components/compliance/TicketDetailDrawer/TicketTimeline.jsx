@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { format, isValid } from "date-fns";
 import { STATUS_PIPELINE, STATUS_LABELS, STATUS_CONFIG, STATUS_TRANSITIONS } from "./constants";
 
-export function TicketTimeline({ currentTicket, statusHistory, updatingStatus, onStatusUpdate }) {
+export function TicketTimeline({ currentTicket, statusHistory, updatingStatus, onStatusUpdate, canUpdateStatus = false }) {
   const isOverdue = currentTicket.status === "overdue";
   
   return (
@@ -32,7 +32,7 @@ export function TicketTimeline({ currentTicket, statusHistory, updatingStatus, o
           </div>
 
           {/* Move to buttons */}
-          {STATUS_TRANSITIONS[currentTicket.status]?.length > 0 && (
+          {canUpdateStatus && STATUS_TRANSITIONS[currentTicket.status]?.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">Move to:</p>
               <div className="flex flex-wrap gap-2">
@@ -56,12 +56,15 @@ export function TicketTimeline({ currentTicket, statusHistory, updatingStatus, o
             </div>
           )}
 
-          {(!STATUS_TRANSITIONS[currentTicket.status] ||
+          {(!canUpdateStatus ||
+            !STATUS_TRANSITIONS[currentTicket.status] ||
             STATUS_TRANSITIONS[currentTicket.status].length === 0) && (
               <p className="text-xs text-muted-foreground">
                 {currentTicket.status === "closed"
                   ? "Ticket is closed and archived."
-                  : "No further transitions available."}
+                  : canUpdateStatus
+                    ? "No further transitions available."
+                    : "Status updates are managed by accountant."}
               </p>
             )}
 

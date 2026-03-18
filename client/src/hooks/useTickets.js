@@ -16,6 +16,7 @@ async function apiFetch(endpoint, options = {}) {
         ...(options.headers || {}),
       },
       credentials: "include",
+      cache: "no-store",
       ...options,
     });
 
@@ -232,39 +233,19 @@ export function useTickets() {
   =====================================
   */
   const getTicketComments = async (ticketId) => {
-  console.log("🔍 Fetching comments for ticket:", ticketId);
-  
-  const { data, error } = await apiFetch(
-    `/compliance/tickets/${ticketId}/comments?_=${Date.now()}`,
-    { headers: getHeaders() }
-  );
+    const { data, error } = await apiFetch(
+      `/compliance/tickets/${ticketId}/comments?_=${Date.now()}`,
+      { headers: getHeaders() }
+    );
 
-  console.log("📦 Raw API response:", data);
-  console.log("❌ Error:", error);
+    const comments = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
 
-  let comments = [];
-
-  if (data) {
-    // Case 1: Direct array
-    if (Array.isArray(data)) {
-      comments = data;
-      console.log("✅ Case 1: Direct array with", comments.length, "comments");
-    }
-    // Case 2: { success: true, data: [...] }
-    else if (data.data && Array.isArray(data.data)) {
-      comments = data.data;
-      console.log("✅ Case 2: data.data array with", comments.length, "comments");
-    }
-    // Case 3: Something else
-    else {
-      console.log("⚠️ Unexpected response format:", data);
-    }
-  }
-
-  console.log("🎯 Final comments array:", comments);
-  
-  return { data: comments, error };
-};
+    return { data: comments, error };
+  };
   /*
   =====================================
   Add Ticket Comment

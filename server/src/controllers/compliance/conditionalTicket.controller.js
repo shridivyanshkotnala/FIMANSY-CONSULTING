@@ -67,7 +67,8 @@ export const createConditionalTicket = async (req, res) => {
 
     const user_id = req.user._id;
     // req.role comes from the membership (set by orgMiddleware)
-    const user_role = (req.role === "owner" || req.role === "admin") ? "admin" : "user";
+    // Conditional ticket endpoint is used from client app; actor role should be client-side.
+    const user_role = "user";
 
     // Get organization_id from the middleware
     const organization_id = req.organizationId;
@@ -195,8 +196,9 @@ export const createConditionalTicket = async (req, res) => {
       });
 
       ticket.last_comment_at = newComment.createdAt;
-      ticket.last_comment_by_role = newComment.user_role;
+      ticket.last_comment_by_role = newComment.role;
       ticket.last_activity_at = new Date();
+      ticket.has_unread_client_update = true;
 
       await ticket.save();
       console.log("Comment created:", newComment._id);

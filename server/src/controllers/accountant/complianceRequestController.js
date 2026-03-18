@@ -370,10 +370,8 @@ export const postComment = async (req, res) => {
 
     // Support both _id and id (passport / JWT middleware variations)
     const user_id = req.user?._id || req.user?.id;
-    const userRole = req.user?.role; // raw role from auth: "accountant"|"admin"|"client"|"user"
-
-    // Map to schema enum — ComplianceComment.role is ['user','accountant']
-    const role = (userRole === "admin" || userRole === "accountant") ? "accountant" : "user";
+    // ComplianceComment.role enum is ['user','admin']
+    const role = "admin";
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
       return res.status(400).json({ message: "Invalid ticket ID" });
@@ -408,10 +406,8 @@ export const postComment = async (req, res) => {
       last_activity_at: now,
     };
 
-    // If CLIENT posts → mark unread for accountant
-    if (userRole === "client" || userRole === "user") {
-      updatePayload.has_unread_client_update = true;
-    }
+    // Accountant comment means client-update badge should be cleared.
+    updatePayload.has_unread_client_update = false;
 
     await ComplianceTicket.updateOne(
       { _id: ticketId },

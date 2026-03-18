@@ -38,6 +38,8 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
   const [activeSection, setActiveSection] = useState("timeline");
   const [localTicket, setLocalTicket] = useState(null);
 
+  const canUpdateStatus = user?.role === "admin" || user?.role === "accountant";
+
   // 🔥 FIX 1: PROPER PROP SYNC - NEVER IGNORE SAME TICKET UPDATES
   useEffect(() => {
     if (!ticket) return;
@@ -136,56 +138,20 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
 
   const handleAddComment = async () => {
     if (!localTicket?._id || !newComment.trim()) return;
-    
-    setSubmitting(true);
-    
-    // Store the comment text locally
-    const commentText = newComment.trim();
-    
-    try {
-      // Create optimistic comment
-      const optimisticComment = {
-        _id: `temp-${Date.now()}`,
-        ticket_id: localTicket._id,
-        organization_id: localTicket.organization_id,
-        user_id: {
-          _id: user?._id,
-          name: user?.name || (user?.role === "admin" || user?.role === "accountant" ? "Accountant" : "Client"),
-          email: user?.email
-        },
-        role: user?.role === "admin" || user?.role === "accountant" ? "accountant" : "user",
-        message: commentText,
-        content: commentText,
-        attachments: [],
-        created_at: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        author_role: user?.role === "admin" || user?.role === "accountant" ? "accountant" : "user",
-        author_name: user?.name || (user?.role === "admin" || user?.role === "accountant" ? "Accountant" : "Client"),
-        author_email: user?.email
-      };
 
-      console.log("📝 Adding optimistic comment:", optimisticComment);
-      
-      // Add optimistic comment immediately
-      setComments(prev => {
-        const newComments = [...prev, optimisticComment];
-        console.log("📝 Comments after optimistic add:", newComments);
-        return newComments;
-      });
-      
+    setSubmitting(true);
+
+    const commentText = newComment.trim();
+
+    try {
       setNewComment("");
 
-      // Send to backend
       const response = await addTicketComment(localTicket._id, {
         message: commentText,
         attachments: []
       });
 
-      console.log("📡 Backend response:", response);
-
       if (response.error) {
-        console.error("❌ Error from addTicketComment:", response.error);
-        setComments(prev => prev.filter(c => c._id !== optimisticComment._id));
         toast({ 
           title: "Error", 
           description: "Failed to add comment", 
@@ -194,37 +160,13 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
         return;
       }
 
-      // Extract real comment from response
-      let realComment = null;
-      
-      if (response.data && !response.data.success && !response.data.data) {
-        realComment = response.data;
-      } else if (response.data?.data) {
-        realComment = response.data.data;
-      } else if (response.data?.success && response.data?.data) {
-        realComment = response.data.data;
-      } else if (response._id) {
-        realComment = response;
-      }
-
-      console.log("✅ Extracted real comment:", realComment);
-
-      if (realComment) {
-        setComments(prev => {
-          const filtered = prev.filter(c => !c._id.toString().startsWith('temp-'));
-          const newComments = [...filtered, realComment];
-          console.log("📝 Comments after replacing with real comment:", newComments);
-          return newComments;
-        });
-      } else {
-        console.log("⚠️ Could not extract real comment, keeping optimistic");
-      }
+      // Always reconcile with backend source of truth to avoid duplicate/glitch states.
+      const { data: freshComments } = await getTicketComments(localTicket._id);
+      setComments(Array.isArray(freshComments) ? freshComments : []);
 
       toast({ title: "Success", description: "Comment added successfully" });
-      
+
     } catch (error) {
-      console.error("❌ Exception adding comment:", error);
-      setComments(prev => prev.filter(c => !c._id.toString().startsWith('temp-')));
       toast({ 
         title: "Error", 
         description: "Failed to add comment", 
@@ -238,6 +180,14 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
   // 🔥 FIX 2: BULLETPROOF STATUS UPDATE
   const handleStatusUpdate = async (newStatus) => {
     if (!localTicket?._id) return;
+    if (!canUpdateStatus) {
+      toast({
+        title: "Not allowed",
+        description: "Only accountant can update status.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // 🚨 Set updating FIRST - this blocks the prop sync effect
     setUpdatingStatus(true);
@@ -413,6 +363,7 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
                 statusHistory={statusHistory}
                 updatingStatus={updatingStatus}
                 onStatusUpdate={handleStatusUpdate}
+                canUpdateStatus={canUpdateStatus}
               />
             )}
 
