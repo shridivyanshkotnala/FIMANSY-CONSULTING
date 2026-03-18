@@ -72,6 +72,19 @@ export const complianceApi = baseApi.injectEndpoints({
     }),
 
     // =========================
+    // FINAL VERIFIED DOCS REPORT
+    // =========================
+    getFinalVerifiedDocumentsReport: builder.query({
+      query: (params) => ({
+        url: "/accountant/reports/final-verified-documents",
+        method: "GET",
+        params,
+      }),
+      providesTags: [{ type: "TicketDocument", id: "FINAL_REPORT" }],
+      keepUnusedDataFor: 30,
+    }),
+
+    // =========================
     // TICKET DETAIL
     // =========================
     getTicketById: builder.query({
@@ -214,6 +227,57 @@ export const complianceApi = baseApi.injectEndpoints({
     }),
 
     // =========================
+    // DOCUMENTS (ACCOUNTANT)
+    // =========================
+    getTicketDocuments: builder.query({
+      query: (ticketId) => ({
+        url: `/accountant/compliance-requests/${ticketId}/documents`,
+        method: "GET",
+      }),
+      transformResponse: (response) => response.data || [],
+      providesTags: (result, error, ticketId) => [
+        { type: "TicketDocument", id: ticketId },
+      ],
+      keepUnusedDataFor: 0,
+    }),
+
+    initTicketDocumentUpload: builder.mutation({
+      query: ({ ticketId, body }) => ({
+        url: `/accountant/compliance-requests/${ticketId}/documents/init-upload`,
+        method: "POST",
+        body,
+      }),
+      transformResponse: (response) => response?.data || response,
+    }),
+
+    completeTicketDocumentUpload: builder.mutation({
+      query: ({ ticketId, body }) => ({
+        url: `/accountant/compliance-requests/${ticketId}/documents/complete-upload`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result, error, { ticketId }) => [
+        { type: "TicketDocument", id: ticketId },
+        { type: "Comment", id: ticketId },
+        { type: "Ticket", id: ticketId },
+        { type: "TicketList", id: "LIST" },
+      ],
+    }),
+
+    markTicketDocumentFinalVerified: builder.mutation({
+      query: ({ ticketId, documentId }) => ({
+        url: `/accountant/compliance-requests/${ticketId}/documents/${documentId}/mark-final-verified`,
+        method: "PATCH",
+      }),
+      invalidatesTags: (result, error, { ticketId }) => [
+        { type: "TicketDocument", id: ticketId },
+        { type: "Comment", id: ticketId },
+        { type: "Ticket", id: ticketId },
+        { type: "TicketList", id: "LIST" },
+      ],
+    }),
+
+    // =========================
     // ORG DIRECTORS
     // =========================
     getOrgDirectors: builder.query({
@@ -295,6 +359,7 @@ export const {
   useGetDashboardMetricsQuery,
   useGetOrganizationsQuery,
   useGetComplianceRequestsQuery,
+  useGetFinalVerifiedDocumentsReportQuery,
   useGetTicketByIdQuery,
   useGetTicketStatusHistoryQuery,
   useGetCommentsQuery,
@@ -302,6 +367,10 @@ export const {
   usePostCommentMutation,
   useMarkTicketReadMutation,
   useUpdateTicketStatusMutation,
+  useGetTicketDocumentsQuery,
+  useInitTicketDocumentUploadMutation,
+  useCompleteTicketDocumentUploadMutation,
+  useMarkTicketDocumentFinalVerifiedMutation,
   useGetOrgDirectorsQuery,
   useGetOrgCompanyProfileQuery,
   useGetComplianceTemplatesQuery,

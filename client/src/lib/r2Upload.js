@@ -38,6 +38,22 @@
 
 import { supabase } from "./supabase";
 
+export const uploadFileToSignedUrl = async (file, uploadUrl) => {
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to upload file to Cloudflare R2");
+  }
+
+  return true;
+};
+
 export const uploadInvoice = async (file, userId) => {
   const filePath = `${userId}/${Date.now()}_${file.name}`;
 

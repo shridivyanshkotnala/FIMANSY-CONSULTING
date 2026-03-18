@@ -163,6 +163,33 @@ export function useTickets() {
 
   /*
   =====================================
+  Ticket Documents (Signed URL flow)
+  =====================================
+  */
+  const initTicketDocumentUpload = async (ticketId, payload) => {
+    return await apiFetch(`/compliance/tickets/${ticketId}/documents/init-upload`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  };
+
+  const completeTicketDocumentUpload = async (ticketId, payload) => {
+    return await apiFetch(`/compliance/tickets/${ticketId}/documents/complete-upload`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  };
+
+  const getTicketDocuments = async (ticketId) => {
+    const { data, error } = await apiFetch(`/compliance/tickets/${ticketId}/documents`);
+    return {
+      data: Array.isArray(data) ? data : data?.data || [],
+      error,
+    };
+  };
+
+  /*
+  =====================================
   Load Tickets
   =====================================
   */
@@ -180,5 +207,8 @@ export function useTickets() {
     updateTicketStatus,
     getTicketComments,
     addTicketComment,
+    initTicketDocumentUpload,
+    completeTicketDocumentUpload,
+    getTicketDocuments,
   };
 }

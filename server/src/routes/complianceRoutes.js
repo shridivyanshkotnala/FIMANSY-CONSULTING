@@ -33,6 +33,11 @@ import {
   addComment,
   getTicketComments
 } from "../controllers/compliance/complianceTicket.controller.js";
+import {
+  initComplianceTicketDocumentUpload,
+  completeComplianceTicketDocumentUpload,
+  listComplianceTicketDocuments,
+} from "../controllers/compliance/complianceDocument.controller.js";
 
 import { 
   getConditionalCompliances,      // was: getConditionalCompliances
@@ -80,6 +85,9 @@ complianceRoutes.get("/tickets/:id", protectRoute, getTicketById);
 complianceRoutes.patch("/tickets/:id/status", protectRoute, updateTicketStatus);
 complianceRoutes.post("/tickets/:id/comments", protectRoute, addComment);
 complianceRoutes.get("/tickets/:id/comments", protectRoute, getTicketComments);
+complianceRoutes.post("/tickets/:id/documents/init-upload", protectRoute, initComplianceTicketDocumentUpload);
+complianceRoutes.post("/tickets/:id/documents/complete-upload", protectRoute, completeComplianceTicketDocumentUpload);
+complianceRoutes.get("/tickets/:id/documents", protectRoute, listComplianceTicketDocuments);
 
 
 complianceRoutes.get("/conditional", protectRoute, getConditionalCompliances);

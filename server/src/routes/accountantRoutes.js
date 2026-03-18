@@ -19,6 +19,13 @@ import {
   listAllOrganizations,
   createTicket,
 } from "../controllers/accountant/ticketCreationController.js";
+import { getFinalVerifiedDocumentsReport } from "../controllers/accountant/complianceReportController.js";
+import {
+  initTicketDocumentUpload,
+  completeTicketDocumentUpload,
+  listTicketDocuments,
+  markTicketDocumentFinalVerified,
+} from "../controllers/accountant/complianceDocumentController.js";
 
 
 const accountantRoutes = express.Router();
@@ -67,6 +74,7 @@ accountantRoutes.get(
 
 //tickets 
 accountantRoutes.get("/compliance-requests", protectRoute, isAdmin, getComplianceRequests);
+accountantRoutes.get("/reports/final-verified-documents", protectRoute, isAdmin, getFinalVerifiedDocumentsReport);
 accountantRoutes.get("/compliance-requests/:ticketId", protectRoute, isAdmin, getComplianceRequestDetail);
 accountantRoutes.get("/compliance-requests/:ticketId/comments", protectRoute, isAdmin, getTicketComments);
 accountantRoutes.patch("/compliance-requests/:ticketId/mark-read", protectRoute, isAdmin, markTicketAsRead);
@@ -74,6 +82,10 @@ accountantRoutes.post("/compliance-requests/:ticketId/comments", protectRoute, i
 accountantRoutes.get("/compliance-requests/:ticketId/meta", protectRoute, isAdmin, getTicketMeta);
 accountantRoutes.patch("/compliance-requests/:ticketId/status", protectRoute, isAdmin, updateTicketStatus);
 accountantRoutes.get("/compliance-requests/:ticketId/status-history", protectRoute, isAdmin, getTicketStatusHistory);
+accountantRoutes.post("/compliance-requests/:ticketId/documents/init-upload", protectRoute, isAdmin, initTicketDocumentUpload);
+accountantRoutes.post("/compliance-requests/:ticketId/documents/complete-upload", protectRoute, isAdmin, completeTicketDocumentUpload);
+accountantRoutes.get("/compliance-requests/:ticketId/documents", protectRoute, isAdmin, listTicketDocuments);
+accountantRoutes.patch("/compliance-requests/:ticketId/documents/:documentId/mark-final-verified", protectRoute, isAdmin, markTicketDocumentFinalVerified);
 accountantRoutes.get("/organizations/:orgId/directors", protectRoute, isAdmin, getOrgDirectors);
 
 // ─── Manual Ticket Creation ───────────────────────────────────────────────

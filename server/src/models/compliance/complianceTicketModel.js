@@ -103,6 +103,23 @@ const complianceTicketSchema = new mongoose.Schema(
       notes: String,
     },
 
+    final_verified_document_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ComplianceDocument",
+      default: null,
+      index: true,
+    },
+    final_verified_at: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    final_verified_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
     last_comment_at: { type: Date, index: true },
     last_comment_by_role: {
       type: String,

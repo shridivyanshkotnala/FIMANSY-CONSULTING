@@ -243,6 +243,9 @@ export const getComplianceRequestDetail = async (req, res) => {
             created_at: ticket.createdAt,
             updated_at: ticket.updatedAt,
             status_history: ticket.status_history || [],
+            final_verified_document_id: ticket.final_verified_document_id || null,
+            final_verified_at: ticket.final_verified_at || null,
+            final_verified_by: ticket.final_verified_by || null,
           },
           organization: {
             name: ticket.organization_id?.name || null,

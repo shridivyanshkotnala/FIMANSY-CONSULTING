@@ -8,6 +8,10 @@ import {
   useMarkTicketReadMutation,
   useUpdateTicketStatusMutation,
   useGetTicketStatusHistoryQuery,
+  useGetTicketDocumentsQuery,
+  useInitTicketDocumentUploadMutation,
+  useCompleteTicketDocumentUploadMutation,
+  useMarkTicketDocumentFinalVerifiedMutation,
 } from "@/Redux/Slices/api/complianceApi";
 import { closeDrawer } from "@/Redux/Slices/complianceSlice";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -30,9 +34,12 @@ import {
   ArrowRight,
   AlertTriangle,
   Clock,
+  Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { STATUS_CONFIG } from "./compliancecomp/constants";
+import { useToast } from "@/hooks/use-toast";
+import { uploadFileToSignedUrl } from "@/lib/r2Upload";
 
 /* Removed TS Record typing */
 const STATUS_TRANSITIONS = {
@@ -54,6 +61,10 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
   let ticket = ticketProp || {};
 
   const [newComment, setNewComment] = useState("");
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [markingDocId, setMarkingDocId] = useState(null);
+  const fileInputRef = useRef(null);
+  const { toast } = useToast();
 
   // Redux access to drawer state
   const dispatch = useDispatch();
@@ -76,8 +87,16 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
     data: statusHistory = [],
     currentData: currentStatusHistory = [],
   } = useGetTicketStatusHistoryQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
+  const {
+    data: ticketDocuments = [],
+    currentData: currentTicketDocuments = [],
+    refetch: refetchTicketDocuments,
+  } = useGetTicketDocumentsQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
   const [postComment, { isLoading: posting }] = usePostCommentMutation();
   const [markRead] = useMarkTicketReadMutation();
+  const [initUpload] = useInitTicketDocumentUploadMutation();
+  const [completeUpload] = useCompleteTicketDocumentUploadMutation();
+  const [markFinalVerified] = useMarkTicketDocumentFinalVerifiedMutation();
 
   // Local refs for meta polling comparison
   const lastMetaRef = useRef(null);
@@ -160,11 +179,6 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
   const [updateTicketStatus, updateStatusMeta] = useUpdateTicketStatusMutation();
   const updatingStatus = updateStatusMeta?.isLoading;
 
-  const [uploadedDocs] = useState([
-    { name: "GSTR-3B_Feb2026.pdf", status: "verified", uploadedAt: "28 Feb" },
-    { name: "Sales_Register.xlsx", status: "pending", uploadedAt: "28 Feb" },
-  ]);
-
   // If neither Redux drawer nor prop ticket, nothing to show
   const shouldRender = !!selectedTicketId || !!ticketProp;
   if (!shouldRender) return null;
@@ -213,6 +227,84 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
   const statusHistoryToRender = Array.isArray(currentStatusHistory)
     ? currentStatusHistory
     : (Array.isArray(statusHistory) ? statusHistory : []);
+  const documentsToRender = Array.isArray(currentTicketDocuments)
+    ? currentTicketDocuments
+    : (Array.isArray(ticketDocuments) ? ticketDocuments : []);
+
+  const humanSize = (bytes) => {
+    const b = Number(bytes || 0);
+    if (!b) return "—";
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handlePickDocument = () => {
+    if (uploadingDoc) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (event) => {
+    const file = event.target?.files?.[0];
+    if (!file || !selectedTicketId) return;
+
+    setUploadingDoc(true);
+    try {
+      const signed = await initUpload({
+        ticketId: selectedTicketId,
+        body: {
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          fileSize: file.size || 0,
+          intent: "working_doc",
+        },
+      }).unwrap();
+
+      await uploadFileToSignedUrl(file, signed.uploadUrl);
+
+      await completeUpload({
+        ticketId: selectedTicketId,
+        body: {
+          key: signed.key,
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          fileSize: file.size || 0,
+          intent: "working_doc",
+        },
+      }).unwrap();
+
+      await refetchTicketDocuments?.();
+      toast({ title: "Uploaded", description: "Document uploaded successfully." });
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: err?.data?.message || err?.message || "Could not upload document.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingDoc(false);
+      if (event?.target) event.target.value = "";
+    }
+  };
+
+  const handleMarkFinalVerified = async (documentId) => {
+    if (!selectedTicketId || !documentId) return;
+
+    setMarkingDocId(documentId);
+    try {
+      await markFinalVerified({ ticketId: selectedTicketId, documentId }).unwrap();
+      await refetchTicketDocuments?.();
+      toast({ title: "Final verified", description: "Final verified document marked." });
+    } catch (err) {
+      toast({
+        title: "Action failed",
+        description: err?.data?.message || err?.message || "Could not mark final verified document.",
+        variant: "destructive",
+      });
+    } finally {
+      setMarkingDocId(null);
+    }
+  };
 
   const handleUpdateStatus = async (nextStatus) => {
     const id = selectedTicketId || ticket.id;
@@ -497,35 +589,65 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
           {/* ================= DOCUMENTS ================= */}
 
           <TabsContent value="documents" className="space-y-4 mt-4">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleFileSelected}
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.csv,.zip"
+            />
             <div className="space-y-2">
-              {uploadedDocs.map((doc, i) => (
+              {documentsToRender.length === 0 && (
+                <div className="text-center py-6 border rounded-lg">
+                  <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-xs text-muted-foreground">No documents uploaded yet.</p>
+                </div>
+              )}
+              {documentsToRender.map((doc) => (
                 <div
-                  key={i}
+                  key={doc._id}
                   className="flex items-center justify-between p-3 border rounded-lg bg-card"
                 >
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium">{doc.name}</p>
+                      <a
+                        href={doc.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-medium hover:underline"
+                      >
+                        {doc.display_file_name || doc.original_file_name}
+                      </a>
                       <p className="text-[10px] text-muted-foreground">
-                        Uploaded {doc.uploadedAt}
+                        Uploaded {safeFormat(doc.createdAt, "dd MMM yyyy, HH:mm") || "—"}
+                        {" · "}{humanSize(doc.file_size)}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {doc.status === "verified" ? (
+                    {doc.is_final_verified ? (
                       <Badge className="bg-success/10 text-success border-success/20 text-[10px]">
                         <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />
-                        Verified
+                        Final Verified Document
                       </Badge>
                     ) : (
                       <Button
                         variant="outline"
                         size="sm"
                         className="h-7 text-xs"
+                        onClick={() => handleMarkFinalVerified(doc._id)}
+                        disabled={!!markingDocId}
                       >
-                        Verify
+                        {markingDocId === doc._id ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            Marking...
+                          </>
+                        ) : (
+                          "Mark Final Verified"
+                        )}
                       </Button>
                     )}
                   </div>
@@ -534,14 +656,9 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 gap-1.5">
+              <Button variant="outline" className="flex-1 gap-1.5" onClick={handlePickDocument} disabled={uploadingDoc}>
                 <Upload className="h-3.5 w-3.5" />
-                Upload Return
-              </Button>
-
-              <Button variant="outline" className="flex-1 gap-1.5">
-                <FileText className="h-3.5 w-3.5" />
-                Request Docs
+                {uploadingDoc ? "Uploading..." : "Upload Document"}
               </Button>
             </div>
           </TabsContent>
@@ -690,6 +807,22 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
                     </div>
 
                     <p className="text-sm text-foreground">{text}</p>
+
+                    {Array.isArray(c.attachments) && c.attachments.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {c.attachments.map((a, ai) => (
+                          <a
+                            key={a.document_id || a.url || ai}
+                            href={a.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block text-xs text-primary hover:underline"
+                          >
+                            {a.name || a.file_name || "Attachment"}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
