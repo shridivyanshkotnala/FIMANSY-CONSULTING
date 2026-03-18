@@ -10,12 +10,27 @@ const complianceTicketSchema = new mongoose.Schema(
       index: true,
     },
 
+<<<<<<< HEAD
     // true when ticket was created manually by an accountant (not by the compliance engine)
     is_manual: {
       type: Boolean,
       default: false,
       index: true,
     },
+=======
+  obligation_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "ComplianceObligation",
+    required: false,
+  },
+>>>>>>> 14af3e6 (Refactor ticket system: restructure TicketDetailDrawer, add conditionalTicket controller, update compliance tracking components)
+
+  template_id: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "ComplianceTemplate",
+  sparse: true,
+  index: true,
+},
 
   ticket_number: {
     type: String,

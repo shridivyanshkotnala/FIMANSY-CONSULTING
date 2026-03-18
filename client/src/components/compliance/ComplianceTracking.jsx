@@ -17,18 +17,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 
-import { useCompliance } from "@/hooks/useCompliance";
 import { useTickets } from "@/hooks/useTickets";
 
 import {
   Search,
   AlertTriangle,
   CheckCircle2,
-  TrendingUp,
   ChevronRight,
   ListChecks,
+  Ticket,
 } from "lucide-react";
 
 import {
@@ -38,8 +36,7 @@ import {
   startOfDay,
 } from "date-fns";
 
-import { CreateTicketModal } from "./CreateTicketModal";
-import { TicketDetailDrawer } from "./TicketDetailDrawer";
+import { TicketDetailDrawer } from "./TicketDetailDrawer/TicketDetailDrawer";
 
 /* ---------------------------------------------------- */
 /* Config */
@@ -49,125 +46,113 @@ const CATEGORY_TAGS = ["gst", "tds", "income_tax", "payroll", "mca"];
 
 const STATUS = {
   not_started: { label: "Not Started", class: "bg-muted text-muted-foreground" },
+  initiated: { label: "Initiated", class: "bg-blue-100 text-blue-800" },
   in_progress: { label: "In Progress", class: "bg-accent text-accent-foreground" },
+  pending_docs: { label: "Pending Docs", class: "bg-yellow-100 text-yellow-800" },
   filed: { label: "Filed", class: "bg-success/10 text-success" },
+  approved: { label: "Approved", class: "bg-green-100 text-green-800" },
   overdue: { label: "Overdue", class: "bg-destructive/10 text-destructive" },
+  closed: { label: "Closed", class: "bg-gray-100 text-gray-800" },
   not_applicable: { label: "N/A", class: "bg-muted text-muted-foreground" },
 };
 
-const ONGOING = ["not_started", "in_progress", "overdue"];
-const CLOSED = ["filed", "not_applicable"];
+const ONGOING = ["initiated", "in_progress", "pending_docs", "not_started", "overdue"];
+const CLOSED = ["filed", "approved", "closed", "not_applicable"];
 
 /* ---------------------------------------------------- */
 /* Component */
 /* ---------------------------------------------------- */
 
 export function ComplianceTracking() {
-  const { obligations = [], loading: complianceLoading } = useCompliance();
+  // ✅ USE THE REAL TICKETS FROM THE HOOK
+  const { tickets = [], loading: ticketsLoading, refetchTickets } = useTickets();
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [fy, setFY] = useState("all");
   const [status, setStatus] = useState("all");
 
-  const [selected, setSelected] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const today = startOfDay(new Date());
 
   /* ------------------------------ */
-  /* Process obligations with overdue logic */
-  /* ------------------------------ */
-
-  const tickets = useMemo(() => {
-    // Ensure obligations is an array
-    const obligationsArray = Array.isArray(obligations) ? obligations : [];
-    
-    return obligationsArray.map((obligation) => {
-      const due = obligation.due_date ? new Date(obligation.due_date) : null;
-
-      // Mark as overdue if past due and not filed/completed
-      if (
-        due &&
-        isBefore(due, today) &&
-        obligation.status === "not_started"
-      ) {
-        return { ...obligation, status: "overdue" };
-      }
-
-      return obligation;
-    });
-  }, [obligations, today]);
-
-  /* ------------------------------ */
-  /* Filtering */
+  /* Filter tickets */
   /* ------------------------------ */
 
   const filtered = useMemo(() => {
-    return tickets.filter((t) => {
-      // Search filter - search in relevant fields
+    if (!tickets || tickets.length === 0) return [];
+
+    return tickets.filter((ticket) => {
+      // Search filter
       if (search) {
         const q = search.toLowerCase();
-        const searchableFields = [
-          t.form_name,
-          t.form_description,
-          t.compliance_category,
-          t.compliance_subtype,
-          t.compliance_description,
-          t.financial_year,
-          t.srn_number,
-          t.acknowledgement_number,
-          t.notes,
-        ].filter(Boolean).map(field => field.toLowerCase());
-        
-        const matches = searchableFields.some(field => field.includes(q));
+        const matches = 
+          ticket.ticket_number?.toLowerCase().includes(q) ||
+          ticket.compliance_subtype?.toLowerCase().includes(q) ||
+          ticket.compliance_category?.toLowerCase().includes(q);
         if (!matches) return false;
       }
 
       // Category filter
-      if (category !== "all" && t.compliance_category !== category) return false;
-      
+      if (category !== 'all' && ticket.compliance_category !== category) return false;
+
       // Financial year filter
-      if (fy !== "all" && t.financial_year !== fy) return false;
-      
+      if (fy !== 'all' && ticket.financial_year !== fy) return false;
+
       // Status filter
-      if (status !== "all" && t.status !== status) return false;
+      if (status !== 'all' && ticket.status !== status) return false;
 
       return true;
     });
   }, [tickets, search, category, fy, status]);
 
-  const ongoing = filtered.filter((t) => ONGOING.includes(t.status));
-  const closed = filtered.filter((t) => CLOSED.includes(t.status));
+  const ongoing = filtered.filter(ticket => ONGOING.includes(ticket.status));
+  const closed = filtered.filter(ticket => CLOSED.includes(ticket.status));
 
   /* ------------------------------ */
   /* Metrics */
   /* ------------------------------ */
 
   const metrics = useMemo(() => {
-    const overdue = tickets.filter((t) => t.status === "overdue").length;
-    const closedCount = tickets.filter((t) => CLOSED.includes(t.status)).length;
-    const ongoingCount = tickets.filter((t) => ONGOING.includes(t.status)).length;
-
-    const onTime = closedCount > 0
-      ? Math.round((tickets.filter((t) => t.status === "filed").length / closedCount) * 100)
-      : 100;
-
+    const allTickets = tickets || [];
+    
     return {
-      ongoing: ongoingCount,
-      overdue,
-      closed: closedCount,
-      onTime,
+      ongoing: allTickets.filter(t => ONGOING.includes(t.status)).length,
+      overdue: allTickets.filter(t => t.status === 'overdue').length,
+      closed: allTickets.filter(t => CLOSED.includes(t.status)).length,
+      total: allTickets.length,
     };
   }, [tickets]);
 
-  const fyOptions = [...new Set(tickets.map((t) => t.financial_year).filter(Boolean))];
+  const fyOptions = useMemo(() => {
+    if (!tickets || tickets.length === 0) return [];
+    return [...new Set(tickets.map(t => t.financial_year).filter(Boolean))];
+  }, [tickets]);
+
+  /* ------------------------------ */
+  /* Handlers */
+  /* ------------------------------ */
+
+  const handleTicketClick = (ticket) => {
+    setSelectedTicket(ticket);
+    setDrawerOpen(true);
+  };
+
+  const handleDrawerClose = (open) => {
+    setDrawerOpen(open);
+    if (!open) {
+      setSelectedTicket(null);
+      refetchTickets();
+    }
+  };
 
   /* ------------------------------ */
   /* Loading */
   /* ------------------------------ */
 
-  if (complianceLoading) {
+  if (ticketsLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-24 w-full" />
@@ -210,10 +195,7 @@ export function ComplianceTracking() {
           <TicketList 
             tickets={ongoing} 
             today={today} 
-            onClick={(ticket) => {
-              setSelected(ticket);
-              setDrawerOpen(true);
-            }} 
+            onClick={handleTicketClick} 
           />
         </TabsContent>
 
@@ -221,36 +203,30 @@ export function ComplianceTracking() {
           <TicketList 
             tickets={closed} 
             today={today} 
-            onClick={(ticket) => {
-              setSelected(ticket);
-              setDrawerOpen(true);
-            }} 
+            onClick={handleTicketClick} 
           />
         </TabsContent>
       </Tabs>
 
       <TicketDetailDrawer
-        ticket={selected}
+        ticket={selectedTicket}
         open={drawerOpen}
-        onOpenChange={(open) => {
-          setDrawerOpen(open);
-          if (!open) setSelected(null);
-        }}
+        onOpenChange={handleDrawerClose}
       />
     </div>
   );
 }
 
 /* ---------------------------------------------------- */
-/* Metrics */
+/* Metrics Component */
 /* ---------------------------------------------------- */
 
 function Metrics({ metrics }) {
   const items = [
-    { icon: ListChecks, label: "Ongoing", value: metrics.ongoing },
+    { icon: ListChecks, label: "Total Tickets", value: metrics.total },
+    { icon: Ticket, label: "Ongoing", value: metrics.ongoing },
     { icon: AlertTriangle, label: "Overdue", value: metrics.overdue },
     { icon: CheckCircle2, label: "Closed", value: metrics.closed },
-    { icon: TrendingUp, label: "On-Time Rate", value: `${metrics.onTime}%` },
   ];
 
   return (
@@ -276,7 +252,7 @@ function Metrics({ metrics }) {
 }
 
 /* ---------------------------------------------------- */
-/* Filters */
+/* Filters Component */
 /* ---------------------------------------------------- */
 
 function Filters({
@@ -297,7 +273,7 @@ function Filters({
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by form name, category, FY..."
+          placeholder="Search by ticket number, category..."
           className="pl-9"
         />
       </div>
@@ -348,65 +324,95 @@ function Filters({
 }
 
 /* ---------------------------------------------------- */
-/* Ticket List */
+/* Ticket List Component */
 /* ---------------------------------------------------- */
 
 function TicketList({ tickets, today, onClick }) {
+  if (!tickets || tickets.length === 0) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="text-center py-8 text-muted-foreground">
+            No tickets found
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardContent className="pt-6 space-y-2">
-        {tickets.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            No obligations found
-          </div>
-        ) : (
-          tickets.map((t) => {
-            const due = t.due_date ? new Date(t.due_date) : null;
-            const days = due ? differenceInDays(due, today) : null;
-            const isOverdue = t.status === "overdue" || (due && isBefore(due, today) && t.status === "not_started");
-            const status = STATUS[t.status] || STATUS.not_started;
+        {tickets.map((ticket) => {
+          const due = ticket.due_date ? new Date(ticket.due_date) : null;
+          const days = due ? differenceInDays(due, today) : null;
+          const isOverdue = ticket.status === "overdue";
+          const status = STATUS[ticket.status] || STATUS.not_started;
 
-            // Display name - prefer form_name if available, otherwise use category/subtype
-            const displayName = t.form_name || 
-              (t.compliance_subtype 
-                ? `${t.compliance_category?.toUpperCase()} - ${t.compliance_subtype}`
-                : t.compliance_category?.toUpperCase() || "Compliance");
+          // Determine display name
+          const displayName = ticket.compliance_subtype 
+            ? `${ticket.compliance_category?.toUpperCase()} - ${ticket.compliance_subtype}`
+            : ticket.compliance_category?.toUpperCase() || "Compliance Ticket";
 
-            return (
-              <div
-                key={t._id}
-                onClick={() => onClick(t)}
-                className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{displayName}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {t.form_description || t.compliance_description || `FY: ${t.financial_year || "N/A"}`}
+          return (
+            <div
+              key={ticket._id}
+              onClick={() => onClick(ticket)}
+              className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm truncate">
+                    {displayName}
                   </p>
-                </div>
-
-                <div className="flex items-center gap-3 ml-4">
-                  {status && (
-                    <Badge className={`text-xs ${status.class}`}>
-                      {status.label}
+                  {ticket.template_id && (
+                    <Badge variant="outline" className="text-[10px] bg-purple-50">
+                      Conditional
                     </Badge>
                   )}
-
-                  {due && (
-                    <div className="text-right text-xs">
-                      <p>{format(due, "dd MMM")}</p>
-                      <p className={isOverdue ? "text-destructive" : "text-muted-foreground"}>
-                        {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d left`}
-                      </p>
-                    </div>
+                  {ticket.ticket_number && (
+                    <span className="text-xs text-muted-foreground">
+                      #{ticket.ticket_number}
+                    </span>
                   )}
-
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </div>
+                
+                {/* Additional metadata */}
+                <div className="flex items-center gap-3 mt-1">
+                  {ticket.compliance_category && (
+                    <span className="text-xs text-muted-foreground">
+                      {ticket.compliance_category.toUpperCase()}
+                    </span>
+                  )}
+                  {ticket.financial_year && (
+                    <span className="text-xs text-muted-foreground">
+                      FY: {ticket.financial_year}
+                    </span>
+                  )}
                 </div>
               </div>
-            );
-          })
-        )}
+
+              <div className="flex items-center gap-3 ml-4">
+                {status && (
+                  <Badge className={`text-xs ${status.class}`}>
+                    {status.label}
+                  </Badge>
+                )}
+
+                {due && (
+                  <div className="text-right text-xs">
+                    <p>{format(due, "dd MMM")}</p>
+                    <p className={isOverdue ? "text-destructive" : "text-muted-foreground"}>
+                      {isOverdue ? `${Math.abs(days)}d overdue` : `${days}d left`}
+                    </p>
+                  </div>
+                )}
+
+                <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+              </div>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

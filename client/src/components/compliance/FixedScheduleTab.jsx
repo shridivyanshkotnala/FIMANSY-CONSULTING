@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react"; // Add useCallback
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -20,63 +20,32 @@ import {
 
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
 import { ComplianceCalendar } from "./ComplianceCalendarWidget";
-import { TicketDetailDrawer } from "./TicketDetailDrawer";
+import { TicketDetailDrawer } from "./TicketDetailDrawer/TicketDetailDrawer";
 
 import { useCompliance } from "@/hooks/useCompliance";
 import { useTickets } from "@/hooks/useTickets";
 
-import {
-  getCurrentFinancialYear,
-  getDaysUntilDue,
-} from "@/lib/compliance/utils";
+import { getCurrentFinancialYear, getDaysUntilDue } from "@/lib/compliance/utils";
 
-import {
-  format,
-  isSameMonth,
-  startOfDay,
-  isWithinInterval,
-  parseISO,
-} from "date-fns";
+import { format, isSameMonth, startOfDay, isWithinInterval, parseISO } from "date-fns";
 
-import {
-  Calendar,
-  FileText,
-  ChevronRight,
-  Ticket,
-  MessageCircle,
-  AlertCircle,
-  CheckCircle2,
-} from "lucide-react";
+import { Calendar, FileText, ChevronRight, Ticket, MessageCircle, AlertCircle, CheckCircle2 } from "lucide-react";
 
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 /* ================= Quarterly subtype definitions ================= */
-
-const QUARTERLY_SUBTYPES = [
-  "tds_return",
-  "advance_tax_q1",
-  "advance_tax_q2",
-  "advance_tax_q3",
-  "advance_tax_q4",
-];
+const QUARTERLY_SUBTYPES = ["tds_return", "advance_tax_q1", "advance_tax_q2", "advance_tax_q3", "advance_tax_q4"];
 
 /* ================= Helpers ================= */
-
 function getCurrentQuarterRange() {
   const today = new Date();
   const month = today.getMonth();
   const year = today.getFullYear();
 
-  if (month >= 3 && month <= 5)
-    return { start: new Date(year, 3, 1), end: new Date(year, 5, 30), label: "Q1" };
-
-  if (month >= 6 && month <= 8)
-    return { start: new Date(year, 6, 1), end: new Date(year, 8, 30), label: "Q2" };
-
-  if (month >= 9 && month <= 11)
-    return { start: new Date(year, 9, 1), end: new Date(year, 11, 31), label: "Q3" };
-
+  if (month >= 3 && month <= 5) return { start: new Date(year, 3, 1), end: new Date(year, 5, 30), label: "Q1" };
+  if (month >= 6 && month <= 8) return { start: new Date(year, 6, 1), end: new Date(year, 8, 30), label: "Q2" };
+  if (month >= 9 && month <= 11) return { start: new Date(year, 9, 1), end: new Date(year, 11, 31), label: "Q3" };
   return { start: new Date(year, 0, 1), end: new Date(year, 2, 31), label: "Q4" };
 }
 
@@ -94,152 +63,201 @@ const getTicketStatusBadge = (status) => {
   return variants[status] || "secondary";
 };
 
-/* ================= Component ================= */
+const formatStatusText = (status) => {
+  if (!status) return "";
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
 
+/* ================= Component ================= */
 export function FixedScheduleTab() {
   const navigate = useNavigate();
-
-  const { obligations, loading, refetch: refetchCompliance } = useCompliance();
-  const { createTicket, refetchTickets } = useTickets();
-
+  const { obligations: serverObligations, loading, refetch: refetchCompliance } = useCompliance();
+  const { createTicket, refetchTickets, tickets, updateTicketStatus } = useTickets();
   const { toast } = useToast();
 
+  // Local state for optimistic updates
+  const [localObligations, setLocalObligations] = useState([]);
   const [filingModal, setFilingModal] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [selectedObligation, setSelectedObligation] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [localTickets, setLocalTickets] = useState([]);
 
   const today = startOfDay(new Date());
   const fy = getCurrentFinancialYear();
   const quarterRange = getCurrentQuarterRange();
 
-  /* ================= Refresh both data sources ================= */
-  const refreshAllData = useCallback(async () => {
-    await Promise.all([
-      refetchCompliance(),
-      refetchTickets()
-    ]);
-  }, [refetchCompliance, refetchTickets]);
+  // Sync server obligations with local state when they change
+  useEffect(() => {
+    setLocalObligations(serverObligations);
+  }, [serverObligations]);
+
+  /* ================= Helpers ================= */
+  const allTickets = useMemo(() => {
+    // Merge server tickets with local optimistic tickets
+    const ticketMap = new Map();
+    
+    // Add server tickets first
+    tickets.forEach(t => ticketMap.set(t._id, t));
+    // Override with local optimistic updates
+    localTickets.forEach(t => ticketMap.set(t._id, t));
+    
+    return Array.from(ticketMap.values());
+  }, [tickets, localTickets]);
+
+  const getTicketForObligation = useCallback(
+    (ob) => allTickets.find((t) => t._id === ob.ticket_id),
+    [allTickets]
+  );
 
   /* ================= Filters ================= */
+  const obligationsWithTickets = useMemo(() => localObligations.filter((ob) => ob.ticket_id), [localObligations]);
+  const obligationsWithoutTickets = useMemo(() => localObligations.filter((ob) => !ob.ticket_id), [localObligations]);
+  
+  const thisMonthObligations = useMemo(
+    () => localObligations.filter((ob) => ob.due_date && isSameMonth(parseISO(ob.due_date), today) && ob.recurrence_type === "monthly"),
+    [localObligations, today]
+  );
+  
+  const quarterlyObligations = useMemo(
+    () =>
+      localObligations.filter((ob) => {
+        if (!ob.due_date) return false;
+        const isQuarterly = ob.recurrence_type === "quarterly" || QUARTERLY_SUBTYPES.includes(ob.compliance_subtype);
+        if (!isQuarterly) return false;
+        return isWithinInterval(parseISO(ob.due_date), quarterRange);
+      }),
+    [localObligations, quarterRange]
+  );
+  
+  const thisFYObligations = useMemo(() => localObligations.filter((ob) => ob.financial_year === fy), [localObligations, fy]);
 
-  const obligationsWithTickets = useMemo(() => {
-    return obligations.filter((ob) => ob.status !== "not_started" || ob.ticket_id);
-  }, [obligations]);
-
-  const obligationsWithoutTickets = useMemo(() => {
-    return obligations.filter((ob) => ob.status === "not_started" && !ob.ticket_id);
-  }, [obligations]);
-
-  const thisMonthObligations = useMemo(() => {
-    return obligations.filter((ob) => {
-      if (!ob.due_date) return false;
-      const dueDate = parseISO(ob.due_date);
-      return isSameMonth(dueDate, today) && ob.recurrence_type === "monthly";
-    });
-  }, [obligations, today]);
-
-  const quarterlyObligations = useMemo(() => {
-    return obligations.filter((ob) => {
-      if (!ob.due_date) return false;
-
-      const isQuarterly =
-        ob.recurrence_type === "quarterly" ||
-        QUARTERLY_SUBTYPES.includes(ob.compliance_subtype);
-
-      if (!isQuarterly) return false;
-
-      const dueDate = parseISO(ob.due_date);
-      return isWithinInterval(dueDate, quarterRange);
-    });
-  }, [obligations, quarterRange]);
-
-  const thisFYObligations = useMemo(() => {
-    return obligations.filter((ob) => ob.financial_year === fy);
-  }, [obligations, fy]);
-
-  /* ================= Ticket Creation ================= */
-
-  const handleCreateTicket = async (data) => {
-    if (!filingModal) return;
-
-    setIsSubmitting(true);
-
-    try {
-      const result = await createTicket({
-        obligation_id: filingModal._id,
-        comment: data.comment,
-      });
-
-      if (!result.error) {
-        toast({
-          title: "✅ Ticket created",
-          description: `${filingModal.form_name || filingModal.compliance_subtype} filing started`,
-        });
-
-        // Refresh both compliance and tickets data
-        await refreshAllData();
-
-        setFilingModal(null);
-      } else {
-        toast({
-          title: "Error creating ticket",
-          description: result.error.message,
-          variant: "destructive",
-        });
+  /* ================= Ticket Handling ================= */
+  const handleViewTicket = useCallback(
+    (obligation) => {
+      const ticket = getTicketForObligation(obligation);
+      if (ticket) {
+        setSelectedTicket(ticket);
+        setDrawerOpen(true);
       }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to create ticket",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  /* ================= Ticket View ================= */
-
-  const handleViewTicket = (obligation) => {
-    setSelectedObligation(obligation);
-    setDrawerOpen(true);
-  };
+    },
+    [getTicketForObligation]
+  );
 
   const handleObligationClick = (obligation) => {
-    if (obligation.ticket_id || obligation.status !== "not_started") {
+    if (obligation.ticket_id) {
       handleViewTicket(obligation);
     } else {
       setFilingModal(obligation);
     }
   };
 
-  const handleDrawerClose = async (open) => {
+  const handleDrawerClose = useCallback((open) => {
     setDrawerOpen(open);
     if (!open) {
-      setSelectedObligation(null);
-      // Refresh data when drawer closes in case status was updated
-      await refreshAllData();
+      setSelectedTicket(null);
+    }
+  }, []);
+
+  /* ================= Optimistic Updates ================= */
+  const handleCreateTicket = async (data) => {
+    if (!filingModal) return;
+    setIsSubmitting(true);
+
+    try {
+      const result = await createTicket({ 
+        obligation_id: filingModal._id, 
+        comment: data.comment 
+      });
+
+      if (!result.error && result.data) {
+        const newTicket = result.data;
+        
+        // 🎯 OPTIMISTIC UPDATE 1: Update the obligation to show it has a ticket
+        setLocalObligations(prev => 
+          prev.map(ob => 
+            ob._id === filingModal._id 
+              ? { 
+                  ...ob, 
+                  ticket_id: newTicket._id,
+                  // Optionally update status if you want
+                  // status: 'initiated' 
+                } 
+              : ob
+          )
+        );
+
+        // 🎯 OPTIMISTIC UPDATE 2: Add the new ticket to local tickets
+        setLocalTickets((prev) => [...prev, newTicket]);
+        
+        // 🎯 Open the drawer immediately to show the new ticket
+        setSelectedTicket(newTicket);
+        setDrawerOpen(true);
+        
+        toast({ 
+          title: "✅ Ticket created", 
+          description: `${filingModal.form_name || filingModal.compliance_subtype} filing started` 
+        });
+        
+        setFilingModal(null);
+
+        // Refresh in background (don't await)
+        Promise.all([
+          refetchCompliance(),
+          refetchTickets()
+        ]).then(([newObligations]) => {
+          // Update local state with fresh server data
+          if (newObligations.data) {
+            setLocalObligations(newObligations.data);
+          }
+          // Clear local tickets since we now have server data
+          setLocalTickets([]);
+        }).catch(console.error);
+
+      } else {
+        toast({ 
+          title: "Error creating ticket", 
+          description: result.error?.message || "Unknown error", 
+          variant: "destructive" 
+        });
+      }
+    } catch (error) {
+      toast({ 
+        title: "Error", 
+        description: "Failed to create ticket", 
+        variant: "destructive" 
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  /* ================= Handle Status Update from Drawer ================= */
-  const handleTicketUpdate = async () => {
-    // Refresh data when ticket status is updated in drawer
-    await refreshAllData();
-  };
+  const handleTicketUpdate = useCallback((updatedTicket) => {
+    // Update in local tickets
+    setLocalTickets((prev) =>
+      prev.map((t) => (t._id === updatedTicket._id ? updatedTicket : t))
+    );
+    
+    // Update selected ticket if it's the one in drawer
+    if (selectedTicket?._id === updatedTicket._id) {
+      setSelectedTicket(updatedTicket);
+    }
+
+    // Refresh in background
+    refetchTickets().catch(console.error);
+  }, [selectedTicket, refetchTickets]);
 
   /* ================= Ticket Status UI ================= */
-
   const renderTicketStatus = (obligation) => {
-    if (!obligation.ticket_id && obligation.status === "not_started") {
+    const ticket = getTicketForObligation(obligation);
+    
+    if (!ticket) {
       return (
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 text-xs text-muted-foreground cursor-help">
-                <Ticket className="h-3 w-3" />
+                <Ticket className="h-3 w-3" /> 
                 <span>Create Ticket</span>
               </div>
             </TooltipTrigger>
@@ -251,25 +269,16 @@ export function FixedScheduleTab() {
       );
     }
 
+    // ✅ ALWAYS use ticket.status, NEVER obligation.status
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-2">
-              <Badge variant={getTicketStatusBadge(obligation.status)}>
-                {obligation.status === "in_progress" && "In Progress"}
-                {obligation.status === "pending_docs" && "Pending Docs"}
-                {obligation.status === "filed" && "Filed"}
-                {obligation.status === "approved" && "Approved"}
-                {obligation.status === "overdue" && "Overdue"}
-                {obligation.status === "closed" && "Closed"}
-                {obligation.status === "initiated" && "Initiated"}
-                {!["initiated", "in_progress", "pending_docs", "filed", "approved", "overdue", "closed", "not_started"].includes(obligation.status) && obligation.status}
+              <Badge variant={getTicketStatusBadge(ticket.status)}>
+                {formatStatusText(ticket.status)}
               </Badge>
-
-              {obligation.ticket_id && (
-                <MessageCircle className="h-3 w-3 text-muted-foreground" />
-              )}
+              <MessageCircle className="h-3 w-3 text-muted-foreground" />
             </div>
           </TooltipTrigger>
           <TooltipContent>
@@ -280,20 +289,24 @@ export function FixedScheduleTab() {
     );
   };
 
-  /* ================= Obligation Row ================= */
+  const isObligationOverdue = (ob) => {
+    const daysUntil = getDaysUntilDue(ob.due_date);
+    const ticket = getTicketForObligation(ob);
+    // ✅ Use ticket status if available
+    const status = ticket?.status || ob.status;
+    return daysUntil < 0 && !["filed", "approved", "closed"].includes(status);
+  };
 
   const renderObligationRow = (obligation) => {
     const dueDate = parseISO(obligation.due_date);
     const daysUntil = getDaysUntilDue(obligation.due_date);
-
-    const isOverdue =
-      daysUntil < 0 &&
-      obligation.status !== "filed" &&
-      obligation.status !== "approved" &&
-      obligation.status !== "closed";
-
+    const isOverdue = isObligationOverdue(obligation);
+    const ticket = getTicketForObligation(obligation);
+    // ✅ Use ticket status if available
+    const status = ticket?.status || obligation.status;
     const displayName = obligation.form_name || obligation.compliance_subtype;
     const displayDescription = obligation.form_description || obligation.compliance_description;
+    const showFiledIcon = status === "filed" || status === "approved";
 
     return (
       <div
@@ -302,43 +315,25 @@ export function FixedScheduleTab() {
         className={cn(
           "flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer transition-all",
           isOverdue && "border-l-4 border-l-destructive bg-destructive/5",
-          (obligation.ticket_id || obligation.status !== "not_started") && "border-primary/20 hover:border-primary/40"
+          obligation.ticket_id && "border-primary/20 hover:border-primary/40"
         )}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <p className="text-sm font-medium truncate">{displayName}</p>
-
-              {isOverdue && (
-                <AlertCircle className="h-3 w-3 text-destructive shrink-0" />
-              )}
-
-              {obligation.status === "filed" && (
-                <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
-              )}
+              {isOverdue && <AlertCircle className="h-3 w-3 text-destructive shrink-0" />}
+              {showFiledIcon && <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />}
             </div>
-
-            {displayDescription && (
-              <p className="text-xs text-muted-foreground truncate">
-                {displayDescription}
-              </p>
-            )}
-
+            {displayDescription && <p className="text-xs text-muted-foreground truncate">{displayDescription}</p>}
             <p className="text-xs text-muted-foreground mt-1">
               Due: {format(dueDate, "dd MMM yyyy")}
-              {daysUntil <= 7 && daysUntil > 0 && (
-                <span className="ml-2 text-warning">({daysUntil} days left)</span>
-              )}
-              {isOverdue && (
-                <span className="ml-2 text-destructive">({Math.abs(daysUntil)}d overdue)</span>
-              )}
+              {daysUntil <= 7 && daysUntil > 0 && <span className="ml-2 text-warning">({daysUntil} days left)</span>}
+              {isOverdue && <span className="ml-2 text-destructive">({Math.abs(daysUntil)}d overdue)</span>}
             </p>
           </div>
         </div>
-
         <div className="flex items-center gap-3 ml-4">
           {renderTicketStatus(obligation)}
           <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -347,7 +342,7 @@ export function FixedScheduleTab() {
     );
   };
 
-  if (loading) {
+  if (loading && localObligations.length === 0) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-[200px] w-full" />
@@ -359,12 +354,11 @@ export function FixedScheduleTab() {
 
   return (
     <div className="space-y-6">
-
-      {/* Stats Summary - Optional but helpful */}
+      {/* Stats Summary */}
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{obligations.length}</div>
+            <div className="text-2xl font-bold">{localObligations.length}</div>
             <p className="text-xs text-muted-foreground">Total Obligations</p>
           </CardContent>
         </Card>
@@ -382,24 +376,20 @@ export function FixedScheduleTab() {
         </Card>
       </div>
 
-      <ComplianceCalendar obligations={obligations} />
+      <ComplianceCalendar obligations={localObligations} />
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-4 w-4" />
-            This Month's Filings
+            <Calendar className="h-4 w-4" />This Month's Filings
             <Badge variant="secondary" className="ml-auto">
               {thisMonthObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
-
         <CardContent className="space-y-2">
           {thisMonthObligations.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No filings due this month
-            </p>
+            <p className="text-sm text-muted-foreground text-center py-4">No filings due this month</p>
           ) : (
             thisMonthObligations.map(renderObligationRow)
           )}
@@ -409,19 +399,15 @@ export function FixedScheduleTab() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-4 w-4" />
-            Quarterly Filings ({quarterRange.label})
+            <Calendar className="h-4 w-4" />Quarterly Filings ({quarterRange.label})
             <Badge variant="secondary" className="ml-auto">
               {quarterlyObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
-
         <CardContent className="space-y-2">
           {quarterlyObligations.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No quarterly filings due
-            </p>
+            <p className="text-sm text-muted-foreground text-center py-4">No quarterly filings due</p>
           ) : (
             quarterlyObligations.map(renderObligationRow)
           )}
@@ -431,19 +417,15 @@ export function FixedScheduleTab() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-4 w-4" />
-            Financial Year {fy}
+            <Calendar className="h-4 w-4" />Financial Year {fy}
             <Badge variant="secondary" className="ml-auto">
               {thisFYObligations.length}
             </Badge>
           </CardTitle>
         </CardHeader>
-
         <CardContent className="space-y-2 max-h-[400px] overflow-y-auto">
           {thisFYObligations.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No filings for this financial year
-            </p>
+            <p className="text-sm text-muted-foreground text-center py-4">No filings for this financial year</p>
           ) : (
             thisFYObligations.map(renderObligationRow)
           )}
@@ -459,7 +441,7 @@ export function FixedScheduleTab() {
       />
 
       <TicketDetailDrawer
-        ticket={selectedObligation}
+        ticket={selectedTicket}
         open={drawerOpen}
         onOpenChange={handleDrawerClose}
         onStatusUpdate={handleTicketUpdate}
