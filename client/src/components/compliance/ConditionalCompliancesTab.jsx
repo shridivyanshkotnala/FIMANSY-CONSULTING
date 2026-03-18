@@ -1,251 +1,364 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Card,
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { TAG_COLORS } from "@/lib/compliance/complianceData";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
+import { TicketDetailDrawer } from "./TicketDetailDrawer/TicketDetailDrawer";
 import { useCompliance } from "@/hooks/useCompliance";
+import { useTickets } from "@/hooks/useTickets";
 import { getCurrentFinancialYear } from "@/lib/compliance/utils";
 import { useToast } from "@/hooks/use-toast";
+
 import {
-  FileText,
-  Info,
-  Calendar,
   ArrowRight,
   Loader2,
-  AlertCircle,
-  CheckCircle2
+  Ticket,
+  MessageCircle,
+  CheckCircle2,
 } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
+/* ================= Helpers ================= */
+const getTicketStatusBadge = (status) => {
+  const variants = {
+    initiated: "secondary",
+    pending_docs: "warning",
+    in_progress: "default",
+    filed: "success",
+    approved: "success",
+    overdue: "destructive",
+    closed: "outline",
+    not_started: "outline",
+  };
+  return variants[status] || "secondary";
+};
+
+const formatStatusText = (status) => {
+  if (!status) return "";
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 export function ConditionalCompliancesTab() {
-  const { 
-    conditionalItems, 
-    loadingConditional, 
+  const {
+    conditionalItems: serverConditionalItems,
+    loadingConditional,
     fetchConditionalCompliances,
-    generateConditionalObligation 
   } = useCompliance();
-  
+
+  const {
+    createConditionalTicket,
+    refetchTickets,
+    tickets,
+  } = useTickets();
+
   const { toast } = useToast();
+
+  const isMounted = useRef(true);
+  const initialFetchDone = useRef(false);
+
+  const [localConditionalItems, setLocalConditionalItems] = useState([]);
   const [filingModal, setFilingModal] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   const fy = getCurrentFinancialYear();
 
-  // Load conditional items when tab opens
+  /* ================= Sync ================= */
   useEffect(() => {
-    fetchConditionalCompliances(fy);
+    setLocalConditionalItems(serverConditionalItems || []);
+  }, [serverConditionalItems]);
+
+  useEffect(() => {
+    if (!initialFetchDone.current) {
+      initialFetchDone.current = true;
+      fetchConditionalCompliances(fy);
+      refetchTickets();
+    }
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchConditionalCompliances, refetchTickets, fy]);
+
+  /* ================= Tickets Map ================= */
+  const ticketsMap = useMemo(() => {
+    const map = new Map();
+    tickets.forEach((t) => map.set(t._id, t));
+    return map;
+  }, [tickets]);
+
+  const getTicket = useCallback(
+    (item) => ticketsMap.get(item.ticket_id),
+    [ticketsMap]
+  );
+
+  const refreshAllData = useCallback(async () => {
+    if (!isMounted.current) return;
+    await Promise.all([
+      fetchConditionalCompliances(fy),
+      refetchTickets(),
+    ]);
+  }, [fetchConditionalCompliances, refetchTickets, fy]);
+
+  /* ================= Click Handlers ================= */
+  const handleFileClick = useCallback((item) => {
+    setFilingModal(item);
   }, []);
 
-  const handleFileClick = (item) => {
-    // Set the modal data directly from the DB item
-    // The item already has all the fields we need from the backend
-    setFilingModal(item);
-  };
+  const handleViewTicket = useCallback(
+    (item) => {
+      const ticket = getTicket(item);
+      if (ticket) {
+        setSelectedTicket(ticket);
+        setDrawerOpen(true);
+      }
+    },
+    [getTicket]
+  );
 
+  const handleItemClick = useCallback(
+    (item) => {
+      if (item.ticket_id) {
+        handleViewTicket(item);
+      } else {
+        handleFileClick(item);
+      }
+    },
+    [handleViewTicket, handleFileClick]
+  );
+
+  const handleDrawerClose = useCallback((open) => {
+    setDrawerOpen(open);
+    if (!open) {
+      setTimeout(() => {
+        if (isMounted.current) {
+          setSelectedTicket(null);
+        }
+      }, 100);
+    }
+  }, []);
+
+  /* ================= Create Ticket ================= */
   const handleFiling = async (data) => {
     if (!filingModal) return;
-    
+
     setIsSubmitting(true);
-    
-    const result = await generateConditionalObligation(filingModal._id, {
-      comment: data.comment,
-      status: 'initiated'
-    });
-    
-    if (!result.error) {
-      toast({
-        title: "Filing initiated",
-        description: `${filingModal.name} filing has been initiated.`,
+
+    try {
+      const result = await createConditionalTicket({
+        template_id: filingModal._id,
+        comment: data.comment || `Starting filing for ${filingModal.name}`,
+        attachments: data.attachments || [],
       });
+
+      if (!result || result.error) {
+        throw new Error(result?.error?.message || "API failed");
+      }
+
+      // ✅ SAFE ACCESS FIX
+      const newTicket = result.data?.data || result.data;
+
+      if (!newTicket?._id) {
+        throw new Error("Invalid ticket response");
+      }
+
+      // ✅ ONLY store ticket_id (NO duplicate ticket data)
+      setLocalConditionalItems((prev) =>
+        prev.map((item) =>
+          item._id === filingModal._id
+            ? {
+                ...item,
+                has_ticket: true,
+                ticket_id: newTicket._id,
+              }
+            : item
+        )
+      );
+
+      // ✅ open drawer immediately with fresh ticket
+      setSelectedTicket(newTicket);
+      setDrawerOpen(true);
       setFilingModal(null);
-    } else {
+
+      toast({
+        title: "✅ Filing Started",
+        description: "Conditional ticket created successfully.",
+      });
+
+      // background refresh
+      setTimeout(() => {
+        if (isMounted.current) {
+          refreshAllData().catch(console.error);
+        }
+      }, 500);
+    } catch (err) {
       toast({
         title: "Error",
-        description: "Failed to initiate filing. Please try again.",
+        description: err.message || "Failed to create ticket",
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    setIsSubmitting(false);
   };
 
-  if (loadingConditional) {
+  /* ================= Status Update ================= */
+  const handleStatusUpdate = useCallback(
+    (updatedTicket) => {
+      if (!isMounted.current || !updatedTicket) return;
+
+      // ✅ update only selected ticket
+      setSelectedTicket(updatedTicket);
+
+      // ✅ refresh global tickets (source of truth)
+      refetchTickets().catch(console.error);
+    },
+    [refetchTickets]
+  );
+
+  /* ================= UI ================= */
+  const renderTicketStatus = useCallback(
+    (item) => {
+      const ticket = getTicket(item);
+
+      if (!ticket) {
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground cursor-help">
+                  <Ticket className="h-3 w-3" />
+                  <span>Create Ticket</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Click to create a ticket</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      }
+
+      const status = ticket.status;
+      const showFiledIcon =
+        status === "filed" || status === "approved";
+
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2">
+                {showFiledIcon && (
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                )}
+                <Badge variant={getTicketStatusBadge(status)}>
+                  {formatStatusText(status)}
+                </Badge>
+                <MessageCircle className="h-3 w-3 text-muted-foreground" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Click to view ticket</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    },
+    [getTicket]
+  );
+
+  if (loadingConditional && localConditionalItems.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2 text-sm text-muted-foreground">
-          Loading conditional compliances...
-        </span>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between px-1">
-        <div>
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-primary/10">
-              <Info className="h-4 w-4 text-primary" />
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold">
+              {localConditionalItems.length}
             </div>
-            Conditional Compliances
-          </h2>
-          <p className="text-xs text-muted-foreground mt-1 ml-9">
-            These apply only if certain conditions are met. File only if applicable to your business.
-          </p>
-        </div>
-        <Badge
-          variant="outline"
-          className="text-xs border-primary/30 text-primary"
-        >
-          {conditionalItems.length} items
-        </Badge>
-      </div>
-
-      {/* Compliance List */}
-      <div className="space-y-4">
-        {conditionalItems.map((item) => {
-          const isGenerated = item.is_generated;
-          const status = item.obligation_status;
-          
-          return (
-            <Card
-              key={item._id}
-              className={cn(
-                "group border-border/60 hover:border-primary/30 transition-all duration-200 overflow-hidden",
-                isGenerated && status === 'filed' && "opacity-75"
-              )}
-            >
-              <CardContent className="p-0">
-                <div className="flex items-stretch">
-                  {/* Accent bar */}
-                  <div className={cn(
-                    "w-1 shrink-0 transition-colors duration-200",
-                    isGenerated && status === 'filed' && "bg-green-500",
-                    isGenerated && status === 'initiated' && "bg-yellow-500",
-                    !isGenerated && "bg-primary/20 group-hover:bg-primary"
-                  )} />
-
-                  <div className="flex-1 p-5">
-                    <div className="flex items-start justify-between gap-4">
-                      {/* Left Content */}
-                      <div className="flex-1 min-w-0 space-y-2.5">
-                        {/* Title with status badge */}
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-primary shrink-0" />
-                            <h3 className="font-semibold text-sm">
-                              {item.name}
-                            </h3>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <Badge
-                              className={cn(
-                                "text-[10px] px-2 py-0",
-                                TAG_COLORS[item.primaryTag] || TAG_COLORS.Other
-                              )}
-                            >
-                              {item.primaryTag}
-                            </Badge>
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] px-2 py-0 border-border"
-                            >
-                              {item.secondaryTag}
-                            </Badge>
-                            
-                            {/* Status badge */}
-                            {isGenerated && (
-                              <Badge 
-                                variant={status === 'filed' ? 'default' : 'secondary'}
-                                className="text-[10px] px-2 py-0"
-                              >
-                                {status === 'filed' && <CheckCircle2 className="h-3 w-3 mr-1" />}
-                                {status}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Description */}
-                        <p className="text-sm text-muted-foreground leading-relaxed">
-                          {item.compliance_description}
-                        </p>
-
-                        {/* Applicability */}
-                        <div className="bg-muted/50 rounded-lg px-3 py-2 border border-border/50">
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            <span className="font-medium text-foreground/70">
-                              Applicability:
-                            </span>{" "}
-                            {item.applicability_info}
-                          </p>
-                        </div>
-
-                        {/* Due Info */}
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Calendar className="h-3.5 w-3.5 text-primary/60" />
-                          <span className="font-medium">Due:</span>
-                          <span>{item.due_date_rule}</span>
-                        </div>
-                      </div>
-
-                      {/* File Button */}
-                      {!isGenerated || status !== 'filed' ? (
-                        <Button
-                          size="sm"
-                          className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 gap-1.5 mt-1"
-                          onClick={() => handleFileClick(item)}
-                          disabled={isGenerated && status === 'initiated'}
-                        >
-                          {isGenerated && status === 'initiated' ? 'In Progress' : 'File'}
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </Button>
-                      ) : (
-                        <Badge variant="outline" className="shrink-0 mt-1">
-                          Completed
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-
-        {conditionalItems.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <AlertCircle className="h-12 w-12 text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Conditional Compliances</h3>
-            <p className="text-sm text-muted-foreground max-w-md">
-              There are no conditional compliances configured for your organization.
+            <p className="text-xs text-muted-foreground">
+              Total Conditional Items
             </p>
-          </div>
-        )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold">
+              {
+                localConditionalItems.filter((i) => i.ticket_id).length
+              }
+            </div>
+            <p className="text-xs text-muted-foreground">
+              With Tickets
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Filing Modal */}
+      {/* List */}
+      <div className="space-y-4">
+        {localConditionalItems.map((item) => (
+          <Card
+            key={item._id}
+            className={cn(
+              "cursor-pointer hover:shadow-md transition",
+              item.ticket_id &&
+                "border-primary/20 hover:border-primary/40"
+            )}
+            onClick={() => handleItemClick(item)}
+          >
+            <CardContent className="p-5 flex justify-between items-center">
+              <div>
+                <h3 className="font-semibold">{item.name}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {item.compliance_description}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-4">
+                {renderTicketStatus(item)}
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Modal */}
       <ComplianceFilingModal
         open={!!filingModal}
-        onOpenChange={(open) => !open && setFilingModal(null)}
-        compliance={filingModal ? {
-          name: filingModal.name,
-          description: filingModal.compliance_description,
-          primaryTag: filingModal.primaryTag,
-          secondaryTag: filingModal.secondaryTag,
-          // Pass through the original data for due date calculation
-          dueMonth: filingModal.dueMonth,
-          dueDay: filingModal.dueDay,
-          _id: filingModal._id
-        } : null}
-        onSubmit={handleFiling}
+        onOpenChange={(o) => !o && setFilingModal(null)}
+        compliance={filingModal}
+        onSuccess={handleFiling}
         isSubmitting={isSubmitting}
+        mode="conditional"
+      />
+
+      {/* Drawer */}
+      <TicketDetailDrawer
+        ticket={selectedTicket}
+        open={drawerOpen}
+        onOpenChange={handleDrawerClose}
+        onStatusUpdate={handleStatusUpdate}
       />
     </div>
   );

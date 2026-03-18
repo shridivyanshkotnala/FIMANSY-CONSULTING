@@ -11,8 +11,15 @@ const complianceTicketSchema = new mongoose.Schema(
   obligation_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "ComplianceObligation",
-    required: true,
+    required: false,
   },
+
+  template_id: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "ComplianceTemplate",
+  sparse: true,
+  index: true,
+},
 
   ticket_number: {
     type: String,

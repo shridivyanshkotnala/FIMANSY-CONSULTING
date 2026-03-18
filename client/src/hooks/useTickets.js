@@ -29,13 +29,13 @@ async function apiFetch(endpoint, options = {}) {
     }
 
     if (!res.ok) {
-      console.error("API ERROR:", res.status, data);
+      console.error("❌ API ERROR:", res.status, data);
       throw new Error(data?.message || `API ${res.status}`);
     }
 
     return { data, error: null };
   } catch (err) {
-    console.warn(`[useTickets] API call failed: ${endpoint}`, err.message);
+    console.warn(`⚠️ [useTickets] API call failed: ${endpoint}`, err.message);
     return { data: null, error: err };
   }
 }
@@ -49,6 +49,23 @@ export function useTickets() {
 
   /*
   =====================================
+  Helper: Headers
+  =====================================
+  */
+  const getHeaders = () => {
+    const headers = {
+      "Content-Type": "application/json",
+    };
+
+    if (organization?.id) {
+      headers["x-organization-id"] = organization.id;
+    }
+
+    return headers;
+  };
+
+  /*
+  =====================================
   Fetch All Tickets
   =====================================
   */
@@ -59,11 +76,13 @@ export function useTickets() {
     setError(null);
 
     const { data, error } = await apiFetch(
-      `/compliance/tickets?organization_id=${organization.id}`
+      `/compliance/tickets?organization_id=${organization.id}`,
+      { headers: getHeaders() }
     );
 
     if (!error) {
-      setTickets(Array.isArray(data) ? data : data?.data || []);
+      const extracted = Array.isArray(data) ? data : data?.data || [];
+      setTickets(extracted);
     } else {
       setError(error);
     }
@@ -77,12 +96,14 @@ export function useTickets() {
   =====================================
   */
   const getTicket = async (id) => {
-    return await apiFetch(`/compliance/tickets/${id}`);
+    return await apiFetch(`/compliance/tickets/${id}`, {
+      headers: getHeaders(),
+    });
   };
 
   /*
   =====================================
-  Create Ticket
+  Create Ticket (Normal)
   =====================================
   */
   const createTicket = async (payload) => {
@@ -94,6 +115,7 @@ export function useTickets() {
 
     const { data, error } = await apiFetch("/compliance/tickets", {
       method: "POST",
+      headers: getHeaders(),
       body: JSON.stringify(insertData),
     });
 
@@ -106,7 +128,55 @@ export function useTickets() {
 
   /*
   =====================================
-  Update Ticket Status
+  Create Conditional Ticket
+  =====================================
+  */
+  const createConditionalTicket = async (payload) => {
+  const insertData = {
+    template_id: payload.template_id,
+    comment: payload.comment || "",
+    attachments: payload.attachments || [],
+  };
+
+  console.log("🔵 Creating conditional ticket:", insertData);
+
+  const { data, error } = await apiFetch(
+    "/compliance/conditional/ticket",
+    {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(insertData),
+    }
+  );
+
+  if (!error) {
+    // 🎯 Return the ticket data directly, not just fetch tickets
+    console.log("✅ Ticket created successfully:", data);
+    
+    // Try to extract the ticket from different response formats
+    let ticketData = null;
+    
+    if (data && data._id) {
+      ticketData = data; // Direct ticket
+    } else if (data && data.data && data.data._id) {
+      ticketData = data.data; // Nested in data.data
+    } else if (data && data.ticket && data.ticket._id) {
+      ticketData = data.ticket; // Nested in data.ticket
+    }
+    
+    // Refresh tickets in background
+    fetchTickets();
+    
+    return { data: ticketData, error: null };
+  } else {
+    console.error("🔴 Error creating conditional ticket:", error);
+    return { data: null, error };
+  }
+};
+
+  /*
+  =====================================
+  ✅ UPDATE TICKET STATUS (FIXED)
   =====================================
   */
   const updateTicketStatus = async (id, payload) => {
@@ -114,15 +184,46 @@ export function useTickets() {
       `/compliance/tickets/${id}/status`,
       {
         method: "PATCH",
+        headers: getHeaders(),
         body: JSON.stringify(payload),
       }
     );
 
-    if (!error) {
-      await fetchTickets();
+    // 🔍 FULL DEBUG
+    console.log("🔍 RAW API Response:", JSON.stringify(data, null, 2));
+    console.log("🔍 updateTicketStatus raw:", { data, error });
+
+    if (error || !data) {
+      return { data: null, error };
     }
 
-    return { data, error };
+    let ticket = null;
+
+    // ✅ Case 1: { success: true, data: ticket }
+    if (data.data) {
+      if (data.data._id || data.data.id) {
+        ticket = data.data;
+      } else if (data.data.ticket) {
+        ticket = data.data.ticket;
+      }
+    }
+
+    // ✅ Case 2: ticket directly returned
+    if (!ticket && (data._id || data.id)) {
+      ticket = data;
+    }
+
+    // ❌ Fallback
+    if (!ticket) {
+      console.warn("⚠️ Could not extract ticket from response");
+      return { data, error };
+    }
+
+    // 🔥 IMPORTANT DEBUG FOR YOUR ISSUE
+    console.log("🧠 Final extracted ticket:", ticket);
+    console.log("📜 status_history:", ticket.status_history);
+
+    return { data: ticket, error };
   };
 
   /*
@@ -131,16 +232,39 @@ export function useTickets() {
   =====================================
   */
   const getTicketComments = async (ticketId) => {
-    const { data, error } = await apiFetch(
-      `/compliance/tickets/${ticketId}/comments`
-    );
+  console.log("🔍 Fetching comments for ticket:", ticketId);
+  
+  const { data, error } = await apiFetch(
+    `/compliance/tickets/${ticketId}/comments?_=${Date.now()}`,
+    { headers: getHeaders() }
+  );
 
-    return {
-      data: Array.isArray(data) ? data : data?.data || [],
-      error,
-    };
-  };
+  console.log("📦 Raw API response:", data);
+  console.log("❌ Error:", error);
 
+  let comments = [];
+
+  if (data) {
+    // Case 1: Direct array
+    if (Array.isArray(data)) {
+      comments = data;
+      console.log("✅ Case 1: Direct array with", comments.length, "comments");
+    }
+    // Case 2: { success: true, data: [...] }
+    else if (data.data && Array.isArray(data.data)) {
+      comments = data.data;
+      console.log("✅ Case 2: data.data array with", comments.length, "comments");
+    }
+    // Case 3: Something else
+    else {
+      console.log("⚠️ Unexpected response format:", data);
+    }
+  }
+
+  console.log("🎯 Final comments array:", comments);
+  
+  return { data: comments, error };
+};
   /*
   =====================================
   Add Ticket Comment
@@ -154,6 +278,7 @@ export function useTickets() {
 
     return await apiFetch(`/compliance/tickets/${ticketId}/comments`, {
       method: "POST",
+      headers: getHeaders(),
       body: JSON.stringify(insertData),
     });
   };
@@ -174,7 +299,8 @@ export function useTickets() {
     refetchTickets: fetchTickets,
     getTicket,
     createTicket,
-    updateTicketStatus,
+    createConditionalTicket,
+    updateTicketStatus, // ✅ FIXED
     getTicketComments,
     addTicketComment,
   };
