@@ -160,6 +160,7 @@ export function FixedScheduleTab() {
   }, []);
 
   /* ================= Optimistic Updates ================= */
+  // 🔥 FIXED: handleCreateTicket with proper error handling and ticket extraction
   const handleCreateTicket = async (data) => {
     if (!filingModal) return;
     setIsSubmitting(true);
@@ -170,61 +171,89 @@ export function FixedScheduleTab() {
         comment: data.comment 
       });
 
-      if (!result.error && result.data) {
-        const newTicket = result.data;
-        
-        // 🎯 OPTIMISTIC UPDATE 1: Update the obligation to show it has a ticket
-        setLocalObligations(prev => 
-          prev.map(ob => 
-            ob._id === filingModal._id 
-              ? { 
-                  ...ob, 
-                  ticket_id: newTicket._id,
-                  // Optionally update status if you want
-                  // status: 'initiated' 
-                } 
-              : ob
-          )
-        );
+      console.log("📦 Create ticket result:", result); // Debug log
 
-        // 🎯 OPTIMISTIC UPDATE 2: Add the new ticket to local tickets
-        setLocalTickets((prev) => [...prev, newTicket]);
+      // 🎯 FIX: Check if result exists and has no error
+      if (result && !result.error) {
+        // Extract ticket from various possible response formats
+        let newTicket = null;
         
-        // 🎯 Open the drawer immediately to show the new ticket
-        setSelectedTicket(newTicket);
-        setDrawerOpen(true);
-        
-        toast({ 
-          title: "✅ Ticket created", 
-          description: `${filingModal.form_name || filingModal.compliance_subtype} filing started` 
-        });
-        
-        setFilingModal(null);
-
-        // Refresh in background (don't await)
-        Promise.all([
-          refetchCompliance(),
-          refetchTickets()
-        ]).then(([newObligations]) => {
-          // Update local state with fresh server data
-          if (newObligations.data) {
-            setLocalObligations(newObligations.data);
+        if (result.data) {
+          // Case 1: result.data is the ticket directly
+          if (result.data._id) {
+            newTicket = result.data;
           }
-          // Clear local tickets since we now have server data
-          setLocalTickets([]);
-        }).catch(console.error);
+          // Case 2: result.data.data contains the ticket
+          else if (result.data.data && result.data.data._id) {
+            newTicket = result.data.data;
+          }
+          // Case 3: result.data.ticket contains the ticket
+          else if (result.data.ticket && result.data.ticket._id) {
+            newTicket = result.data.ticket;
+          }
+        }
+        
+        // If we still don't have a ticket but result itself has _id
+        if (!newTicket && result._id) {
+          newTicket = result;
+        }
 
+        console.log("🎯 Extracted ticket:", newTicket);
+
+        if (newTicket) {
+          // 🎯 OPTIMISTIC UPDATE 1: Update the obligation to show it has a ticket
+          setLocalObligations(prev => 
+            prev.map(ob => 
+              ob._id === filingModal._id 
+                ? { 
+                    ...ob, 
+                    ticket_id: newTicket._id,
+                  } 
+                : ob
+            )
+          );
+
+          // 🎯 OPTIMISTIC UPDATE 2: Add the new ticket to local tickets
+          setLocalTickets((prev) => [...prev, newTicket]);
+          
+          // 🎯 Open the drawer immediately to show the new ticket
+          setSelectedTicket(newTicket);
+          setDrawerOpen(true);
+          
+          toast({ 
+            title: "✅ Ticket created", 
+            description: `${filingModal.form_name || filingModal.compliance_subtype} filing started` 
+          });
+          
+          setFilingModal(null);
+
+          // Refresh in background (don't await)
+          Promise.all([
+            refetchCompliance(),
+            refetchTickets()
+          ]).then(([newObligations]) => {
+            // Update local state with fresh server data
+            if (newObligations?.data) {
+              setLocalObligations(newObligations.data);
+            }
+            // Clear local tickets since we now have server data
+            setLocalTickets([]);
+          }).catch(console.error);
+        } else {
+          throw new Error("Could not extract ticket from response");
+        }
       } else {
         toast({ 
           title: "Error creating ticket", 
-          description: result.error?.message || "Unknown error", 
+          description: result?.error?.message || "Unknown error", 
           variant: "destructive" 
         });
       }
     } catch (error) {
+      console.error("❌ Error in handleCreateTicket:", error);
       toast({ 
         title: "Error", 
-        description: "Failed to create ticket", 
+        description: error.message || "Failed to create ticket", 
         variant: "destructive" 
       });
     } finally {

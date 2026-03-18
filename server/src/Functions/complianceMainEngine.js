@@ -35,17 +35,6 @@ const DEFAULT_TEMPLATES = [
     recurrence_config: { due_day: 7, offset_months: 1 },
     is_active: true
   },
-  // {
-  //   name: "TDS Return – Form 24Q/26Q",
-  //   compliance_category: "tds",
-  //   compliance_subtype: "tds_return",
-  //   compliance_description: "Quarterly filing of TDS deducted",
-  //   recurrence_type: "quarterly",
-  //   recurrence_config: {
-  //     due_dates: ["31-07", "31-10", "31-01", "31-05"] // July, Oct, Jan, May
-  //   },
-  //   is_active: true
-  // },
   
   // ========== Payroll ==========
   {
@@ -146,77 +135,10 @@ const DEFAULT_TEMPLATES = [
     recurrence_config: { due_day: 15, due_month: 6 }, // By 15th June
     is_active: true
   },
-  {
-    name: "Form 15CA/15CB",
-    compliance_category: "mca",
-    compliance_subtype: "form15",
-    compliance_description: "Required for payments to non-residents",
-    recurrence_type: "one_time", // As needed
-    recurrence_config: { due_day: null }, // Trigger-based
-    is_active: true
-  },
-  {
-    name: "Gratuity & Bonus Compliance",
-    compliance_category: "mca",
-    compliance_subtype: "gratuity_bonus",
-    compliance_description: "Based on Payment of Bonus Act & Gratuity Act",
-    recurrence_type: "annual",
-    recurrence_config: { due_day: null }, // Annual, date varies
-    is_active: true
-  },
-  {
-    name: "Form 10A/10B (Trust Registration)",
-    compliance_category: "mca",
-    compliance_subtype: "trust_registration",
-    compliance_description: "Applicable for companies with registered trusts or CSR funds",
-    recurrence_type: "annual",
-    recurrence_config: { due_day: null }, // Annual, date varies
-    is_active: true
-  },
+  
+  
   // Add these to your DEFAULT_TEMPLATES array
   // Add these to your DEFAULT_TEMPLATES array
-{
-  name: "DIR-3 KYC",
-  compliance_category: "mca",
-  compliance_subtype: "dir3_kyc",
-  compliance_description: "Annual KYC for all DIN holders - Every individual holding a DIN as on 31st March must file",
-  recurrence_type: "one_time",
-  trigger_type: "conditional",
-  recurrence_config: { 
-    due_month: 8, // September (0-indexed)
-    due_day: 30,
-    rule: "30th September every year"
-  },
-  is_active: true
-},
-{
-  name: "DPT-3 (Return of Deposits)",
-  compliance_category: "mca",
-  compliance_subtype: "dpt3",
-  compliance_description: "Annual return of deposits and outstanding receipts of money - for companies that have accepted deposits",
-  recurrence_type: "one_time",
-  trigger_type: "conditional",
-  recurrence_config: { 
-    due_month: 5, // June
-    due_day: 30,
-    rule: "30th June every year"
-  },
-  is_active: true
-},
-{
-  name: "MSME-1",
-  compliance_category: "mca",
-  compliance_subtype: "msme1",
-  compliance_description: "Half-yearly return for outstanding payments to MSME vendors beyond 45 days",
-  recurrence_type: "one_time",
-  trigger_type: "conditional",
-  recurrence_config: { 
-    due_month: 9, // October (first half)
-    due_day: 31,
-    rule: "31st October (Apr-Sep) and 30th April (Oct-Mar)"
-  },
-  is_active: true
-},
 {
   name: "Professional Tax",
   compliance_category: "payroll",
@@ -232,70 +154,50 @@ const DEFAULT_TEMPLATES = [
   is_active: true
 },
 {
-  name: "Tax Audit (Section 44AB)",
+  name: "Form 15CA / 15CB",
   compliance_category: "income_tax",
-  compliance_subtype: "tax_audit",
-  compliance_description: "Mandatory audit if turnover exceeds ₹1 Cr (₹10 Cr if 95%+ digital transactions)",
+  compliance_subtype: "form_15ca_15cb",
+  compliance_description: "Required for foreign remittances; Form 15CB (CA certificate) and Form 15CA filing before remittance",
+  recurrence_type: "one_time",
+  trigger_type: "conditional",
+  recurrence_config: { 
+    due_day: null,
+    rule: "Before making foreign remittance",
+    condition: "Triggered when foreign remittance is made"
+  },
+  is_active: true
+},
+{
+  name: "Gratuity Compliance",
+  compliance_category: "payroll",
+  compliance_subtype: "gratuity",
+  compliance_description: "Applicable when organization has 10+ employees; gratuity payment on employee exit after 5 years of service",
+  recurrence_type: "one_time",
+  trigger_type: "conditional",
+  recurrence_config: { 
+    due_day: null,
+    rule: "Triggered on employee exit",
+    threshold: {
+      employee_count: 10,
+      min_service_years: 5
+    }
+  },
+  is_active: true
+},
+{
+  name: "Trust Registration & Audit (Form 10A / 10B)",
+  compliance_category: "income_tax",
+  compliance_subtype: "form_10a_10b",
+  compliance_description: "Form 10A for trust registration under Section 12A/80G and Form 10B audit report for trusts claiming exemption under Section 11",
   recurrence_type: "one_time",
   trigger_type: "conditional",
   recurrence_config: { 
     due_month: 8, // September
     due_day: 30,
-    rule: "30th September of the assessment year",
+    rule: "Form 10A: At time of registration | Form 10B: 30th September of assessment year",
+    condition: "Triggered when trust applies for registration or when audit is applicable based on income threshold",
     threshold: {
-      turnover: 10000000,
-      digital_turnover: 100000000,
-      digital_percentage: 95
-    }
-  },
-  is_active: true
-},
-{
-  name: "Transfer Pricing Audit (Section 92E)",
-  compliance_category: "income_tax",
-  compliance_subtype: "transfer_pricing",
-  compliance_description: "Audit for international transactions exceeding ₹20 Cr",
-  recurrence_type: "one_time",
-  trigger_type: "conditional",
-  recurrence_config: { 
-    due_month: 9, // October
-    due_day: 31,
-    rule: "31st October of the assessment year",
-    threshold: {
-      international_transactions: 200000000
-    }
-  },
-  is_active: true
-},
-{
-  name: "ITR-6 (Company)",
-  compliance_category: "income_tax",
-  compliance_subtype: "itr6",
-  compliance_description: "Income Tax Return for companies not claiming exemption under Section 11",
-  recurrence_type: "one_time",
-  trigger_type: "conditional",
-  recurrence_config: { 
-    due_month: 9, // October
-    due_day: 31,
-    rule: "31st October of the assessment year (if tax audit applicable), else 31st July",
-    exemptions: ["section_11"]
-  },
-  is_active: true
-},
-{
-  name: "GST Annual Return (GSTR-9)",
-  compliance_category: "gst",
-  compliance_subtype: "gstr9",
-  compliance_description: "Annual consolidated GST return for taxpayers with turnover > ₹2 Cr",
-  recurrence_type: "one_time",
-  trigger_type: "conditional",
-  recurrence_config: { 
-    due_month: 11, // December
-    due_day: 31,
-    rule: "31st December of the following financial year",
-    threshold: {
-      turnover: 20000000,
-      audit_threshold: 50000000
+      audit_required: true
     }
   },
   is_active: true

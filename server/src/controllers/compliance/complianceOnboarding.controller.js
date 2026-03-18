@@ -1,6 +1,10 @@
 import mongoose from "mongoose";
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
 import { Organization } from "../../models/organizationModel.js";
+import { ComplianceObligation } from "../../models/compliance/complianceObligationModel.js";
+import { ComplianceTicket } from "../../models/compliance/complianceTicketModel.js";
+import { ComplianceComment } from "../../models/compliance/complianceCommentModel.js";
+
 import { asynchandler } from "../../utils/asynchandler.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -48,7 +52,11 @@ export const createCompanyProfile = asynchandler(async (req, res) => {
 
   if (!organization_id) throw new ApiError(400, "organization_id is required");
 
-  const org = await Organization.findOne({ _id: organization_id, owner: req.user._id });
+  const org = await Organization.findOne({
+    _id: organization_id,
+    owner: req.user._id,
+  });
+
   if (!org) throw new ApiError(404, "Organization not found or access denied");
 
   const existingProfile = await CompanyComplianceProfile.findOne({ organization_id });
@@ -66,20 +74,47 @@ export const createCompanyProfile = asynchandler(async (req, res) => {
     obligations_generated: false,
   });
 
-  // 🚀 Auto-generate obligations immediately
+  // 🚀 Auto-generate obligations (with CLEAN RESET)
   try {
-    console.log("🎯 New profile created! Generating obligations...");
+    console.log("🎯 New profile created! Preparing fresh compliance state...");
+
     const currentFY = getCurrentFinancialYear();
-    const count = await generateObligationsForFY(profile.organization_id, currentFY);
+
+    // ============================
+    // 🧹 CLEAN OLD DATA (CRITICAL FIX)
+    // ============================
+    await ComplianceComment.deleteMany({ organization_id });
+    await ComplianceTicket.deleteMany({ organization_id });
+    await ComplianceObligation.deleteMany({ organization_id });
+
+    console.log("🧹 Old compliance data cleared (tickets, obligations, comments)");
+
+    // ============================
+    // 🚀 GENERATE FRESH OBLIGATIONS
+    // ============================
+    const count = await generateObligationsForFY(
+      profile.organization_id,
+      currentFY
+    );
+
     profile.obligations_generated = true;
     await profile.save();
+
     console.log(`✅ Generated ${count} obligations for FY ${currentFY}`);
     console.log(`👥 Directors count: ${profile.director_count}`);
   } catch (genError) {
     console.error("❌ Failed to generate obligations:", genError.message);
   }
 
-  res.status(201).json(new ApiResponse(201, profile, "Company compliance profile created successfully"));
+  res
+    .status(201)
+    .json(
+      new ApiResponse(
+        201,
+        profile,
+        "Company compliance profile created successfully"
+      )
+    );
 });
 
 // ==============================
@@ -99,10 +134,23 @@ export const updateCompanyProfile = asynchandler(async (req, res) => {
   if (!updatedProfile.obligations_generated) {
     try {
       console.log("🎯 Generating obligations for updated profile...");
+
       const currentFY = getCurrentFinancialYear();
-      const count = await generateObligationsForFY(updatedProfile.organization_id, currentFY);
+
+      // 🧹 Optional: clean only current FY (safer)
+      await ComplianceObligation.deleteMany({
+        organization_id: updatedProfile.organization_id,
+        financial_year: currentFY,
+      });
+
+      const count = await generateObligationsForFY(
+        updatedProfile.organization_id,
+        currentFY
+      );
+
       updatedProfile.obligations_generated = true;
       await updatedProfile.save();
+
       console.log(`✅ Generated ${count} obligations for FY ${currentFY}`);
     } catch (genError) {
       console.error("❌ Failed to generate obligations:", genError.message);
@@ -111,7 +159,9 @@ export const updateCompanyProfile = asynchandler(async (req, res) => {
     console.log("⏭️ Obligations already generated for this company");
   }
 
-  res.json(new ApiResponse(200, updatedProfile, "Profile updated successfully"));
+  res.json(
+    new ApiResponse(200, updatedProfile, "Profile updated successfully")
+  );
 });
 
 // ==============================
@@ -120,17 +170,27 @@ export const updateCompanyProfile = asynchandler(async (req, res) => {
 export const getCompanyProfile = async (req, res) => {
   try {
     const { organization_id } = req.query;
-    if (!organization_id) return res.status(400).json({ success: false, message: "organization_id is required" });
 
-    const profile = await CompanyComplianceProfile.findOne({ organization_id }).populate('directors');
-    if (!profile) return res.status(404).json({ success: false, message: "Profile not found" });
+    if (!organization_id)
+      return res
+        .status(400)
+        .json({ success: false, message: "organization_id is required" });
+
+    const profile = await CompanyComplianceProfile.findOne({
+      organization_id,
+    }).populate("directors");
+
+    if (!profile)
+      return res
+        .status(404)
+        .json({ success: false, message: "Profile not found" });
 
     res.json({
       success: true,
       data: {
         ...profile.toObject(),
         director_count: profile.directors.length,
-      }
+      },
     });
   } catch (error) {
     console.error(error);
@@ -145,19 +205,31 @@ export const getOnboardingStatus = asynchandler(async (req, res) => {
   const profile = await fetchProfile(req.params.organization_id);
 
   if (!profile) {
-    return res.json(new ApiResponse(200, { is_onboarded: false, has_profile: false }, "Onboarding status fetched"));
+    return res.json(
+      new ApiResponse(
+        200,
+        { is_onboarded: false, has_profile: false },
+        "Onboarding status fetched"
+      )
+    );
   }
 
   const missingFields = getMissingFields(profile);
   const isComplete = missingFields.length === 0;
 
-  res.json(new ApiResponse(200, {
-    organization_id: req.params.organization_id,
-    has_profile: true,
-    company_type: profile.company_type,
-    profile_completed: isComplete,
-    missing_required_fields: missingFields,
-    is_onboarded: isComplete,
-    obligations_generated: profile.obligations_generated || false,
-  }, "Onboarding status fetched"));
+  res.json(
+    new ApiResponse(
+      200,
+      {
+        organization_id: req.params.organization_id,
+        has_profile: true,
+        company_type: profile.company_type,
+        profile_completed: isComplete,
+        missing_required_fields: missingFields,
+        is_onboarded: isComplete,
+        obligations_generated: profile.obligations_generated || false,
+      },
+      "Onboarding status fetched"
+    )
+  );
 });
