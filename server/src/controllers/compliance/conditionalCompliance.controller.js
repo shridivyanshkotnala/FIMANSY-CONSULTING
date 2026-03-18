@@ -1,11 +1,11 @@
 import { ComplianceTemplate } from "../../models/compliance/complianceTemplateModel.js";
 import { ComplianceObligation } from "../../models/compliance/complianceObligationModel.js";
+import { ComplianceTicket } from "../../models/compliance/complianceTicketModel.js"; // Added tickets
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
 import mongoose from "mongoose";
 
 /**
- * Get conditional templates with their obligation status
- * This is what the frontend tab will call
+ * Get conditional templates with ticket + obligation status
  */
 export const getConditionalCompliances = async (req, res) => {
   try {
@@ -18,28 +18,69 @@ export const getConditionalCompliances = async (req, res) => {
       });
     }
 
-    // Get all conditional templates
-    const templates = await ComplianceTemplate.find({ 
-      trigger_type: "conditional", 
-      is_active: true 
+    // 1️⃣ Get all conditional templates
+    const templates = await ComplianceTemplate.find({
+      trigger_type: "conditional",
+      is_active: true
     }).lean();
 
-    // Get existing obligations for this org and FY
+    console.log(`📋 Found ${templates.length} templates`);
+
+    // 2️⃣ Get obligations for this org and FY
     const obligations = await ComplianceObligation.find({
       organization_id: new mongoose.Types.ObjectId(organization_id),
       financial_year: financialYear
     }).lean();
 
-    // Create a map of obligations by compliance_subtype
+    console.log(`📋 Found ${obligations.length} obligations`);
+
     const obligationsMap = new Map();
     obligations.forEach(ob => {
       obligationsMap.set(ob.compliance_subtype, ob);
     });
 
-    // Combine template data with obligation status
+    // 3️⃣ Get tickets for this organization that were created from templates
+    const tickets = await ComplianceTicket.find({
+      organization_id: new mongoose.Types.ObjectId(organization_id),
+      template_id: { $exists: true, $ne: null }
+    }).lean();
+
+    console.log(`🎫 Found ${tickets.length} tickets with template_id`);
+    
+    // Log the first few tickets to see their structure
+    if (tickets.length > 0) {
+      console.log("Sample ticket:", {
+        id: tickets[0]._id,
+        template_id: tickets[0].template_id,
+        template_id_type: typeof tickets[0].template_id,
+        template_id_string: tickets[0].template_id?.toString(),
+        status: tickets[0].status
+      });
+    }
+
+    const ticketsMap = new Map();
+    tickets.forEach(ticket => {
+      if (ticket.template_id) {
+        const templateIdStr = ticket.template_id.toString();
+        if (!ticketsMap.has(templateIdStr)) {
+          ticketsMap.set(templateIdStr, []);
+        }
+        ticketsMap.get(templateIdStr).push(ticket);
+        console.log(`📌 Mapped ticket ${ticket._id} to template ${templateIdStr}`);
+      }
+    });
+
+    console.log(`🗺️ TicketsMap has ${ticketsMap.size} entries`);
+
+    // 4️⃣ Combine template data with obligation + ticket status
     const conditionalItems = templates.map(template => {
       const existingObligation = obligationsMap.get(template.compliance_subtype);
-      
+      const templateIdStr = template._id.toString();
+      const templateTickets = ticketsMap.get(templateIdStr) || [];
+      const latestTicket = templateTickets[0]; // Most recent ticket
+
+      console.log(`🔍 Template ${template.name} (${templateIdStr}): has ${templateTickets.length} tickets`);
+
       return {
         // Template fields
         _id: template._id,
@@ -48,24 +89,40 @@ export const getConditionalCompliances = async (req, res) => {
         compliance_subtype: template.compliance_subtype,
         compliance_description: template.compliance_description,
         recurrence_config: template.recurrence_config,
-        
-        // For UI display (derived from template)
+
+        // For UI display
         primaryTag: template.compliance_category?.toUpperCase() || 'Other',
         secondaryTag: 'Conditional',
         applicability_info: getApplicabilityInfo(template),
         due_date_rule: getDueDateRule(template),
-        
-        // Obligation fields (if exists)
+
+        // Obligation fields
         obligation_id: existingObligation?._id,
         obligation_status: existingObligation?.status || 'not_started',
         due_date: existingObligation?.due_date,
         is_generated: !!existingObligation,
-        
+
+        // Ticket fields
+        tickets: templateTickets,
+        ticket_count: templateTickets.length,
+        latest_ticket: latestTicket,
+        has_ticket: templateTickets.length > 0,
+        ticket_status: latestTicket?.status || null,
+        ticket_id: latestTicket?._id || null,
+        ticket_data: latestTicket || null, 
+
         // For filing modal
         dueMonth: template.recurrence_config?.due_month,
         dueDay: template.recurrence_config?.due_day
       };
     });
+
+    console.log("✅ Final conditional items:", conditionalItems.map(item => ({
+      name: item.name,
+      has_ticket: item.has_ticket,
+      ticket_count: item.ticket_count,
+      ticket_status: item.ticket_status
+    })));
 
     res.json({
       success: true,
@@ -74,9 +131,9 @@ export const getConditionalCompliances = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Error in getConditionalCompliances:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
@@ -95,7 +152,6 @@ export const generateConditionalObligation = async (req, res) => {
       });
     }
 
-    // Get the template
     const template = await ComplianceTemplate.findById(template_id);
     if (!template) {
       return res.status(404).json({
@@ -104,7 +160,6 @@ export const generateConditionalObligation = async (req, res) => {
       });
     }
 
-    // Check if obligation already exists
     const existingObligation = await ComplianceObligation.findOne({
       organization_id: new mongoose.Types.ObjectId(organization_id),
       compliance_subtype: template.compliance_subtype,
@@ -122,42 +177,25 @@ export const generateConditionalObligation = async (req, res) => {
     // Calculate due date
     const [startYear] = financialYear.split("-").map(Number);
     let dueDate = new Date();
-    
-    if (template.recurrence_config?.due_month !== undefined && 
+    if (template.recurrence_config?.due_month !== undefined &&
         template.recurrence_config?.due_day) {
       const { due_month, due_day } = template.recurrence_config;
-      dueDate = new Date(
-        due_month >= 3 ? startYear : startYear + 1,
-        due_month,
-        due_day
-      );
+      dueDate = new Date(due_month >= 3 ? startYear : startYear + 1, due_month, due_day);
     }
 
-    const requestedStatus = filingData?.status;
-    const status = ["not_started", "in_progress", "filed", "overdue", "not_applicable"].includes(requestedStatus)
-      ? requestedStatus
-      : "in_progress";
-
-    // Create the obligation
     const obligation = new ComplianceObligation({
       organization_id: new mongoose.Types.ObjectId(organization_id),
-      
-      // Map template fields to obligation fields
       compliance_category: template.compliance_category,
       compliance_subtype: template.compliance_subtype,
       compliance_description: template.compliance_description,
-      
       form_name: template.name,
       form_description: template.compliance_description,
-      
       due_date: dueDate,
-      status,
+      status: filingData?.status || 'initiated',
       financial_year: financialYear,
-      
       is_recurring: false,
       recurrence_type: 'one_time',
       recurrence_config: template.recurrence_config,
-      
       notes: filingData?.comment || '',
       priority: 3
     });
@@ -172,9 +210,9 @@ export const generateConditionalObligation = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Error in generateConditionalObligation:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
@@ -194,48 +232,43 @@ export const checkApplicability = async (req, res) => {
       });
     }
 
-    const company = await CompanyComplianceProfile.findOne({ 
-      organization_id: new mongoose.Types.ObjectId(organization_id) 
+    const company = await CompanyComplianceProfile.findOne({
+      organization_id: new mongoose.Types.ObjectId(organization_id)
     });
 
     if (!company) {
       return res.json({
         success: true,
         data: {
-          is_applicable: true, // Default to true if no company data
+          is_applicable: true,
           reason: "Company profile not found, assuming applicable"
         }
       });
     }
 
-    // Check applicability based on template type
     let isApplicable = true;
     let reason = "Applicable";
 
-    // Example checks based on template name
     if (template.name.includes("Professional Tax")) {
       const ptStates = ["Maharashtra", "Karnataka", "West Bengal", "Telangana"];
       isApplicable = ptStates.includes(company.state);
       reason = isApplicable ? "State levies professional tax" : "State does not levy professional tax";
-    }
-    else if (template.name.includes("Tax Audit")) {
+    } else if (template.name.includes("Tax Audit")) {
       const turnover = company.turnover || 0;
       const digitalPct = company.digital_transaction_percentage || 0;
-      
-      if (turnover > 100000000) { // >10 Cr
+      if (turnover > 100000000) {
         isApplicable = true;
         reason = "Turnover exceeds ₹10 Cr";
-      } else if (turnover > 10000000 && digitalPct < 95) { // >1 Cr with <95% digital
+      } else if (turnover > 10000000 && digitalPct < 95) {
         isApplicable = true;
         reason = "Turnover exceeds ₹1 Cr with less than 95% digital transactions";
       } else {
         isApplicable = false;
         reason = "Below audit threshold";
       }
-    }
-    else if (template.name.includes("GSTR-9")) {
+    } else if (template.name.includes("GSTR-9")) {
       const turnover = company.turnover || 0;
-      isApplicable = turnover > 20000000; // >2 Cr
+      isApplicable = turnover > 20000000;
       reason = isApplicable ? "Turnover exceeds ₹2 Cr" : "Turnover below ₹2 Cr";
     }
 
@@ -251,9 +284,9 @@ export const checkApplicability = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Error in checkApplicability:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
@@ -278,12 +311,12 @@ function getDueDateRule(template) {
   if (template.recurrence_config?.rule) {
     return template.recurrence_config.rule;
   }
-  
-  if (template.recurrence_config?.due_month !== undefined && 
+
+  if (template.recurrence_config?.due_month !== undefined &&
       template.recurrence_config?.due_day) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return `${template.recurrence_config.due_day} ${months[template.recurrence_config.due_month]}`;
   }
-  
+
   return "As applicable";
 }

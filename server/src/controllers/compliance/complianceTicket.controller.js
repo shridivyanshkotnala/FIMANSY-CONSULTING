@@ -25,12 +25,6 @@ async function generateTicketNumber() {
   return `TKT-${year}-${next}`;
 }
 
-
-
-/**
- * Create Ticket
- * POST /api/compliance/tickets
- */
 /**
  * Create Ticket
  * POST /api/compliance/tickets
@@ -42,7 +36,7 @@ export const createTicket = async (req, res) => {
     console.log("Body:", req.body);
 
     const user_id = req.user._id;
-    const user_role = req.user.role === "admin" ? "admin" : "user";
+    const user_role = (req.role === "owner" || req.role === "admin") ? "admin" : "user";
 
     const {
       obligation_id,
@@ -71,6 +65,7 @@ export const createTicket = async (req, res) => {
     const obligation = await ComplianceObligation
       .findById(obligation_id)
       .select("organization_id compliance_category compliance_subtype financial_year due_date status ticket_id");
+    
     console.log("Found obligation:", obligation ? "Yes" : "No");
 
     if (!obligation) {
@@ -79,8 +74,9 @@ export const createTicket = async (req, res) => {
         message: "Obligation not found"
       });
     }
-    const existingTicket = await ComplianceTicket.findOne({ obligation_id });
 
+    // Check if ticket already exists
+    const existingTicket = await ComplianceTicket.findOne({ obligation_id });
     if (existingTicket) {
       return res.status(400).json({
         success: false,
@@ -95,49 +91,41 @@ export const createTicket = async (req, res) => {
     const ticket_number = await generateTicketNumber();
     console.log("Generated ticket number:", ticket_number);
 
-    const categoryTag = obligation.compliance_category || "other";
-    const subtag =
-      obligation.compliance_subtype ||
-      String(obligation.form_name || "general")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "") ||
-      "general";
-
-    // Create ticket with error handling for each step
+    // Create ticket
     let ticket;
     try {
-      ticket = await ComplianceTicket.create({
+      const ticketData = {
         organization_id,
         obligation_id,
         ticket_number,
         compliance_category: obligation.compliance_category,
         compliance_subtype: obligation.compliance_subtype,
-        category_tag: categoryTag,
-        subtag,
         financial_year: obligation.financial_year,
         due_date: obligation.due_date,
         created_by: user_id,
         last_activity_at: new Date(),
+        status: "initiated",
         status_history: [
           {
             status: "initiated",
             changed_by_role: user_role,
             changed_by: user_id,
-            note: "Ticket created"
+            note: "Ticket created from obligation"
           }
         ]
-      });
-      console.log("Ticket created successfully:", ticket._id);
+      };
 
-      // ✅ IMPORTANT: Update the obligation with ticket_id and change its status
+      console.log("Creating ticket with data:", ticketData);
+      ticket = await ComplianceTicket.create(ticketData);
+      console.log("✅ Ticket created successfully:", ticket._id);
+
+      // Update obligation with ticket_id
       obligation.ticket_id = ticket._id;
-      obligation.status = "in_progress"; // or "initiated" based on your workflow
       await obligation.save();
-      console.log("Obligation updated with ticket_id and status changed to in_progress");
+      console.log("✅ Obligation updated with ticket_id");
 
     } catch (createError) {
-      console.error("Error creating ticket:", createError);
+      console.error("❌ Error creating ticket:", createError);
       return res.status(500).json({
         success: false,
         message: "Failed to create ticket record",
@@ -158,35 +146,31 @@ export const createTicket = async (req, res) => {
           message: comment || "",
           attachments
         });
-        console.log("Comment created successfully:", newComment._id);
+        console.log("✅ Comment created successfully:", newComment._id);
 
         ticket.last_comment_at = newComment.createdAt;
-        ticket.last_comment_by_role = newComment.role;
+        ticket.last_comment_by_role = user_role;
         ticket.last_activity_at = new Date();
 
         await ticket.save();
-        console.log("Ticket updated with comment metadata");
+        console.log("✅ Ticket updated with comment metadata");
       } catch (commentError) {
-        console.error("Error creating comment:", commentError);
+        console.error("❌ Error creating comment:", commentError);
         // Don't fail the whole request if comment fails
       }
     }
 
-    // Return the ticket with the updated obligation info
+    // Return the populated ticket
+    const populatedTicket = await ComplianceTicket.findById(ticket._id).lean();
+
     return res.status(201).json({
       success: true,
-      data: {
-        ...ticket.toObject(),
-        obligation: {
-          _id: obligation._id,
-          status: obligation.status,
-          ticket_id: obligation.ticket_id
-        }
-      }
+      message: "Ticket created successfully",
+      data: populatedTicket
     });
 
   } catch (error) {
-    console.error("createTicket error details:", {
+    console.error("❌ createTicket error details:", {
       message: error.message,
       stack: error.stack,
       name: error.name
@@ -200,21 +184,20 @@ export const createTicket = async (req, res) => {
   }
 };
 
-
-
-
 /**
  * Get Tickets
  * GET /api/compliance/tickets
  */
 export const getTickets = async (req, res) => {
   try {
-
-    const organization_id = req.user.organization_id;
-
+    const organization_id = req.organizationId || req.headers["x-organization-id"];
     const { status, category } = req.query;
 
+    console.log("🔍 getTickets - organization_id:", organization_id);
+    console.log("🔍 getTickets - query params:", { status, category });
+
     const filter = { organization_id };
+    console.log("🔍 Filter:", filter);
 
     if (status) filter.status = status;
     if (category) filter.compliance_category = category;
@@ -223,24 +206,20 @@ export const getTickets = async (req, res) => {
       .find(filter)
       .sort({ due_date: 1 });
 
+    console.log(`📊 Found ${tickets.length} tickets for org ${organization_id}`);
+    
     res.json({
       success: true,
       data: tickets
     });
 
   } catch (error) {
-
     console.error("getTickets error", error);
-
     res.status(500).json({
       success: false
     });
-
   }
 };
-
-
-
 
 /**
  * Get Ticket Details
@@ -248,9 +227,7 @@ export const getTickets = async (req, res) => {
  */
 export const getTicketById = async (req, res) => {
   try {
-
-    const ticket = await ComplianceTicket
-      .findById(req.params.id);
+    const ticket = await ComplianceTicket.findById(req.params.id);
 
     if (!ticket) {
       return res.status(404).json({
@@ -265,29 +242,54 @@ export const getTicketById = async (req, res) => {
     });
 
   } catch (error) {
-
     console.error("getTicketById error", error);
-
     res.status(500).json({
       success: false
     });
-
   }
 };
 
-
-
-
 /**
- * Get Ticket Comments
+ * Get Ticket Comments - FIXED
  * GET /api/compliance/tickets/:id/comments
  */
 export const getTicketComments = async (req, res) => {
   try {
+    const ticketId = req.params.id;
+    
+    console.log("🔍 Fetching comments for ticket ID:", ticketId);
+    
+    // Validate ticketId format
+    if (!mongoose.Types.ObjectId.isValid(ticketId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ticket ID format"
+      });
+    }
 
+    // Check if ticket exists first
+    const ticket = await ComplianceTicket.findById(ticketId);
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        message: "Ticket not found"
+      });
+    }
+
+    // Fetch comments
     const comments = await ComplianceComment
-      .find({ ticket_id: req.params.id })
-      .sort({ createdAt: 1 });
+      .find({ ticket_id: ticketId })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    console.log(`📊 Found ${comments.length} comments for ticket ${ticketId}`);
+
+    // Set cache-control headers to prevent caching issues
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
 
     res.json({
       success: true,
@@ -295,28 +297,17 @@ export const getTicketComments = async (req, res) => {
     });
 
   } catch (error) {
-
-    console.error("getTicketComments error", error);
-
+    console.error("❌ getTicketComments error:", error);
     res.status(500).json({
-      success: false
+      success: false,
+      message: "Failed to fetch comments"
     });
-
   }
 };
 
-
-
-
-/**
- * Add Comment
- * POST /api/compliance/tickets/:id/comments
- */
 export const addComment = async (req, res) => {
   try {
-
     const ticket_id = req.params.id;
-
     const ticket = await ComplianceTicket.findById(ticket_id);
 
     if (!ticket) {
@@ -327,13 +318,24 @@ export const addComment = async (req, res) => {
     }
 
     const user_id = req.user._id;
-    const organization_id = req.user.organization_id;
-    const role = req.user.role === "admin" ? "admin" : "user";
+    // ✅ FIX: Get organization_id from the ticket, not from req.user
+    const organization_id = ticket.organization_id;
+    const user_role = (req.role === "owner" || req.role === "admin") ? "admin" : "user";
+
+    console.log("=== ADD COMMENT DEBUG ===");
+    console.log("ticket_id:", ticket_id);
+    console.log("ticket.organization_id:", ticket.organization_id);
+    console.log("user_id:", user_id);
+    console.log("organization_id:", organization_id);
+    console.log("user_role:", user_role);
+    console.log("req.role:", req.role);
 
     const {
       message,
       attachments = []
     } = req.body;
+
+    console.log("message:", message);
 
     if (!message && attachments.length === 0) {
       return res.status(400).json({
@@ -343,24 +345,21 @@ export const addComment = async (req, res) => {
     }
 
     const comment = await ComplianceComment.create({
-
       ticket_id,
-      organization_id,
+      organization_id,  // Now this comes from the ticket
       user_id,
-
-      role,
-
+      role: user_role,
       message,
       attachments
-
     });
 
+    console.log("✅ Comment created with role:", comment.role);
 
     ticket.last_comment_at = comment.createdAt;
-    ticket.last_comment_by_role = role;
+    ticket.last_comment_by_role = user_role;
     ticket.last_activity_at = new Date();
 
-    if (role === "user") {
+    if (user_role === "user") {
       ticket.has_unread_client_update = true;
     }
 
@@ -372,26 +371,19 @@ export const addComment = async (req, res) => {
     });
 
   } catch (error) {
-
-    console.error("addComment error", error);
-
+    console.error("❌ addComment error:", error);
     res.status(500).json({
-      success: false
+      success: false,
+      message: "Failed to add comment"
     });
-
   }
 };
-
-
-
-
 /**
  * Update Ticket Status
  * PATCH /api/compliance/tickets/:id/status
  */
 export const updateTicketStatus = async (req, res) => {
   try {
-
     const ticket = await ComplianceTicket.findById(req.params.id);
 
     if (!ticket) {
@@ -403,17 +395,16 @@ export const updateTicketStatus = async (req, res) => {
     const { status, note } = req.body;
 
     const user_id = req.user._id;
-    const role = req.user.role === "admin" ? "admin" : "user";
-
+    const user_role = (req.role === "owner" || req.role === "admin") ? "admin" : "user";
+    
     ticket.status = status;
 
     ticket.status_history.push({
-
       status,
-      changed_by_role: role,
+      changed_by_role: user_role,
       changed_by: user_id,
-      note
-
+      note,
+      at: new Date()
     });
 
     ticket.last_activity_at = new Date();
@@ -424,18 +415,18 @@ export const updateTicketStatus = async (req, res) => {
 
     await ticket.save();
 
+    // Return the updated ticket
+    const updatedTicket = await ComplianceTicket.findById(ticket._id).lean();
+
     res.json({
       success: true,
-      data: ticket
+      data: updatedTicket
     });
 
   } catch (error) {
-
     console.error("updateTicketStatus error", error);
-
     res.status(500).json({
       success: false
     });
-
   }
 };

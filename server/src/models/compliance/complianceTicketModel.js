@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const complianceTicketSchema = new mongoose.Schema(
   {
+    // Unique human-readable ticket number: AC-TKT-00001, AC-TKT-00002, …
     ticket_number: {
       type: String,
       unique: true,
@@ -9,42 +10,51 @@ const complianceTicketSchema = new mongoose.Schema(
       index: true,
     },
 
+<<<<<<< HEAD
+    // true when ticket was created manually by an accountant (not by the compliance engine)
     is_manual: {
       type: Boolean,
       default: false,
       index: true,
     },
+=======
+  obligation_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "ComplianceObligation",
+    required: false,
+  },
+>>>>>>> 14af3e6 (Refactor ticket system: restructure TicketDetailDrawer, add conditionalTicket controller, update compliance tracking components)
 
-    organization_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: true,
-      index: true,
-    },
+  template_id: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "ComplianceTemplate",
+  sparse: true,
+  index: true,
+},
 
-    obligation_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "ComplianceObligation",
-      required: false,
-    },
+  ticket_number: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true,
+  },
 
-    // New naming
-    compliance_category: {
-      type: String,
-      enum: ["gst", "tds", "income_tax", "mca", "payroll", "other"],
-      required: false,
-      index: true,
-    },
+  compliance_category: {
+    type: String,
+    enum: ['gst', 'tds', 'income_tax', 'mca', 'payroll', 'other'],
+    required: true,
+    index: true,
+  },
 
-    compliance_subtype: {
-      type: String,
-      required: false,
-      index: true,
-    },
+  compliance_subtype: {
+    type: String,
+    required: true,
+    index: true,
+  },
 
-    // Backward-compatible naming still used in some accountant APIs
     category_tag: {
       type: String,
-      enum: ["gst", "tds", "income_tax", "mca", "payroll", "other"],
+      enum: ['gst', 'tds', 'income_tax', 'mca', 'payroll', 'other'],
       required: true,
       index: true,
     },
@@ -69,15 +79,15 @@ const complianceTicketSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: [
-        "initiated",
-        "pending_docs",
-        "in_progress",
-        "filed",
-        "approved",
-        "overdue",
-        "closed",
+        'initiated',
+        'pending_docs',
+        'in_progress',
+        'filed',
+        'approved',
+        'overdue',
+        'closed',
       ],
-      default: "initiated",
+      default: 'initiated',
       index: true,
     },
 
@@ -95,73 +105,108 @@ const complianceTicketSchema = new mongoose.Schema(
       type: Date,
     },
 
-    filing_metadata: {
-      srn_number: String,
-      acknowledgement_number: String,
-      filing_fee: Number,
-      late_fee: Number,
-      notes: String,
-    },
+  filing_metadata: {
+    srn_number: String,
+    acknowledgement_number: String,
+    filing_fee: Number,
+    late_fee: Number,
+  },
 
-    final_verified_document_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "ComplianceDocument",
-      default: null,
-      index: true,
+  last_comment_at: {
+    type: Date,
+    index: true,
+  },
+
+  last_comment_by_role: {
+    type: String,
+    enum: ['user', 'admin'],
+    index: true,
+  },
+
+  has_unread_client_update: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+
+  status_history: [
+    {
+      status: {
+        type: String,
+        enum: [
+          'initiated',
+          'pending_docs',
+          'in_progress',
+          'filed',
+          'approved',
+          'overdue',
+          'closed',
+        ],
+      },
+
+      changed_by_role: {
+        type: String,
+        enum: ['user', 'admin'],
+        required: true,
+      },
+
+      changed_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+      },
+
+      at: {
+        type: Date,
+        default: Date.now,
+        required: true,
+      },
+
+      note: {
+        type: String,
+      },
     },
-    final_verified_at: {
-      type: Date,
-      default: null,
-      index: true,
-    },
-    final_verified_by: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
+  ],
 
     last_comment_at: { type: Date, index: true },
-    last_comment_by_role: {
-      type: String,
-      enum: ["user", "admin", "accountant"],
-      index: true,
-    },
+    last_comment_by_role: { type: String, enum: ['user', 'admin'] },
 
     has_unread_client_update: {
       type: Boolean,
       default: false,
-      index: true,
-    },
-
+      index: true
+    }
+    ,
+    // Detailed status history for the ticket. Stored as an array so we can
+    // present an exact timeline of status transitions on the frontend.
     status_history: [
       {
         status: {
           type: String,
           enum: [
-            "initiated",
-            "pending_docs",
-            "in_progress",
-            "filed",
-            "approved",
-            "overdue",
-            "closed",
+            'initiated',
+            'pending_docs',
+            'in_progress',
+            'filed',
+            'approved',
+            'overdue',
+            'closed',
           ],
         },
-        changed_by_role: {
-          type: String,
-          enum: ["user", "admin", "accountant"],
-        },
-        changed_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        at: { type: Date, default: Date.now },
-        note: { type: String },
-      },
+        changed_by_role: { type: String },
+        changed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        at: { type: Date },
+        note: { type: String }
+      }
     ],
+
   },
   { timestamps: true }
 );
 
 complianceTicketSchema.index({ organization_id: 1, status: 1 });
-complianceTicketSchema.index({ organization_id: 1, category_tag: 1 });
 complianceTicketSchema.index({ organization_id: 1, compliance_category: 1 });
+complianceTicketSchema.index({ due_date: 1, status: 1 });
 
-export const ComplianceTicket = mongoose.model("ComplianceTicket", complianceTicketSchema);
+export const ComplianceTicket =
+mongoose.model("ComplianceTicket", complianceTicketSchema);

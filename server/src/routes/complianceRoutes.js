@@ -1,6 +1,7 @@
 import express from "express";
 import { getAllTemplates } from "../controllers/compliance/complianceTemplate.controller.js";
 import { protectRoute } from "../middlewares/authMiddleware.js";
+import { orgMiddleware } from "../middlewares/organizationMiddleware.js"; 
 import { 
   createCompanyProfile, 
   getCompanyProfile, 
@@ -33,19 +34,13 @@ import {
   addComment,
   getTicketComments
 } from "../controllers/compliance/complianceTicket.controller.js";
-import {
-  initComplianceTicketDocumentUpload,
-  completeComplianceTicketDocumentUpload,
-  listComplianceTicketDocuments,
-} from "../controllers/compliance/complianceDocument.controller.js";
 
 import { 
   getConditionalCompliances,      // was: getConditionalCompliances
-  generateConditionalObligation,  // was: generateConditionalObligation (singular)
   checkApplicability
 } from "../controllers/compliance/conditionalCompliance.controller.js";
 
-
+import { createConditionalTicket } from "../controllers/compliance/conditionalTicket.controller.js";
 const complianceRoutes = express.Router();
 
 complianceRoutes.get("/", getAllTemplates);
@@ -79,18 +74,17 @@ complianceRoutes.delete("/events/:id", deleteEvent);
 
 //NEW TICKET ROUTES
 // Compliance Ticket System
-complianceRoutes.post("/tickets", protectRoute, createTicket);
+complianceRoutes.post("/tickets", protectRoute, orgMiddleware, createTicket);
 complianceRoutes.get("/tickets", protectRoute, getTickets);
 complianceRoutes.get("/tickets/:id", protectRoute, getTicketById);
 complianceRoutes.patch("/tickets/:id/status", protectRoute, updateTicketStatus);
-complianceRoutes.post("/tickets/:id/comments", protectRoute, addComment);
+complianceRoutes.post("/tickets/:id/comments", protectRoute, orgMiddleware, addComment);
 complianceRoutes.get("/tickets/:id/comments", protectRoute, getTicketComments);
-complianceRoutes.post("/tickets/:id/documents/init-upload", protectRoute, initComplianceTicketDocumentUpload);
-complianceRoutes.post("/tickets/:id/documents/complete-upload", protectRoute, completeComplianceTicketDocumentUpload);
-complianceRoutes.get("/tickets/:id/documents", protectRoute, listComplianceTicketDocuments);
-
+// Add this with your other ticket routes
+complianceRoutes.post("/conditional/ticket", protectRoute, orgMiddleware, createConditionalTicket);
+complianceRoutes.get("/conditional/:template_id/check", protectRoute, orgMiddleware, checkApplicability);
 
 complianceRoutes.get("/conditional", protectRoute, getConditionalCompliances);
-complianceRoutes.post("/conditional/generate", protectRoute, generateConditionalObligation);
-complianceRoutes.get("/conditional/:template_id/check", protectRoute, checkApplicability);
+// complianceRoutes.post("/conditional/generate", protectRoute, generateConditionalObligation);
+// complianceRoutes.get("/conditional/:template_id/check", protectRoute, checkApplicability);
 export default complianceRoutes;

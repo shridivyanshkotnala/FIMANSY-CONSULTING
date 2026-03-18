@@ -60,7 +60,6 @@ export default function Compliance() {
     obligations,
     directors,
     loading,
-    error,
     addDirector,
     refetch
   } = useCompliance();
@@ -70,6 +69,7 @@ export default function Compliance() {
   // Local UI state
   const [showSetup, setShowSetup] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
 
   // Navigation handler
   const navigate = useNavigate();
@@ -95,12 +95,15 @@ export default function Compliance() {
   */
 
   useEffect(() => {
-    // Stop the temporary generation loader once refetch settles,
-    // even if zero obligations are returned.
-    if (isGenerating && !loading) {
+    if (!loading && obligations.length > 0) {
+      console.log("✅ Data ready with", obligations.length, "obligations");
+      setDataReady(true);
       setIsGenerating(false);
+    } 
+    else if (!loading && complianceProfile && obligations.length === 0) {
+      console.log("⏳ Waiting for obligations to generate...");
     }
-  }, [isGenerating, loading]);
+  }, [loading, obligations, complianceProfile]);
 
   const needsSetup = !loading && !complianceProfile;
 
@@ -126,7 +129,7 @@ export default function Compliance() {
   ==========================================================
   */
 
-  if (isGenerating) {
+  if (isGenerating || (complianceProfile && obligations.length === 0 && !loading)) {
     return (
       <PillarLayout>
         <div className="flex items-center justify-center h-64 flex-col gap-4">
@@ -148,23 +151,6 @@ export default function Compliance() {
             </p>
           </div>
 
-        </div>
-      </PillarLayout>
-    );
-  }
-
-  if (!loading && error) {
-    return (
-      <PillarLayout>
-        <div className="flex items-center justify-center h-64 flex-col gap-4">
-          <AlertTriangle className="h-10 w-10 text-destructive" />
-          <div className="text-center">
-            <h2 className="text-xl font-semibold">Failed to load compliance data</h2>
-            <p className="text-muted-foreground mt-2">
-              Please retry. If this keeps happening, check backend auth/session.
-            </p>
-          </div>
-          <Button onClick={() => refetch()}>Retry</Button>
         </div>
       </PillarLayout>
     );

@@ -22,17 +22,9 @@ import {
   addMonths,
   parseISO,
 } from "date-fns";
-
-// Icons
-import {
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-
-// Helper to parse dates consistently
 const parseDate = (dateStr) => {
   if (!dateStr) return null;
   try {
@@ -42,8 +34,7 @@ const parseDate = (dateStr) => {
   }
 };
 
-export function ComplianceCalendar() {
-  const { obligations, loading } = useCompliance();
+export function ComplianceCalendar({ obligations = [], loading }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const today = new Date();
@@ -57,39 +48,40 @@ export function ComplianceCalendar() {
 
   // Stats
   const stats = useMemo(() => {
-    const filed = obligations.filter((ob) => ob.status === "filed").length;
-    const overdue = obligations.filter((ob) => {
-      if (ob.status === "filed" || !ob.due_date) return false;
-      const d = parseDate(ob.due_date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+    const filed = obligationsArray.filter((o) => o.status === "filed").length;
+
+    const overdue = obligationsArray.filter((o) => {
+      if (o.status === "filed" || !o.due_date) return false;
+      const d = parseDate(o.due_date);
       return d && d < today;
     }).length;
-    
+
     return {
       total: obligationsArray.length,
       filed,
       overdue,
       pending: obligationsArray.length - filed - overdue,
     };
-  }, [obligations]);
+  }, [obligationsArray, today]);
 
-  // Group ALL obligations by date for the calendar grid
+  // Group obligations by date
   const obligationsByDate = useMemo(() => {
     const grouped = {};
-    
-    obligations.forEach((ob) => {
+
+    obligationsArray.forEach((ob) => {
       if (!ob.due_date) return;
+
       const date = parseDate(ob.due_date);
       if (!date) return;
-      
+
       const key = format(date, "yyyy-MM-dd");
+
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(ob);
     });
-    
+
     return grouped;
-  }, [obligations]);
+  }, [obligationsArray]);
 
   const getDayClass = (date) => {
     const key = format(date, "yyyy-MM-dd");
@@ -147,13 +139,12 @@ export function ComplianceCalendar() {
               Compliance Calendar
             </CardTitle>
             <CardDescription>
-              {obligations.length} obligations loaded from backend
+              {obligationsArray.length} obligations loaded
             </CardDescription>
           </div>
 
           {/* Month Navigation */}
           <div className="flex items-center gap-2">
-            {/* Month navigation */}
             <Button
               variant="outline"
               size="icon"
@@ -224,32 +215,48 @@ export function ComplianceCalendar() {
               <div
                 key={key}
                 className={cn(
-                  "h-12 flex flex-col items-center justify-center rounded-lg transition-colors relative cursor-pointer hover:ring-1 hover:ring-primary",
+                  "h-12 flex flex-col items-center justify-center rounded-lg transition relative cursor-pointer hover:ring-1 hover:ring-primary",
                   getDayClass(day),
                   isToday && "ring-2 ring-primary ring-offset-2"
                 )}
-                title={dayObs?.map(ob => 
-                  `${ob.form_name || ob.compliance_subtype}: ${ob.status}`
-                ).join('\n')}
+                title={
+                  dayObs
+                    ?.map(
+                      (ob) =>
+                        `${ob.form_name || ob.compliance_subtype
+                        }: ${ob.status}`
+                    )
+                    .join("\n") || ""
+                }
               >
                 <span className="text-sm">{format(day, "d")}</span>
 
                 {dayObs?.length > 0 && (
                   <div className="absolute bottom-1 flex gap-0.5">
                     {dayObs.slice(0, 3).map((ob, i) => {
-                      // Determine dot color based on status
                       let dotColor = "bg-primary";
-                      if (ob.status === "filed") dotColor = "bg-success";
-                      else if (ob.status === "overdue" || getDaysUntilDue(ob.due_date) < 0) dotColor = "bg-destructive";
-                      else if (getDaysUntilDue(ob.due_date) <= 3) dotColor = "bg-warning";
-                      
+
+                      if (ob.status === "filed")
+                        dotColor = "bg-success";
+                      else if (
+                        ob.status === "overdue" ||
+                        getDaysUntilDue(ob.due_date) < 0
+                      )
+                        dotColor = "bg-destructive";
+                      else if (getDaysUntilDue(ob.due_date) <= 3)
+                        dotColor = "bg-warning";
+
                       return (
-                        <div 
-                          key={i} 
-                          className={cn("h-1.5 w-1.5 rounded-full", dotColor)}
+                        <div
+                          key={i}
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            dotColor
+                          )}
                         />
                       );
                     })}
+
                     {dayObs.length > 3 && (
                       <span className="text-[8px] font-medium ml-0.5">
                         +{dayObs.length - 3}
@@ -264,31 +271,19 @@ export function ComplianceCalendar() {
 
         {/* Legend */}
         <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-primary" />
-            <span>Due</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-success" />
-            <span>Filed</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-warning" />
-            <span>Urgent (≤3d)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-destructive" />
-            <span>Overdue</span>
-          </div>
+          <Legend color="bg-primary" label="Due" />
+          <Legend color="bg-success" label="Filed" />
+          <Legend color="bg-warning" label="Urgent (≤3d)" />
+          <Legend color="bg-destructive" label="Overdue" />
         </div>
 
-        {/* Debug info - remove in production */}
-        <div className="text-xs text-muted-foreground border-t pt-4 mt-2">
-          <p>📊 Total obligations in DB: {obligations.length}</p>
-          <p>📅 Dates with obligations: {Object.keys(obligationsByDate).length}</p>
-          {obligations.length > 0 && (
-            <p>🔍 Sample: {obligations[0].form_name || obligations[0].compliance_subtype} - {format(parseDate(obligations[0].due_date), "dd MMM yyyy")}</p>
-          )}
+        {/* Debug */}
+        <div className="text-xs text-muted-foreground border-t pt-4">
+          <p>Total obligations: {obligationsArray.length}</p>
+          <p>
+            Dates with obligations:{" "}
+            {Object.keys(obligationsByDate).length}
+          </p>
         </div>
       </CardContent>
     </Card>
