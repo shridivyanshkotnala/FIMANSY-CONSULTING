@@ -69,7 +69,6 @@ export default function Compliance() {
   // Local UI state
   const [showSetup, setShowSetup] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [dataReady, setDataReady] = useState(false);
 
   // Navigation handler
   const navigate = useNavigate();
@@ -95,15 +94,12 @@ export default function Compliance() {
   */
 
   useEffect(() => {
-    if (!loading && obligations.length > 0) {
-      console.log("✅ Data ready with", obligations.length, "obligations");
-      setDataReady(true);
+    // Stop generation screen once refetch completes.
+    // Some organizations may legitimately have 0 generated obligations.
+    if (!loading && isGenerating) {
       setIsGenerating(false);
-    } 
-    else if (!loading && complianceProfile && obligations.length === 0) {
-      console.log("⏳ Waiting for obligations to generate...");
     }
-  }, [loading, obligations, complianceProfile]);
+  }, [loading, isGenerating]);
 
   const needsSetup = !loading && !complianceProfile;
 
@@ -129,7 +125,7 @@ export default function Compliance() {
   ==========================================================
   */
 
-  if (isGenerating || (complianceProfile && obligations.length === 0 && !loading)) {
+  if (isGenerating) {
     return (
       <PillarLayout>
         <div className="flex items-center justify-center h-64 flex-col gap-4">
