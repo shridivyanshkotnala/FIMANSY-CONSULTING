@@ -239,6 +239,32 @@ function normalizeComplianceCategory(rawCategory) {
   return ALLOWED_COMPLIANCE_CATEGORIES.has(mapped) ? mapped : null;
 }
 
+function inferCategoryFromTemplateText(name, subtype) {
+  const haystack = `${name || ""} ${subtype || ""}`.toLowerCase();
+  if (haystack.includes("gst") || haystack.includes("gstr")) return "gst";
+  if (haystack.includes("tds")) return "tds";
+  if (
+    haystack.includes("income tax") ||
+    haystack.includes("itr") ||
+    haystack.includes("advance tax") ||
+    haystack.includes("tax audit") ||
+    haystack.includes("transfer pricing")
+  ) {
+    return "income_tax";
+  }
+  if (
+    haystack.includes("pf") ||
+    haystack.includes("esic") ||
+    haystack.includes("payroll") ||
+    haystack.includes("professional tax") ||
+    haystack.includes("gratuity")
+  ) {
+    return "payroll";
+  }
+  if (haystack.includes("mca") || haystack.includes("roc")) return "mca";
+  return null;
+}
+
 function resolveLegacyComplianceType(complianceCategory, complianceSubtype) {
   if (complianceCategory === "gst") return "gst";
   if (complianceCategory === "tds") return "tds";
@@ -273,7 +299,7 @@ export async function generateObligationsForFY(organization_id, financialYear) {
 
   // Step 2: Check templates
   console.log("\n🔍 Step 2: Checking for active templates...");
-  let templates = await ComplianceTemplate.find({ is_active: true });
+  let templates = await ComplianceTemplate.find({ is_active: true }).lean();
 
   console.log(`📊 Found ${templates.length} active templates`);
 
@@ -285,7 +311,7 @@ export async function generateObligationsForFY(organization_id, financialYear) {
 
       console.log(`✅ Auto-seeded ${seedResult.length} templates`);
 
-      templates = await ComplianceTemplate.find({ is_active: true });
+      templates = await ComplianceTemplate.find({ is_active: true }).lean();
 
     } catch (seedError) {
       console.error("❌ Error during auto-seeding:", seedError.message);
@@ -324,10 +350,11 @@ export async function generateObligationsForFY(organization_id, financialYear) {
     console.log(`   Type: ${template.recurrence_type}`);
 
     // Backward compatibility for legacy template field names.
-    const complianceCategory = normalizeComplianceCategory(
-      template.compliance_category ?? template.category_tag
-    );
     const complianceSubtype = template.compliance_subtype ?? template.subtag;
+    const complianceCategory =
+      normalizeComplianceCategory(
+        template.compliance_category ?? template.category_tag
+      ) || inferCategoryFromTemplateText(template.name, complianceSubtype);
     const complianceDescription =
       template.compliance_description ?? template.description;
 
