@@ -457,6 +457,9 @@ export async function generateObligationsForFY(organization_id, financialYear) {
         compliance_category: complianceCategory,
         compliance_subtype: complianceSubtype,
         compliance_description: complianceDescription,
+        category_tag: complianceCategory,
+        subtag: complianceSubtype,
+        description: complianceDescription,
 
         financial_year: financialYear,
 

@@ -27,6 +27,24 @@ const complianceObligationSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Legacy aliases retained for backward compatibility with existing DB indexes/queries
+    category_tag: {
+      type: String,
+      trim: true,
+      index: true,
+    },
+
+    subtag: {
+      type: String,
+      trim: true,
+      index: true,
+    },
+
+    description: {
+      type: String,
+      trim: true,
+    },
+
     // Keep compliance_type for backward compatibility
     compliance_type: {
       type: String,
@@ -129,6 +147,32 @@ complianceObligationSchema.index({ organization_id: 1, status: 1 });
 complianceObligationSchema.index({ organization_id: 1, due_date: 1 });
 complianceObligationSchema.index({ organization_id: 1, compliance_type: 1 });
 complianceObligationSchema.index({ organization_id: 1, compliance_category: 1 }); // Updated
+
+// Keep legacy and new fields synchronized for compatibility.
+complianceObligationSchema.pre("validate", function (next) {
+  if (!this.compliance_category && this.category_tag) {
+    this.compliance_category = this.category_tag;
+  }
+  if (!this.category_tag && this.compliance_category) {
+    this.category_tag = this.compliance_category;
+  }
+
+  if (!this.compliance_subtype && this.subtag) {
+    this.compliance_subtype = this.subtag;
+  }
+  if (!this.subtag && this.compliance_subtype) {
+    this.subtag = this.compliance_subtype;
+  }
+
+  if (!this.compliance_description && this.description) {
+    this.compliance_description = this.description;
+  }
+  if (!this.description && this.compliance_description) {
+    this.description = this.compliance_description;
+  }
+
+  next();
+});
 
 // ✅ Compound unique index to prevent duplicates
 complianceObligationSchema.index({
