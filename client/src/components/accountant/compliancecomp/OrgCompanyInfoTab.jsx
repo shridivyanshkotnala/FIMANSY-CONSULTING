@@ -18,7 +18,8 @@ export function OrgCompanyInfoTab({ orgTickets = [], companyProfile, orgName, or
   // Resolve company fields: prefer CompanyComplianceProfile API data, fall back to ticket-level data
   const displayOrgName    = orgName || t?.organization_name || "—";
   const companyName       = companyProfile?.company_name    || t?.company_name    || displayOrgName;
-  const cin               = companyProfile?.cin             || t?.cin             || null;
+  const llpin             = companyProfile?.llpin           || t?.llpin           || null;
+  const cin               = companyProfile?.cin             || llpin || t?.cin || t?.llpin || null;
   const gstin             = companyProfile?.gstin           || t?.gstin           || null;
   const pan               = companyProfile?.pan             || t?.pan             || null;
   const tan               = companyProfile?.tan             || t?.tan             || null;
@@ -70,7 +71,7 @@ export function OrgCompanyInfoTab({ orgTickets = [], companyProfile, orgName, or
 
             <div>
               <p className="text-muted-foreground text-xs">
-                CIN
+                {companyType === "llp" ? "CIN (LLPIN)" : "CIN"}
               </p>
               <p className="font-medium font-mono text-xs">
                 {cin || "N/A"}

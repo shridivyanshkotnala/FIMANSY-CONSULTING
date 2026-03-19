@@ -166,6 +166,7 @@ export const fetchOrganizationsSummary = async (query) => {
         $or: [
           { "org.name": { $regex: search, $options: "i" } },
           { "org.cin": { $regex: search, $options: "i" } },
+          { "profile.llpin": { $regex: search, $options: "i" } },
           { "org.gstin": { $regex: search, $options: "i" } },
           { subtag: { $regex: search, $options: "i" } },
           { financial_year: { $regex: search, $options: "i" } },
@@ -182,6 +183,7 @@ export const fetchOrganizationsSummary = async (query) => {
       organization_name: { $first: "$org.name" },
       company_name:      { $first: "$org.name" },      // same source — Organization has no separate legal name field
       cin:               { $first: "$profile.cin" },   // from CompanyComplianceProfile, not Organization
+      llpin:             { $first: "$profile.llpin" },
       gstin:             { $first: "$profile.gstin" }, // from CompanyComplianceProfile, not Organization
 
       assigned_since: { $min: "$createdAt" },
@@ -267,7 +269,8 @@ export const fetchOrganizationsSummary = async (query) => {
       organization_id: org._id,
       organization_name: org.organization_name,
       company_name: org.company_name || org.organization_name,
-      cin:   org.cin   || null,
+      cin:   org.cin || org.llpin || null,
+      llpin: org.llpin || null,
       gstin: org.gstin || null,
       total_active: org.total_active,
       overdue_count: org.overdue_count,

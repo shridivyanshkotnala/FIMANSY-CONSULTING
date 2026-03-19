@@ -137,7 +137,14 @@ export function ComplianceSetupForm({ onComplete }) {
     setIsLoading(true);
     try {
       const combinedAddress = `${formData.address_line_1}, ${formData.city}, ${formData.state} - ${formData.pincode}`;
-      const submitData = { ...formData, registered_office_address: combinedAddress };
+      const submitData = {
+        ...formData,
+        // For LLP, use LLPIN as CIN for all downstream flows that consume CIN.
+        cin: formData.company_type === "llp"
+          ? (formData.llpin || formData.cin || "")
+          : formData.cin,
+        registered_office_address: combinedAddress,
+      };
 
       console.log("📤 Submitting:", submitData);
 
@@ -196,7 +203,15 @@ export function ComplianceSetupForm({ onComplete }) {
             {showLLPIN && (
               <div className="space-y-2">
                 <Label htmlFor="llpin">LLPIN</Label>
-                <Input id="llpin" value={formData.llpin} onChange={(e) => setFormData({ ...formData, llpin: e.target.value.toUpperCase() })} placeholder="AAA-1234" />
+                <Input
+                  id="llpin"
+                  value={formData.llpin}
+                  onChange={(e) => {
+                    const value = e.target.value.toUpperCase();
+                    setFormData({ ...formData, llpin: value, cin: value });
+                  }}
+                  placeholder="AAA-1234"
+                />
               </div>
             )}
 

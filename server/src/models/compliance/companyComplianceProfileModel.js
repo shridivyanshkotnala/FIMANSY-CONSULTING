@@ -115,6 +115,21 @@ const companyComplianceProfileSchema = new mongoose.Schema(
   }
 );
 
+// For LLPs, treat LLPIN as CIN for downstream consumers that rely on `cin`.
+companyComplianceProfileSchema.pre("validate", function (next) {
+  if (this.company_type === "llp") {
+    if (this.llpin) {
+      this.llpin = String(this.llpin).trim().toUpperCase();
+      this.cin = this.llpin;
+    } else if (this.cin) {
+      // keep both aligned if only CIN was provided for LLP
+      this.cin = String(this.cin).trim().toUpperCase();
+      this.llpin = this.cin;
+    }
+  }
+  next();
+});
+
 // Compound index for organization queries
 companyComplianceProfileSchema.index({ organization_id: 1, company_type: 1 });
 

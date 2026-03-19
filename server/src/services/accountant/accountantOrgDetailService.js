@@ -114,6 +114,7 @@ export const fetchOrganizationSummary = async (orgId) => {
 
   // Fetch organization basic info
   const org = await Organization.findById(orgId).lean();
+  const profile = await CompanyComplianceProfile.findOne({ organization_id: orgId }).lean();
 
   if (!org) {
     throw new Error("Organization not found");
@@ -131,7 +132,8 @@ export const fetchOrganizationSummary = async (orgId) => {
   return {
     organization_id: orgId,
     organization_name: org.name,
-    cin: org.cin || null,
+    cin: profile?.cin || profile?.llpin || org.cin || null,
+    llpin: profile?.llpin || null,
     total_active: orgStats.total_active,
     overdue_count: orgStats.overdue_count,
     upcoming_7d: orgStats.upcoming_7d,
@@ -240,7 +242,8 @@ export const fetchOrganizationCompanyProfile = async (orgId) => {
     organization_id: profile.organization_id,
     company_name: profile.company_name || null,
     company_type: profile.company_type,
-    cin: profile.cin,
+    cin: profile.cin || profile.llpin || null,
+    llpin: profile.llpin || null,
     gstin: profile.gstin,
     pan: profile.pan,
     tan: profile.tan,
