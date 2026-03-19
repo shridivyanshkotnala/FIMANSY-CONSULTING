@@ -10,7 +10,7 @@ cron.schedule("0 1 * * *", async () => {
   } catch (error) {
     console.error("❌ Daily job failed:", error);
   }
-}, { timezone: "Asia/Kolkata" });
+});
 
 // Monthly: 1st day at 2:00 AM - Generates monthly/quarterly/annual obligations
 cron.schedule("0 2 1 * *", async () => {
@@ -20,7 +20,7 @@ cron.schedule("0 2 1 * *", async () => {
   } catch (error) {
     console.error("❌ Monthly job failed:", error);
   }
-}, { timezone: "Asia/Kolkata" });
+});
 
 console.log("✅ Compliance Scheduler initialized");
 console.log("   - Daily job: 1:00 AM (marks overdue)");
