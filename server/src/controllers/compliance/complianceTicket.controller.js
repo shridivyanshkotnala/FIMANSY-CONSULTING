@@ -89,36 +89,57 @@ export const createTicket = async (req, res) => {
     const organization_id = obligation.organization_id;
     console.log("Organization ID from obligation:", organization_id);
 
-    const ticket_number = await generateTicketNumber();
-    console.log("Generated ticket number:", ticket_number);
-
-    // Create ticket
+    // Create ticket (retry on ticket_number duplicate race)
     let ticket;
     try {
-      const ticketData = {
-        organization_id,
-        obligation_id,
-        ticket_number,
-        compliance_category: obligation.compliance_category,
-        compliance_subtype: obligation.compliance_subtype,
-        financial_year: obligation.financial_year,
-        due_date: obligation.due_date,
-        created_by: user_id,
-        last_activity_at: new Date(),
-        status: "initiated",
-        status_history: [
-          {
-            status: "initiated",
-            changed_by_role: user_role,
-            changed_by: user_id,
-            note: "Ticket created from obligation"
-          }
-        ]
-      };
+      const MAX_CREATE_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
+        const ticket_number = await generateTicketNumber();
+        console.log(`Generated ticket number (attempt ${attempt}):`, ticket_number);
 
-      console.log("Creating ticket with data:", ticketData);
-      ticket = await ComplianceTicket.create(ticketData);
-      console.log("✅ Ticket created successfully:", ticket._id);
+        const ticketData = {
+          organization_id,
+          obligation_id,
+          ticket_number,
+          compliance_category: obligation.compliance_category,
+          compliance_subtype: obligation.compliance_subtype,
+          financial_year: obligation.financial_year,
+          due_date: obligation.due_date,
+          created_by: user_id,
+          last_activity_at: new Date(),
+          status: "initiated",
+          status_history: [
+            {
+              status: "initiated",
+              changed_by_role: user_role,
+              changed_by: user_id,
+              note: "Ticket created from obligation"
+            }
+          ]
+        };
+
+        try {
+          ticket = await ComplianceTicket.create(ticketData);
+          console.log("✅ Ticket created successfully:", ticket._id);
+          break;
+        } catch (createAttemptError) {
+          const isTicketNumberDup =
+            createAttemptError?.code === 11000 &&
+            (createAttemptError?.keyPattern?.ticket_number ||
+              String(createAttemptError?.message || "").includes("ticket_number"));
+
+          if (isTicketNumberDup && attempt < MAX_CREATE_ATTEMPTS) {
+            console.warn(`⚠️ ticket_number duplicate on attempt ${attempt}, retrying...`);
+            continue;
+          }
+
+          throw createAttemptError;
+        }
+      }
+
+      if (!ticket) {
+        throw new Error("Ticket creation failed after retries");
+      }
 
       // Update obligation with ticket_id
       obligation.ticket_id = ticket._id;
