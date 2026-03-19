@@ -35,7 +35,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 /* ================= Quarterly subtype definitions ================= */
-const QUARTERLY_SUBTYPES = ["tds_return", "advance_tax_q1", "advance_tax_q2", "advance_tax_q3", "advance_tax_q4"];
+const QUARTERLY_SUBTYPES = ["tds_return", "advance_tax"];
 
 /* ================= Helpers ================= */
 function getCurrentQuarterRange() {

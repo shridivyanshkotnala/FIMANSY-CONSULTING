@@ -232,36 +232,24 @@ export function ComplianceCalendar({ obligations = [], loading }) {
                 <span className="text-sm">{format(day, "d")}</span>
 
                 {dayObs?.length > 0 && (
-                  <div className="absolute bottom-1 flex gap-0.5">
-                    {dayObs.slice(0, 3).map((ob, i) => {
-                      let dotColor = "bg-primary";
-
-                      if (ob.status === "filed")
-                        dotColor = "bg-success";
-                      else if (
-                        ob.status === "overdue" ||
-                        getDaysUntilDue(ob.due_date) < 0
-                      )
-                        dotColor = "bg-destructive";
-                      else if (getDaysUntilDue(ob.due_date) <= 3)
-                        dotColor = "bg-warning";
-
-                      return (
-                        <div
-                          key={i}
-                          className={cn(
-                            "h-1.5 w-1.5 rounded-full",
-                            dotColor
-                          )}
-                        />
+                  <div className="absolute bottom-1">
+                    {(() => {
+                      const hasOverdue = dayObs.some(
+                        (ob) =>
+                          ob.status === "overdue" || getDaysUntilDue(ob.due_date) < 0
                       );
-                    })}
+                      const hasUrgent = dayObs.some(
+                        (ob) => getDaysUntilDue(ob.due_date) <= 3 && ob.status !== "filed"
+                      );
+                      const allFiled = dayObs.every((ob) => ob.status === "filed");
 
-                    {dayObs.length > 3 && (
-                      <span className="text-[8px] font-medium ml-0.5">
-                        +{dayObs.length - 3}
-                      </span>
-                    )}
+                      let dotColor = "bg-primary";
+                      if (allFiled) dotColor = "bg-success";
+                      else if (hasOverdue) dotColor = "bg-destructive";
+                      else if (hasUrgent) dotColor = "bg-warning";
+
+                      return <div className={cn("h-1.5 w-1.5 rounded-full", dotColor)} />;
+                    })()}
                   </div>
                 )}
               </div>

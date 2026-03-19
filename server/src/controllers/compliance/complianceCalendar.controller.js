@@ -1,6 +1,9 @@
 import mongoose from "mongoose";
 import { ComplianceObligation } from "../../models/compliance/complianceObligationModel.js";
-import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
+import {
+  cleanupRecurringObligationsForFY,
+  generateObligationsForFY,
+} from "../../Functions/complianceMainEngine.js";
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
 
 function getCurrentFinancialYear() {
@@ -104,6 +107,18 @@ export const getObligations = async (req, res) => {
         console.log(`🛠️ Rolling target FY: ${currentFY}`);
 
         try {
+          const cleanup = await cleanupRecurringObligationsForFY(
+            organization_id,
+            currentFY,
+            {
+              mode: "rolling",
+              referenceDate: new Date(),
+            }
+          );
+          if (cleanup?.removed) {
+            console.log(`🧹 Removed ${cleanup.removed} duplicate/stale obligations`);
+          }
+
           const generatedCount = await generateObligationsForFY(
             organization_id,
             currentFY,

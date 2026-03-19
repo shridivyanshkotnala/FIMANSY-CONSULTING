@@ -114,7 +114,31 @@ export function useCompliance() {
         setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
 
       if (obsRes.data)
-        setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
+        {
+          const raw = Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || [];
+          const byKey = new Map();
+
+          raw.forEach((ob) => {
+            const key = [
+              ob?.financial_year || "",
+              (ob?.compliance_subtype || "").toLowerCase(),
+              String(ob?.due_date || "").slice(0, 10),
+            ].join("|");
+
+            const existing = byKey.get(key);
+            if (!existing) {
+              byKey.set(key, ob);
+              return;
+            }
+
+            // Prefer records that already have a ticket attached.
+            if (!existing?.ticket_id && ob?.ticket_id) {
+              byKey.set(key, ob);
+            }
+          });
+
+          setObligations(Array.from(byKey.values()));
+        }
 
       if (evtsRes.data)
         setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
