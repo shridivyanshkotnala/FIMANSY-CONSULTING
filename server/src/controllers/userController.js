@@ -316,7 +316,7 @@ const getMe = asynchandler(async (req, res) => {
 })
 
 const completeOnboarding = asynchandler(async (req, res) => {
-    const { companyName } = req.body;
+    const { companyName, gstin, pan, tan } = req.body;
 
     if (!companyName || companyName.trim().length < 2) {
         throw new ApiError(400, "Company name must be at least 2 characters");
@@ -332,6 +332,9 @@ const completeOnboarding = asynchandler(async (req, res) => {
     const org = await Organization.create({
         name: companyName,
         owner: req.user._id,
+        gstin: gstin ? String(gstin).trim().toUpperCase() : null,
+        pan: pan ? String(pan).trim().toUpperCase() : null,
+        tan: tan ? String(tan).trim().toUpperCase() : null,
     });
 
     if(!org){

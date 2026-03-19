@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useSelector } from "react-redux";
 import { useMeQuery } from "@/Redux/Slices/api/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +19,9 @@ export default function Onboarding() {
 
   const [creating, setCreating] = useState(false);
   const [orgName, setOrgName] = useState("");
+  const [pan, setPan] = useState("");
+  const [tan, setTan] = useState("");
+  const [gstin, setGstin] = useState("");
 
   // already has org → go dashboard
   useEffect(() => {
@@ -45,13 +47,53 @@ export default function Onboarding() {
       return;
     }
 
+    const panValue = pan.trim().toUpperCase();
+    const tanValue = tan.trim().toUpperCase();
+    const gstinValue = gstin.trim().toUpperCase();
+
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    const tanRegex = /^[A-Z]{4}[0-9]{5}[A-Z]{1}$/;
+    const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/;
+
+    if (panValue && !panRegex.test(panValue)) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid PAN.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (tanValue && !tanRegex.test(tanValue)) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid TAN.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (gstinValue && !gstinRegex.test(gstinValue)) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid GSTIN.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setCreating(true);
 
       // TEMP: until org API exists
       // we simulate org selection
 
-      const res = await completeOnboarding(orgName.trim()).unwrap();
+      const res = await completeOnboarding({
+        companyName: orgName.trim(),
+        pan: panValue || null,
+        tan: tanValue || null,
+        gstin: gstinValue || null,
+      }).unwrap();
 
       toast({
         title: "Organization Created",
@@ -121,6 +163,42 @@ export default function Onboarding() {
                   value={orgName}
                   onChange={(e) => setOrgName(e.target.value)}
                   required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pan">PAN</Label>
+                <Input
+                  id="pan"
+                  type="text"
+                  placeholder="ABCDE1234F"
+                  value={pan}
+                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  maxLength={10}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="tan">TAN</Label>
+                <Input
+                  id="tan"
+                  type="text"
+                  placeholder="ABCD12345E"
+                  value={tan}
+                  onChange={(e) => setTan(e.target.value.toUpperCase())}
+                  maxLength={10}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="gstin">GSTIN</Label>
+                <Input
+                  id="gstin"
+                  type="text"
+                  placeholder="27ABCDE1234F1Z5"
+                  value={gstin}
+                  onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                  maxLength={15}
                 />
               </div>
             </CardContent>

@@ -35,6 +35,27 @@ const organizationSchema = new mongoose.Schema(
       enum: ["active", "suspended"],
       default: "active",
     },
+
+    gstin: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null,
+    },
+
+    pan: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null,
+    },
+
+    tan: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null,
+    },
   },
   { timestamps: true }
 );

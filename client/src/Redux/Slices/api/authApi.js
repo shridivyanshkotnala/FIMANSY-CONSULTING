@@ -85,10 +85,10 @@ export const authApi = baseApi.injectEndpoints({
       },
     }),
     completeOnboarding: builder.mutation({
-      query: (companyName) => ({
+      query: (payload) => ({
         url: "/user/onboarding",
         method: "POST",
-        body: { companyName },
+        body: payload,
       }),
       invalidatesTags: ["Auth"],
     }),

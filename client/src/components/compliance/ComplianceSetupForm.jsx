@@ -60,6 +60,9 @@ export function ComplianceSetupForm({ onComplete }) {
     company_type: complianceProfile?.company_type || "private_limited",
     cin: complianceProfile?.cin || "",
     llpin: complianceProfile?.llpin || "",
+    gstin: complianceProfile?.gstin || "",
+    pan: complianceProfile?.pan || "",
+    tan: complianceProfile?.tan || "",
     date_of_incorporation: formatDateForInput(complianceProfile?.date_of_incorporation) || "",
     financial_year_end: complianceProfile?.financial_year_end || 3,
     address_line_1: parsedAddress.line1 || "",
@@ -78,6 +81,9 @@ export function ComplianceSetupForm({ onComplete }) {
         company_type: complianceProfile.company_type || "private_limited",
         cin: complianceProfile.cin || "",
         llpin: complianceProfile.llpin || "",
+        gstin: complianceProfile.gstin || "",
+        pan: complianceProfile.pan || "",
+        tan: complianceProfile.tan || "",
         date_of_incorporation: formatDateForInput(complianceProfile.date_of_incorporation) || "",
         financial_year_end: complianceProfile.financial_year_end || 3,
         address_line_1: parsed.line1 || "",
@@ -193,6 +199,39 @@ export function ComplianceSetupForm({ onComplete }) {
                 <Input id="llpin" value={formData.llpin} onChange={(e) => setFormData({ ...formData, llpin: e.target.value.toUpperCase() })} placeholder="AAA-1234" />
               </div>
             )}
+
+            <div className="space-y-2">
+              <Label htmlFor="pan">PAN</Label>
+              <Input
+                id="pan"
+                value={formData.pan}
+                onChange={(e) => setFormData({ ...formData, pan: e.target.value.toUpperCase() })}
+                placeholder="ABCDE1234F"
+                maxLength={10}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="tan">TAN</Label>
+              <Input
+                id="tan"
+                value={formData.tan}
+                onChange={(e) => setFormData({ ...formData, tan: e.target.value.toUpperCase() })}
+                placeholder="ABCD12345E"
+                maxLength={10}
+              />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="gstin">GSTIN</Label>
+              <Input
+                id="gstin"
+                value={formData.gstin}
+                onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
+                placeholder="27ABCDE1234F1Z5"
+                maxLength={15}
+              />
+            </div>
 
             {/* Date of Incorporation */}
             <div className="space-y-2">
