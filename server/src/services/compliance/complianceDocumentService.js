@@ -224,17 +224,6 @@ export const createComplianceDocumentRecord = async ({
     exchange_round: nextVersion,
   });
 
-  const attachmentPayload = {
-    document_id: doc._id,
-    name: doc.display_file_name,
-    url: doc.url,
-    key: doc.key,
-    content_type: doc.content_type,
-    file_size: doc.file_size,
-    kind: doc.document_kind,
-    is_final_verified: doc.is_final_verified,
-  };
-
   if (message || role === "accountant") {
     await ComplianceComment.create({
       ticket_id: ticket._id,
@@ -244,7 +233,7 @@ export const createComplianceDocumentRecord = async ({
       message:
         message?.trim() ||
         `${role === "accountant" ? "Accountant" : "Client"} uploaded document: ${doc.display_file_name}`,
-      attachments: [attachmentPayload],
+      attachments: doc.url ? [doc.url] : [],
     });
   }
 
@@ -358,24 +347,13 @@ export const markFinalVerifiedDocumentService = async ({
     }
   );
 
-  const attachmentPayload = {
-    document_id: updated._id,
-    name: updated.display_file_name,
-    url: updated.url,
-    key: updated.key,
-    content_type: updated.content_type,
-    file_size: updated.file_size,
-    kind: updated.document_kind,
-    is_final_verified: true,
-  };
-
   const verificationComment = await ComplianceComment.create({
     ticket_id: ticket._id,
     organization_id: ticket.organization_id,
     user_id: verifier._id,
     role: "accountant",
     message: `Final verified document marked: ${updated.display_file_name}`,
-    attachments: [attachmentPayload],
+    attachments: updated.url ? [updated.url] : [],
   });
 
   await ComplianceDocument.updateOne(
