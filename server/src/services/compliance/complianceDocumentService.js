@@ -15,6 +15,7 @@ import {
 } from "./complianceDocumentNamingService.js";
 
 const ALLOWED_CONTENT_TYPES = new Set([
+  "application/octet-stream",
   "application/pdf",
   "image/png",
   "image/jpeg",
@@ -30,6 +31,9 @@ const ALLOWED_CONTENT_TYPES = new Set([
 ]);
 
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+const DEFAULT_R2_BUCKET = "fimansy-documents";
+
+const getR2Bucket = () => String(process.env.R2_BUCKET || DEFAULT_R2_BUCKET).trim();
 
 const sanitizeFileName = (name = "document") =>
   String(name)
@@ -53,7 +57,6 @@ const toPublicUrl = (key) => {
 
 const ensureR2Config = () => {
   const missing = [];
-  if (!process.env.R2_BUCKET) missing.push("R2_BUCKET");
   if (!process.env.R2_ENDPOINT) missing.push("R2_ENDPOINT");
   if (!process.env.R2_ACCESS_KEY) missing.push("R2_ACCESS_KEY");
   if (!process.env.R2_SECRET_KEY) missing.push("R2_SECRET_KEY");
@@ -152,7 +155,7 @@ export const createDocumentUploadSignedUrl = async ({
   const key = `compliance/${orgId}/${ticketId}/${folder}/${Date.now()}-${unique}-${safeName}`;
 
   const command = new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET,
+    Bucket: getR2Bucket(),
     Key: key,
     ContentType: contentType,
   });
@@ -162,7 +165,7 @@ export const createDocumentUploadSignedUrl = async ({
   return {
     uploadUrl,
     key,
-    bucket: process.env.R2_BUCKET,
+    bucket: getR2Bucket(),
     fileUrl: toPublicUrl(key),
     expiresIn: 300,
   };
@@ -206,7 +209,7 @@ export const createComplianceDocumentRecord = async ({
     financial_year: ticket.financial_year || "",
     compliance_obligation_name: complianceName,
     due_date: ticket.due_date,
-    bucket: process.env.R2_BUCKET,
+    bucket: getR2Bucket(),
     key,
     url: toPublicUrl(key),
     content_type: contentType,
@@ -297,8 +300,8 @@ export const markFinalVerifiedDocumentService = async ({
   if (document.key !== finalKey) {
     await r2.send(
       new CopyObjectCommand({
-        Bucket: process.env.R2_BUCKET,
-        CopySource: `${process.env.R2_BUCKET}/${document.key}`,
+        Bucket: getR2Bucket(),
+        CopySource: `${getR2Bucket()}/${document.key}`,
         Key: finalKey,
         ContentType: document.content_type,
         MetadataDirective: "COPY",
@@ -307,7 +310,7 @@ export const markFinalVerifiedDocumentService = async ({
 
     await r2.send(
       new DeleteObjectCommand({
-        Bucket: process.env.R2_BUCKET,
+        Bucket: getR2Bucket(),
         Key: document.key,
       })
     );

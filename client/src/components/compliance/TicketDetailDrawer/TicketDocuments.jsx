@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useTickets } from "@/hooks/useTickets";
 import { ExternalLink, FileText, Loader2, Upload } from "lucide-react";
@@ -79,6 +78,10 @@ export function TicketDocuments({ ticketId }) {
     setUploading(false);
   };
 
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 rounded-md border p-3">
@@ -89,17 +92,17 @@ export function TicketDocuments({ ticketId }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Input
+          <input
             ref={fileInputRef}
             type="file"
-            className="hidden"
+            className="absolute -z-10 h-px w-px opacity-0 pointer-events-none"
             onChange={handleSelectFile}
-            accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xls,.xlsx,.zip"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xls,.xlsx,.zip,.doc,.docx,.txt"
           />
           <Button
             type="button"
             size="sm"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={openFilePicker}
             disabled={uploading}
             className="gap-1.5"
           >
@@ -118,6 +121,17 @@ export function TicketDocuments({ ticketId }) {
           <p className="text-xs text-muted-foreground mt-1">
             Uploaded files by client or accountant will appear here.
           </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-4 gap-1.5"
+            onClick={openFilePicker}
+            disabled={uploading}
+          >
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {uploading ? "Uploading..." : "Upload Document"}
+          </Button>
         </div>
       ) : (
         <div className="space-y-2">
