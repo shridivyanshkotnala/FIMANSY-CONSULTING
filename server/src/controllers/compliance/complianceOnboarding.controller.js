@@ -94,7 +94,11 @@ export const createCompanyProfile = asynchandler(async (req, res) => {
     // ============================
     const count = await generateObligationsForFY(
       profile.organization_id,
-      currentFY
+      currentFY,
+      {
+        mode: "rolling",
+        referenceDate: new Date(),
+      }
     );
 
     profile.obligations_generated = true;
@@ -145,7 +149,11 @@ export const updateCompanyProfile = asynchandler(async (req, res) => {
 
       const count = await generateObligationsForFY(
         updatedProfile.organization_id,
-        currentFY
+        currentFY,
+        {
+          mode: "rolling",
+          referenceDate: new Date(),
+        }
       );
 
       updatedProfile.obligations_generated = true;

@@ -3,6 +3,7 @@ import "./loadEnv.js"
 import connectDB from './src/db/index.js'
 import app from './app.js'
 import { startScheduler } from "./src/services/schedulerService.js";
+import "./src/services/complianceScheduler/index.js";
 
 console.log('MONGODB_URI:', process.env.MONGODB_URI)
 
