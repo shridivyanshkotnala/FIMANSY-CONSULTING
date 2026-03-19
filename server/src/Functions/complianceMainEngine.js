@@ -248,6 +248,20 @@ const RECURRING_TEMPLATE_RULES = {
     recurrence_type: "monthly",
     recurrence_config: { due_day: 15, offset_months: 1 },
   },
+  professional_tax: {
+    form_name: "Professional Tax (PT)",
+    compliance_category: "payroll",
+    compliance_description: "Professional tax payment (state-specific)",
+    recurrence_type: "monthly",
+    recurrence_config: { due_day: 15, offset_months: 1 },
+  },
+  payroll_processing: {
+    form_name: "Payroll Processing",
+    compliance_category: "payroll",
+    compliance_description: "Salary and payroll processing",
+    recurrence_type: "monthly",
+    recurrence_config: { due_day: 31, offset_months: 0 },
+  },
   tds_return: {
     form_name: "TDS Return – Form 24Q / 26Q",
     compliance_category: "tds",
@@ -269,7 +283,7 @@ const RECURRING_TEMPLATE_RULES = {
   itr6: {
     form_name: "Income Tax Return (ITR)",
     compliance_category: "income_tax",
-    compliance_description: "Annual income tax filing for company",
+    compliance_description: "Annual income tax return",
     recurrence_type: "annual",
     recurrence_config: { due_day: 30, due_month: 9 },
   },
@@ -289,8 +303,8 @@ const RECURRING_TEMPLATE_RULES = {
   },
   form16: {
     form_name: "Form 16 & 16A Issuance",
-    compliance_category: "tds",
-    compliance_description: "Issuance of TDS certificates to employees and vendors",
+    compliance_category: "mca",
+    compliance_description: "Annual issuance of Form 16/16A",
     recurrence_type: "annual",
     recurrence_config: { due_day: 15, due_month: 6 },
   },
@@ -302,19 +316,8 @@ const TEMPLATE_SUBTYPE_ALIASES = {
   tdsreturn: "tds_return",
   tds_return_24q_26q: "tds_return",
   form24q_26q: "tds_return",
-  tds_24q_26q: "tds_return",
-  tds_24q26q: "tds_return",
-  tds_payment: "tds_payment",
-  pf: "pf",
-  esic: "esic",
-  itr: "itr6",
   itr_6: "itr6",
-  form_3ca_3cd: "tax_audit",
-  tax_audit_report: "tax_audit",
-  form_3ceb: "transfer_pricing",
-  form_16_16a: "form16",
-  form_16a: "form16",
-  advance_tax: "advance_tax",
+  itr: "itr6",
 };
 
 function normalizeComplianceCategory(rawCategory) {
@@ -375,8 +378,8 @@ function normalizeSubtype(rawSubtype) {
   const normalized = String(rawSubtype)
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
 
   return TEMPLATE_SUBTYPE_ALIASES[normalized] || normalized;
 }
