@@ -212,114 +212,6 @@ const ALLOWED_COMPLIANCE_CATEGORIES = new Set([
   "mca",
 ]);
 
-const RECURRING_TEMPLATE_RULES = {
-  gstr1: {
-    form_name: "GST Return – GSTR-1",
-    compliance_category: "gst",
-    compliance_description: "Outward supply details",
-    recurrence_type: "monthly",
-    recurrence_config: { due_day: 11, offset_months: 1 },
-  },
-  gstr3b: {
-    form_name: "GST Return – GSTR-3B",
-    compliance_category: "gst",
-    compliance_description: "Summary of sales, ITC and tax payable",
-    recurrence_type: "monthly",
-    recurrence_config: { due_day: 20, offset_months: 1 },
-  },
-  tds_payment: {
-    form_name: "TDS Payment",
-    compliance_category: "tds",
-    compliance_description: "Monthly TDS deposit",
-    recurrence_type: "monthly",
-    recurrence_config: { due_day: 7, offset_months: 1 },
-  },
-  pf: {
-    form_name: "PF Contribution",
-    compliance_category: "payroll",
-    compliance_description: "Monthly Provident Fund contribution",
-    recurrence_type: "monthly",
-    recurrence_config: { due_day: 15, offset_months: 1 },
-  },
-  esic: {
-    form_name: "ESIC Contribution",
-    compliance_category: "payroll",
-    compliance_description: "Monthly ESIC contribution",
-    recurrence_type: "monthly",
-    recurrence_config: { due_day: 15, offset_months: 1 },
-  },
-  professional_tax: {
-    form_name: "Professional Tax (PT)",
-    compliance_category: "payroll",
-    compliance_description: "Professional tax payment (state-specific)",
-    recurrence_type: "monthly",
-    recurrence_config: { due_day: 15, offset_months: 1 },
-  },
-  payroll_processing: {
-    form_name: "Payroll Processing",
-    compliance_category: "payroll",
-    compliance_description: "Salary and payroll processing",
-    recurrence_type: "monthly",
-    recurrence_config: { due_day: 31, offset_months: 0 },
-  },
-  tds_return: {
-    form_name: "TDS Return – Form 24Q / 26Q",
-    compliance_category: "tds",
-    compliance_description: "Quarterly TDS return filing",
-    recurrence_type: "quarterly",
-    recurrence_config: {
-      due_dates: ["31-07", "31-10", "31-01", "31-05"],
-    },
-  },
-  advance_tax: {
-    form_name: "Advance Tax",
-    compliance_category: "income_tax",
-    compliance_description: "Quarterly advance tax installments",
-    recurrence_type: "quarterly",
-    recurrence_config: {
-      due_dates: ["15-06", "15-09", "15-12", "15-03"],
-    },
-  },
-  itr6: {
-    form_name: "Income Tax Return (ITR)",
-    compliance_category: "income_tax",
-    compliance_description: "Annual income tax return",
-    recurrence_type: "annual",
-    recurrence_config: { due_day: 30, due_month: 9 },
-  },
-  tax_audit: {
-    form_name: "Tax Audit Report",
-    compliance_category: "income_tax",
-    compliance_description: "Form 3CA/3CD",
-    recurrence_type: "annual",
-    recurrence_config: { due_day: 30, due_month: 9 },
-  },
-  transfer_pricing: {
-    form_name: "Transfer Pricing Report",
-    compliance_category: "income_tax",
-    compliance_description: "Form 3CEB",
-    recurrence_type: "annual",
-    recurrence_config: { due_day: 30, due_month: 11 },
-  },
-  form16: {
-    form_name: "Form 16 & 16A Issuance",
-    compliance_category: "mca",
-    compliance_description: "Annual issuance of Form 16/16A",
-    recurrence_type: "annual",
-    recurrence_config: { due_day: 15, due_month: 6 },
-  },
-};
-
-const TEMPLATE_SUBTYPE_ALIASES = {
-  gstr_1: "gstr1",
-  gstr_3b: "gstr3b",
-  tdsreturn: "tds_return",
-  tds_return_24q_26q: "tds_return",
-  form24q_26q: "tds_return",
-  itr_6: "itr6",
-  itr: "itr6",
-};
-
 function normalizeComplianceCategory(rawCategory) {
   if (!rawCategory) return null;
 
@@ -371,17 +263,6 @@ function inferCategoryFromTemplateText(name, subtype) {
   }
   if (haystack.includes("mca") || haystack.includes("roc")) return "mca";
   return null;
-}
-
-function normalizeSubtype(rawSubtype) {
-  if (!rawSubtype) return null;
-  const normalized = String(rawSubtype)
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "_")
-    .replace(/-/g, "_");
-
-  return TEMPLATE_SUBTYPE_ALIASES[normalized] || normalized;
 }
 
 function resolveLegacyComplianceType(complianceCategory, complianceSubtype) {
@@ -510,7 +391,6 @@ export async function generateObligationsForFY(
   console.log("\n🔍 Step 4: Generating obligations for each template...");
 
   const obligationsToInsert = [];
-  const generatedSubtypes = new Set();
 
   for (const [index, template] of templates.entries()) {
 
@@ -519,40 +399,27 @@ export async function generateObligationsForFY(
     console.log(`   Type: ${template.recurrence_type}`);
 
     // Backward compatibility for legacy template field names.
-    const normalizedSubtype = normalizeSubtype(
-      template.compliance_subtype ?? template.subtag
-    );
+    const complianceSubtype = template.compliance_subtype ?? template.subtag;
+    const complianceCategory =
+      normalizeComplianceCategory(
+        template.compliance_category ?? template.category_tag
+      ) || inferCategoryFromTemplateText(template.name, complianceSubtype);
+    const complianceDescription =
+      template.compliance_description ?? template.description;
 
-    if (!normalizedSubtype) {
+    if (!complianceCategory) {
+      console.warn(
+        `⚠️ Skipping template \"${template.name}\" due to invalid/missing compliance category`
+      );
+      continue;
+    }
+
+    if (!complianceSubtype) {
       console.warn(
         `⚠️ Skipping template \"${template.name}\" due to missing compliance subtype`
       );
       continue;
     }
-
-    const rule = RECURRING_TEMPLATE_RULES[normalizedSubtype];
-    if (!rule) {
-      console.log(`⏭️ Skipping non-recurring/conditional subtype: ${normalizedSubtype}`);
-      continue;
-    }
-
-    // Protect against duplicate templates representing the same subtype.
-    if (generatedSubtypes.has(normalizedSubtype)) {
-      console.log(`⏭️ Duplicate subtype template skipped: ${normalizedSubtype}`);
-      continue;
-    }
-    generatedSubtypes.add(normalizedSubtype);
-
-    const complianceSubtype = normalizedSubtype;
-    const complianceCategory =
-      rule.compliance_category ||
-      normalizeComplianceCategory(
-        template.compliance_category ?? template.category_tag
-      ) || inferCategoryFromTemplateText(template.name, complianceSubtype);
-    const complianceDescription =
-      rule.compliance_description ||
-      template.compliance_description ||
-      template.description;
 
     const complianceType = resolveLegacyComplianceType(
       complianceCategory,
@@ -561,33 +428,21 @@ export async function generateObligationsForFY(
 
     let dueDates = [];
 
-    switch (rule.recurrence_type) {
+    switch (template.recurrence_type) {
 
       case "monthly":
         console.log("📅 Generating monthly dates...");
-        dueDates = generateMonthlyDueDates(
-          { ...template, recurrence_config: rule.recurrence_config },
-          generationStart,
-          fyEnd
-        );
+        dueDates = generateMonthlyDueDates(template, generationStart, fyEnd);
         break;
 
       case "quarterly":
         console.log("📅 Generating quarterly dates...");
-        dueDates = generateQuarterlyDueDates(
-          { ...template, recurrence_config: rule.recurrence_config },
-          generationStart,
-          fyEnd
-        );
+        dueDates = generateQuarterlyDueDates(template, generationStart, fyEnd);
         break;
 
       case "annual":
         console.log("📅 Generating annual date...");
-        dueDates = generateAnnualDueDate(
-          { ...template, recurrence_config: rule.recurrence_config },
-          generationStart,
-          fyEnd
-        );
+        dueDates = generateAnnualDueDate(template, generationStart, fyEnd);
         break;
 
       default:
@@ -628,7 +483,7 @@ export async function generateObligationsForFY(
 
         organization_id,
 
-        form_name: rule.form_name || template.name,
+        form_name: template.name,
         form_description: complianceDescription,
 
         ...(complianceType ? { compliance_type: complianceType } : {}),
@@ -643,8 +498,8 @@ export async function generateObligationsForFY(
         status: "not_started",
 
         is_recurring: true,
-        recurrence_type: rule.recurrence_type,
-        recurrence_config: rule.recurrence_config
+        recurrence_type: template.recurrence_type,
+        recurrence_config: template.recurrence_config
 
       };
 
@@ -700,121 +555,4 @@ export async function generateObligationsForFY(
 
     throw error;
   }
-}
-
-export async function cleanupRecurringObligationsForFY(
-  organization_id,
-  financialYear,
-  options = {}
-) {
-  const mode = options.mode || "rolling";
-  const referenceDate = options.referenceDate
-    ? new Date(options.referenceDate)
-    : new Date();
-
-  const { start: fyStart, end: fyEnd } = getFinancialYearDates(financialYear);
-
-  const recurring = await ComplianceObligation.find({
-    organization_id,
-    financial_year: financialYear,
-    is_recurring: true,
-  })
-    .select("_id ticket_id compliance_subtype recurrence_type due_date financial_year")
-    .lean();
-
-  if (!recurring.length) return { removed: 0 };
-
-  const dueKey = (d) => new Date(d).toISOString().slice(0, 10);
-  const allowedDateKeysBySubtype = new Map();
-
-  for (const [subtype, rule] of Object.entries(RECURRING_TEMPLATE_RULES)) {
-    let dueDates = [];
-    if (rule.recurrence_type === "monthly") {
-      dueDates = generateMonthlyDueDates(
-        { recurrence_config: rule.recurrence_config, name: rule.form_name },
-        fyStart,
-        fyEnd
-      );
-    } else if (rule.recurrence_type === "quarterly") {
-      dueDates = generateQuarterlyDueDates(
-        { recurrence_config: rule.recurrence_config, name: rule.form_name },
-        fyStart,
-        fyEnd
-      );
-    } else if (rule.recurrence_type === "annual") {
-      dueDates = generateAnnualDueDate(
-        { recurrence_config: rule.recurrence_config, name: rule.form_name },
-        fyStart,
-        fyEnd
-      );
-    }
-
-    const filtered = filterDueDatesForMode(
-      dueDates,
-      rule.recurrence_type,
-      mode,
-      referenceDate
-    );
-
-    allowedDateKeysBySubtype.set(
-      subtype,
-      new Set(filtered.map((d) => dueKey(d)))
-    );
-  }
-
-  const toDelete = new Set();
-  const groups = new Map();
-
-  for (const ob of recurring) {
-    const subtype = normalizeSubtype(ob.compliance_subtype);
-    const rule = subtype ? RECURRING_TEMPLATE_RULES[subtype] : null;
-    const hasTicket = Boolean(ob.ticket_id);
-
-    if (!rule) {
-      if (!hasTicket) toDelete.add(String(ob._id));
-      continue;
-    }
-
-    if (ob.recurrence_type !== rule.recurrence_type && !hasTicket) {
-      toDelete.add(String(ob._id));
-      continue;
-    }
-
-    const allowedDates = allowedDateKeysBySubtype.get(subtype) || new Set();
-    const obDueKey = dueKey(ob.due_date);
-    if (!allowedDates.has(obDueKey) && !hasTicket) {
-      toDelete.add(String(ob._id));
-      continue;
-    }
-
-    const groupKey = `${subtype}|${obDueKey}|${ob.financial_year}`;
-    if (!groups.has(groupKey)) groups.set(groupKey, []);
-    groups.get(groupKey).push(ob);
-  }
-
-  for (const [, items] of groups) {
-    if (items.length <= 1) continue;
-
-    const sorted = [...items].sort((a, b) => {
-      const aTicket = a.ticket_id ? 1 : 0;
-      const bTicket = b.ticket_id ? 1 : 0;
-      if (aTicket !== bTicket) return bTicket - aTicket;
-      return String(a._id).localeCompare(String(b._id));
-    });
-
-    // Keep one, remove extra non-ticket duplicates.
-    for (let i = 1; i < sorted.length; i++) {
-      if (!sorted[i].ticket_id) {
-        toDelete.add(String(sorted[i]._id));
-      }
-    }
-  }
-
-  if (!toDelete.size) return { removed: 0 };
-
-  const deletion = await ComplianceObligation.deleteMany({
-    _id: { $in: [...toDelete] },
-  });
-
-  return { removed: Number(deletion.deletedCount || 0) };
 }
