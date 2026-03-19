@@ -193,7 +193,7 @@ export function ConditionalCompliancesTab() {
         if (failedUploads > 0) {
           toast({
             title: "Some uploads failed",
-            description: `${failedUploads} of ${selectedFiles.length} document(s) could not be uploaded. You can re-upload from ticket documents tab.",
+            description: `${failedUploads} of ${selectedFiles.length} document(s) could not be uploaded. You can re-upload from ticket documents tab.`,
             variant: "destructive",
           });
         }
