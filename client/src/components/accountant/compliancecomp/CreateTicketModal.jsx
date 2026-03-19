@@ -13,7 +13,7 @@
 
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
-import { CalendarIcon, Plus, Building2, ChevronDown, Check, X } from "lucide-react";
+import { CalendarIcon, Plus, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // UI primitives
@@ -301,6 +301,7 @@ export function CreateTicketModal({ open, onClose }) {
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
                     <Calendar
+                      className="rounded-md border"
                       mode="single"
                       selected={dueDate}
                       onSelect={(d) => {
@@ -309,6 +310,15 @@ export function CreateTicketModal({ open, onClose }) {
                         setErrors((prev) => ({ ...prev, dueDate: undefined }));
                       }}
                       disabled={(date) => date < today}
+                      classNames={{
+                        caption: "flex justify-center pt-2 pb-1 relative items-center",
+                        head_row: "flex w-full justify-between",
+                        head_cell: "text-muted-foreground rounded-md w-10 text-center font-medium text-xs",
+                        row: "flex w-full mt-2 justify-between",
+                        cell:
+                          "h-10 w-10 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+                        day: "h-10 w-10 p-0 font-normal aria-selected:opacity-100",
+                      }}
                       initialFocus
                     />
                   </PopoverContent>

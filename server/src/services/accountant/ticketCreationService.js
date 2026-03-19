@@ -12,10 +12,18 @@ import { Organization }       from "../../models/organizationModel.js";
 // 1. FETCH ALL ACTIVE COMPLIANCE TEMPLATES
 // ─────────────────────────────────────────────
 export const getActiveComplianceTemplates = async () => {
-  return ComplianceTemplate.find({ is_active: true })
-    .select("_id name category_tag subtag description recurrence_type recurrence_config")
-    .sort({ category_tag: 1, name: 1 })
+  const templates = await ComplianceTemplate.find({ is_active: true })
+    .select("_id name compliance_category compliance_subtype compliance_description category_tag subtag description recurrence_type recurrence_config")
+    .sort({ compliance_category: 1, name: 1 })
     .lean();
+
+  // Keep response backward-compatible for existing client modal fields.
+  return templates.map((t) => ({
+    ...t,
+    category_tag: t.category_tag || t.compliance_category,
+    subtag: t.subtag || t.compliance_subtype,
+    description: t.description || t.compliance_description,
+  }));
 };
 
 // ─────────────────────────────────────────────
@@ -112,6 +120,14 @@ export const createManualTicket = async ({
   if (!template)            throw new Error("Compliance template not found");
   if (!template.is_active)  throw new Error("Compliance template is inactive");
 
+  const complianceCategory = template.compliance_category || template.category_tag;
+  const complianceSubtype = template.compliance_subtype || template.subtag;
+  const complianceDescription = template.compliance_description || template.description || "";
+
+  if (!complianceCategory || !complianceSubtype) {
+    throw new Error("Invalid template: missing compliance category or subtype");
+  }
+
   const ticketNumber  = await generateTicketNumber();
   const financialYear = deriveFinancialYear(dueDate);
   const now           = new Date();
@@ -121,8 +137,10 @@ export const createManualTicket = async ({
     is_manual:       true,
     organization_id: organizationId,
     // no obligation_id for manual tickets
-    category_tag:    template.category_tag,
-    subtag:          template.subtag,
+    compliance_category: complianceCategory,
+    compliance_subtype: complianceSubtype,
+    form_name: template.name,
+    form_description: description || complianceDescription,
     financial_year:  financialYear,
     due_date:        new Date(dueDate),
     status:          "initiated",
