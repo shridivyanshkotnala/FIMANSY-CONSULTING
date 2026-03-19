@@ -117,7 +117,7 @@ export const getTicketOrThrow = async (ticketId) => {
   return ticket;
 };
 
-export const assertTicketAccess = ({ ticket, user, requireAccountant = false }) => {
+export const assertTicketAccess = ({ ticket, user, requireAccountant = false, organizationId = null }) => {
   if (requireAccountant && user?.role !== "admin") {
     const err = new Error("Admin only");
     err.status = 403;
@@ -126,7 +126,13 @@ export const assertTicketAccess = ({ ticket, user, requireAccountant = false }) 
 
   if (user?.role === "admin") return;
 
-  const userOrg = String(user?.organization_id || "");
+  const userOrg = String(
+    organizationId ||
+    user?.organization_id ||
+    user?.organizationId ||
+    user?.organization?._id ||
+    ""
+  );
   const ticketOrg = String(ticket.organization_id || "");
   if (!userOrg || !ticketOrg || userOrg !== ticketOrg) {
     const err = new Error("Access denied for this ticket");

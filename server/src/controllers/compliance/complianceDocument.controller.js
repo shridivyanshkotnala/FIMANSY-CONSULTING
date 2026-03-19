@@ -17,6 +17,7 @@ export const initComplianceTicketDocumentUpload = async (req, res) => {
   try {
     const { id: ticketId } = req.params;
     const { fileName, contentType, fileSize, intent = "working_doc" } = req.body;
+    const organizationId = req.organizationId || req.headers["x-organization-id"];
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
       return res.status(400).json({ message: "Invalid ticket ID" });
@@ -28,7 +29,12 @@ export const initComplianceTicketDocumentUpload = async (req, res) => {
     }
 
     const ticket = await getTicketOrThrow(ticketId);
-    assertTicketAccess({ ticket, user: req.user, requireAccountant: false });
+    assertTicketAccess({
+      ticket,
+      user: req.user,
+      requireAccountant: false,
+      organizationId,
+    });
 
     const payload = await createDocumentUploadSignedUrl({
       ticket,
@@ -57,6 +63,7 @@ export const completeComplianceTicketDocumentUpload = async (req, res) => {
       intent = "working_doc",
       message,
     } = req.body;
+    const organizationId = req.organizationId || req.headers["x-organization-id"];
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
       return res.status(400).json({ message: "Invalid ticket ID" });
@@ -69,7 +76,12 @@ export const completeComplianceTicketDocumentUpload = async (req, res) => {
     }
 
     const ticket = await getTicketOrThrow(ticketId);
-    assertTicketAccess({ ticket, user: req.user, requireAccountant: false });
+    assertTicketAccess({
+      ticket,
+      user: req.user,
+      requireAccountant: false,
+      organizationId,
+    });
 
     const document = await createComplianceDocumentRecord({
       ticket,
@@ -91,13 +103,19 @@ export const completeComplianceTicketDocumentUpload = async (req, res) => {
 export const listComplianceTicketDocuments = async (req, res) => {
   try {
     const { id: ticketId } = req.params;
+    const organizationId = req.organizationId || req.headers["x-organization-id"];
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
       return res.status(400).json({ message: "Invalid ticket ID" });
     }
 
     const ticket = await getTicketOrThrow(ticketId);
-    assertTicketAccess({ ticket, user: req.user, requireAccountant: false });
+    assertTicketAccess({
+      ticket,
+      user: req.user,
+      requireAccountant: false,
+      organizationId,
+    });
 
     const docs = await listTicketDocumentsService(ticketId);
 
