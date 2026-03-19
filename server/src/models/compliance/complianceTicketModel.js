@@ -104,6 +104,12 @@ const complianceTicketSchema = new mongoose.Schema(
     index: true,
   },
 
+  has_unread_accountant_update: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+
   status_history: [
     {
       status: {

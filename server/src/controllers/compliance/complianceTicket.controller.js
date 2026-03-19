@@ -283,6 +283,15 @@ export const getTicketComments = async (req, res) => {
       .populate("user_id", "name email")
       .lean();
 
+    const actorRole = req.user?.role || req.role;
+    const isClientActor = actorRole !== "admin" && actorRole !== "accountant";
+    if (isClientActor) {
+      await ComplianceTicket.updateOne(
+        { _id: ticketId },
+        { $set: { has_unread_accountant_update: false } }
+      );
+    }
+
     console.log(`📊 Found ${comments.length} comments for ticket ${ticketId}`);
 
     // Set cache-control headers to prevent caching issues
@@ -370,6 +379,7 @@ export const addComment = async (req, res) => {
 
     // Client comment should always trigger "Client Updates" highlight for accountant.
     ticket.has_unread_client_update = true;
+    ticket.has_unread_accountant_update = false;
 
     await ticket.save();
 
@@ -426,6 +436,7 @@ export const updateTicketStatus = async (req, res) => {
     });
 
     ticket.last_activity_at = new Date();
+    ticket.has_unread_accountant_update = true;
 
     if (status === "closed") {
       ticket.closed_at = new Date();

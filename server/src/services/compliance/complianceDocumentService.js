@@ -243,6 +243,8 @@ export const createComplianceDocumentRecord = async ({
         last_activity_at: new Date(),
         last_comment_at: new Date(),
         last_comment_by_role: role,
+        has_unread_client_update: role === "user",
+        has_unread_accountant_update: role === "accountant",
       },
     }
   );
@@ -339,6 +341,7 @@ export const markFinalVerifiedDocumentService = async ({
         final_verified_at: now,
         final_verified_by: verifier._id,
         last_activity_at: now,
+        has_unread_accountant_update: true,
       },
     }
   );

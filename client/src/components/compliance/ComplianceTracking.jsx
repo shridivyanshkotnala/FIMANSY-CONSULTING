@@ -110,6 +110,9 @@ export function ComplianceTracking() {
 
   const ongoing = filtered.filter(ticket => ONGOING.includes(ticket.status));
   const closed = filtered.filter(ticket => CLOSED.includes(ticket.status));
+  const accountantUpdates = filtered.filter(
+    (ticket) => Boolean(ticket.has_unread_accountant_update)
+  );
 
   /* ------------------------------ */
   /* Metrics */
@@ -186,6 +189,9 @@ export function ComplianceTracking() {
           <TabsTrigger value="ongoing">
             Ongoing ({ongoing.length})
           </TabsTrigger>
+          <TabsTrigger value="accountant_updates">
+            Accountant Updates ({accountantUpdates.length})
+          </TabsTrigger>
           <TabsTrigger value="closed">
             Closed ({closed.length})
           </TabsTrigger>
@@ -196,6 +202,14 @@ export function ComplianceTracking() {
             tickets={ongoing} 
             today={today} 
             onClick={handleTicketClick} 
+          />
+        </TabsContent>
+
+        <TabsContent value="accountant_updates">
+          <TicketList
+            tickets={accountantUpdates}
+            today={today}
+            onClick={handleTicketClick}
           />
         </TabsContent>
 
@@ -365,6 +379,11 @@ function TicketList({ tickets, today, onClick }) {
                   <p className="font-medium text-sm truncate">
                     {displayName}
                   </p>
+                  {ticket.has_unread_accountant_update && (
+                    <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-500 border-blue-500/20">
+                      Accountant Update
+                    </Badge>
+                  )}
                   {ticket.template_id && (
                     <Badge variant="outline" className="text-[10px] bg-purple-50">
                       Conditional

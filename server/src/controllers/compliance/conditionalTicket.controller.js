@@ -199,6 +199,7 @@ export const createConditionalTicket = async (req, res) => {
       ticket.last_comment_by_role = newComment.role;
       ticket.last_activity_at = new Date();
       ticket.has_unread_client_update = true;
+      ticket.has_unread_accountant_update = false;
 
       await ticket.save();
       console.log("Comment created:", newComment._id);

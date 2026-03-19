@@ -406,6 +406,8 @@ export const postComment = async (req, res) => {
       last_activity_at: now,
     };
 
+    // Accountant comment should appear as an update for client side.
+    updatePayload.has_unread_accountant_update = true;
     // Accountant comment means client-update badge should be cleared.
     updatePayload.has_unread_client_update = false;
 
@@ -443,6 +445,7 @@ export const getTicketMeta = async (req, res) => {
         last_comment_at: 1,
         last_comment_by_role: 1,
         has_unread_client_update: 1,
+        has_unread_accountant_update: 1,
       }
     ).lean();
 

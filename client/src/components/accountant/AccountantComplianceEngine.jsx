@@ -304,6 +304,7 @@ export function AccountantComplianceEngine() {
   });
   // Normalize backend field names → UI component expected names
   const openTickets = (ticketCurrentData?.data || []).map(normalizeTicket);
+  const clientUpdatesCount = openTickets.filter((t) => t.has_client_update).length;
 
   // === SELECTED ORG: use the object cached at click-time ===
   // Replaces: const selectedOrg = selectedOrgId ? orgSummaries.find(...) : null;
@@ -695,7 +696,7 @@ export function AccountantComplianceEngine() {
               onClick={() => dispatch(toggleClientUpdatesOnly())}
             >
               <Eye className="h-3 w-3" />
-              Client Updates
+              Client Updates ({clientUpdatesCount})
             </Button>
 
             <span className="text-xs text-muted-foreground">
