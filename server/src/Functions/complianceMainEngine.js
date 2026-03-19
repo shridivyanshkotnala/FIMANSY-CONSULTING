@@ -279,6 +279,24 @@ function resolveLegacyComplianceType(complianceCategory, complianceSubtype) {
   return undefined;
 }
 
+function pickFirstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const asString = String(value).trim();
+    if (asString.length > 0) return asString;
+  }
+  return null;
+}
+
+function deriveSubtypeFromName(name) {
+  const base = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return base || null;
+}
+
 export async function generateObligationsForFY(organization_id, financialYear) {
   console.log("\n========== 🚀 GENERATE OBLIGATIONS STARTED ==========");
   console.log(`📌 Input - organization_id: ${organization_id}, financialYear: ${financialYear}`);
@@ -350,13 +368,19 @@ export async function generateObligationsForFY(organization_id, financialYear) {
     console.log(`   Type: ${template.recurrence_type}`);
 
     // Backward compatibility for legacy template field names.
-    const complianceSubtype = template.compliance_subtype ?? template.subtag;
+    const complianceSubtype =
+      pickFirstNonEmpty(template.compliance_subtype, template.subtag) ||
+      deriveSubtypeFromName(template.name);
+
     const complianceCategory =
       normalizeComplianceCategory(
-        template.compliance_category ?? template.category_tag
+        pickFirstNonEmpty(template.compliance_category, template.category_tag)
       ) || inferCategoryFromTemplateText(template.name, complianceSubtype);
-    const complianceDescription =
-      template.compliance_description ?? template.description;
+
+    const complianceDescription = pickFirstNonEmpty(
+      template.compliance_description,
+      template.description
+    );
 
     if (!complianceCategory) {
       console.warn(
