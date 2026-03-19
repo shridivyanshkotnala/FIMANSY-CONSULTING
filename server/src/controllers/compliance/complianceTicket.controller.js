@@ -76,13 +76,56 @@ export const createTicket = async (req, res) => {
       });
     }
 
-    // Check if ticket already exists
+    // Check if ticket already exists (idempotent create behaviour)
     const existingTicket = await ComplianceTicket.findOne({ obligation_id });
     if (existingTicket) {
-      return res.status(400).json({
-        success: false,
-        message: "Ticket already exists for this obligation"
-      });
+      try {
+        // Backfill missing link on obligation (important for "With Tickets" dashboard counts)
+        if (!obligation.ticket_id || String(obligation.ticket_id) !== String(existingTicket._id)) {
+          await ComplianceObligation.updateOne(
+            { _id: obligation_id },
+            {
+              $set: {
+                ticket_id: existingTicket._id,
+                updated_at: new Date(),
+              },
+            }
+          );
+        }
+
+        // If client retried after a previous partial failure, accept initial comment here.
+        if (comment || attachments.length) {
+          const newComment = await ComplianceComment.create({
+            ticket_id: existingTicket._id,
+            organization_id: obligation.organization_id,
+            user_id,
+            role: user_role,
+            message: comment || "",
+            attachments,
+          });
+
+          existingTicket.last_comment_at = newComment.createdAt;
+          existingTicket.last_comment_by_role = user_role;
+          existingTicket.last_activity_at = new Date();
+          existingTicket.has_unread_client_update = user_role === "user";
+          existingTicket.has_unread_accountant_update = user_role === "admin";
+          await existingTicket.save();
+        }
+
+        const ticketData = await ComplianceTicket.findById(existingTicket._id).lean();
+        return res.status(200).json({
+          success: true,
+          message: "Ticket already exists for this obligation",
+          deduped: true,
+          data: ticketData,
+        });
+      } catch (existingFlowError) {
+        console.error("❌ Existing ticket reconciliation failed:", existingFlowError);
+        return res.status(500).json({
+          success: false,
+          message: "Ticket already exists but failed to reconcile obligation link",
+        });
+      }
     }
 
     // Get organization_id from the obligation
@@ -141,9 +184,23 @@ export const createTicket = async (req, res) => {
         throw new Error("Ticket creation failed after retries");
       }
 
-      // Update obligation with ticket_id
-      obligation.ticket_id = ticket._id;
-      await obligation.save();
+      // Update obligation with ticket_id.
+      // NOTE: use atomic update here (instead of `obligation.save()` on a partially-selected doc)
+      // to avoid unrelated validation failures causing a false "ticket creation failed" response.
+      const obligationUpdateResult = await ComplianceObligation.updateOne(
+        { _id: obligation_id },
+        {
+          $set: {
+            ticket_id: ticket._id,
+            updated_at: new Date(),
+          },
+        }
+      );
+
+      if (!obligationUpdateResult?.matchedCount) {
+        throw new Error("Failed to link ticket with obligation");
+      }
+
       console.log("✅ Obligation updated with ticket_id");
 
     } catch (createError) {

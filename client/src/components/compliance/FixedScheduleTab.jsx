@@ -105,14 +105,43 @@ export function FixedScheduleTab() {
     return Array.from(ticketMap.values());
   }, [tickets, localTickets]);
 
+  const normalizeId = useCallback((value) => {
+    if (!value) return null;
+    if (typeof value === "string") return value;
+    if (typeof value === "object") return value?._id?.toString?.() || value?.id?.toString?.() || value?.toString?.();
+    return String(value);
+  }, []);
+
   const getTicketForObligation = useCallback(
-    (ob) => allTickets.find((t) => t._id === ob.ticket_id),
-    [allTickets]
+    (ob) => {
+      const obligationId = normalizeId(ob?._id);
+      const obligationTicketId = normalizeId(ob?.ticket_id);
+
+      return allTickets.find((t) => {
+        const ticketId = normalizeId(t?._id);
+        const ticketObligationId = normalizeId(t?.obligation_id);
+
+        // Primary link: obligation.ticket_id -> ticket._id
+        if (obligationTicketId && ticketId && obligationTicketId === ticketId) return true;
+
+        // Fallback link: ticket.obligation_id -> obligation._id
+        if (obligationId && ticketObligationId && obligationId === ticketObligationId) return true;
+
+        return false;
+      });
+    },
+    [allTickets, normalizeId]
   );
 
   /* ================= Filters ================= */
-  const obligationsWithTickets = useMemo(() => localObligations.filter((ob) => ob.ticket_id), [localObligations]);
-  const obligationsWithoutTickets = useMemo(() => localObligations.filter((ob) => !ob.ticket_id), [localObligations]);
+  const obligationsWithTickets = useMemo(
+    () => localObligations.filter((ob) => Boolean(getTicketForObligation(ob))),
+    [localObligations, getTicketForObligation]
+  );
+  const obligationsWithoutTickets = useMemo(
+    () => localObligations.filter((ob) => !getTicketForObligation(ob)),
+    [localObligations, getTicketForObligation]
+  );
   
   const thisMonthObligations = useMemo(
     () => localObligations.filter((ob) => ob.due_date && isSameMonth(parseISO(ob.due_date), today) && ob.recurrence_type === "monthly"),
@@ -145,7 +174,7 @@ export function FixedScheduleTab() {
   );
 
   const handleObligationClick = (obligation) => {
-    if (obligation.ticket_id) {
+    if (getTicketForObligation(obligation)) {
       handleViewTicket(obligation);
     } else {
       setFilingModal(obligation);
@@ -372,7 +401,7 @@ export function FixedScheduleTab() {
         className={cn(
           "flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer transition-all",
           isOverdue && "border-l-4 border-l-destructive bg-destructive/5",
-          obligation.ticket_id && "border-primary/20 hover:border-primary/40"
+          ticket && "border-primary/20 hover:border-primary/40"
         )}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
