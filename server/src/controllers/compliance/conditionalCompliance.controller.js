@@ -175,7 +175,9 @@ export const getConditionalCompliances = async (req, res) => {
     const tickets = await ComplianceTicket.find({
       organization_id: new mongoose.Types.ObjectId(organization_id),
       template_id: { $exists: true, $ne: null }
-    }).lean();
+    })
+      .sort({ createdAt: -1 })
+      .lean();
 
     console.log(`🎫 Found ${tickets.length} tickets with template_id`);
     
@@ -212,7 +214,9 @@ export const getConditionalCompliances = async (req, res) => {
       const existingObligation = obligationsMap.get(templateSubtype);
       const templateIdStr = template._id.toString();
       const templateTickets = ticketsMap.get(templateIdStr) || [];
-      const latestTicket = templateTickets[0]; // Most recent ticket
+      const activeTickets = templateTickets.filter((t) => t.status !== "closed");
+      const latestActiveTicket = activeTickets[0] || null;
+      const latestTicket = templateTickets[0] || null; // Any status (for history/debug)
 
       console.log(`🔍 Template ${template.name} (${templateIdStr}): has ${templateTickets.length} tickets`);
 
@@ -241,10 +245,10 @@ export const getConditionalCompliances = async (req, res) => {
         tickets: templateTickets,
         ticket_count: templateTickets.length,
         latest_ticket: latestTicket,
-        has_ticket: templateTickets.length > 0,
-        ticket_status: latestTicket?.status || null,
-        ticket_id: latestTicket?._id || null,
-        ticket_data: latestTicket || null, 
+        has_ticket: !!latestActiveTicket,
+        ticket_status: latestActiveTicket?.status || null,
+        ticket_id: latestActiveTicket?._id || null,
+        ticket_data: latestActiveTicket || null,
 
         // For filing modal
         dueMonth: template.recurrence_config?.due_month,

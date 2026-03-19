@@ -47,6 +47,8 @@ const formatStatusText = (status) => {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
+const CLOSED_STATUS = "closed";
+
 export function ConditionalCompliancesTab() {
   const {
     conditionalItems: serverConditionalItems,
@@ -92,15 +94,47 @@ export function ConditionalCompliancesTab() {
   }, [fetchConditionalCompliances, refetchTickets, fy]);
 
   /* ================= Tickets Map ================= */
-  const ticketsMap = useMemo(() => {
+  const templateTicketsMap = useMemo(() => {
     const map = new Map();
-    tickets.forEach((t) => map.set(t._id, t));
+
+    tickets.forEach((t) => {
+      const templateId = t?.template_id?.toString?.() || t?.template_id;
+      if (!templateId) return;
+      if (!map.has(templateId)) map.set(templateId, []);
+      map.get(templateId).push(t);
+    });
+
+    // newest first per template
+    for (const [templateId, list] of map.entries()) {
+      list.sort(
+        (a, b) =>
+          new Date(b?.createdAt || b?.created_at || 0).getTime() -
+          new Date(a?.createdAt || a?.created_at || 0).getTime()
+      );
+      map.set(templateId, list);
+    }
+
     return map;
   }, [tickets]);
 
   const getTicket = useCallback(
-    (item) => ticketsMap.get(item.ticket_id),
-    [ticketsMap]
+    (item) => {
+      const templateId = item?._id?.toString?.() || item?._id;
+      const templateTickets = templateTicketsMap.get(templateId) || [];
+
+      // Active ticket for current workflow
+      return templateTickets.find((t) => t.status !== CLOSED_STATUS) || null;
+    },
+    [templateTicketsMap]
+  );
+
+  const hasClosedTicketHistory = useCallback(
+    (item) => {
+      const templateId = item?._id?.toString?.() || item?._id;
+      const templateTickets = templateTicketsMap.get(templateId) || [];
+      return templateTickets.some((t) => t.status === CLOSED_STATUS);
+    },
+    [templateTicketsMap]
   );
 
   const refreshAllData = useCallback(async () => {
@@ -129,13 +163,14 @@ export function ConditionalCompliancesTab() {
 
   const handleItemClick = useCallback(
     (item) => {
-      if (item.ticket_id) {
+      const activeTicket = getTicket(item);
+      if (activeTicket) {
         handleViewTicket(item);
       } else {
         handleFileClick(item);
       }
     },
-    [handleViewTicket, handleFileClick]
+    [getTicket, handleViewTicket, handleFileClick]
   );
 
   const handleDrawerClose = useCallback((open) => {
@@ -259,17 +294,18 @@ export function ConditionalCompliancesTab() {
       const ticket = getTicket(item);
 
       if (!ticket) {
+        const showRaiseNew = hasClosedTicketHistory(item);
         return (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex items-center gap-1 text-xs text-muted-foreground cursor-help">
                   <Ticket className="h-3 w-3" />
-                  <span>Create Ticket</span>
+                  <span>{showRaiseNew ? "Raise New Ticket" : "Create Ticket"}</span>
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Click to create a ticket</p>
+                <p>{showRaiseNew ? "Previous ticket closed. Click to raise a new ticket." : "Click to create a ticket"}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -301,7 +337,7 @@ export function ConditionalCompliancesTab() {
         </TooltipProvider>
       );
     },
-    [getTicket]
+    [getTicket, hasClosedTicketHistory]
   );
 
   if (loadingConditional && localConditionalItems.length === 0) {
@@ -331,7 +367,7 @@ export function ConditionalCompliancesTab() {
           <CardContent className="pt-6">
             <div className="text-2xl font-bold">
               {
-                localConditionalItems.filter((i) => i.ticket_id).length
+                localConditionalItems.filter((i) => Boolean(getTicket(i))).length
               }
             </div>
             <p className="text-xs text-muted-foreground">
@@ -348,7 +384,7 @@ export function ConditionalCompliancesTab() {
             key={item._id}
             className={cn(
               "cursor-pointer hover:shadow-md transition",
-              item.ticket_id &&
+              getTicket(item) &&
                 "border-primary/20 hover:border-primary/40"
             )}
             onClick={() => handleItemClick(item)}
