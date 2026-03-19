@@ -40,10 +40,7 @@ export const generateFY = async (req, res) => {
       });
     }
 
-    const count = await generateObligationsForFY(organization_id, financialYear, {
-      mode: "full_fy",
-      referenceDate: new Date(),
-    });
+    const count = await generateObligationsForFY(organization_id, financialYear);
 
     res.status(201).json({
       success: true,
@@ -87,48 +84,42 @@ export const getObligations = async (req, res) => {
 
     console.log(`📊 Found ${obligations.length} obligations`);
 
-    const currentFY = getCurrentFinancialYear();
-    const shouldRunRollingReconciliation =
+    const shouldAutoGenerate =
+      obligations.length === 0 &&
       !status &&
-      !compliance_category &&
-      (!financialYear || financialYear === currentFY);
+      !financialYear &&
+      !compliance_category;
 
-    if (shouldRunRollingReconciliation) {
-      console.log("🛠️ Running rolling obligation reconciliation for current FY...");
+    if (shouldAutoGenerate) {
+      console.log("⚠️ No obligations found. Running auto-heal obligation generation...");
 
       const profile = await CompanyComplianceProfile.findOne({
         organization_id: new mongoose.Types.ObjectId(organization_id),
       });
 
       if (profile) {
-        console.log(`🛠️ Rolling target FY: ${currentFY}`);
+        const currentFY = getCurrentFinancialYear();
+        console.log(`🛠️ Auto-heal target FY: ${currentFY}`);
 
         try {
-          const generatedCount = await generateObligationsForFY(
-            organization_id,
-            currentFY,
-            {
-              mode: "rolling",
-              referenceDate: new Date(),
-            }
-          );
-          console.log(`✅ Rolling reconciliation inserted obligations: ${generatedCount}`);
+          const generatedCount = await generateObligationsForFY(organization_id, currentFY);
+          console.log(`✅ Auto-heal generated obligations: ${generatedCount}`);
 
           if (generatedCount > 0 && !profile.obligations_generated) {
             profile.obligations_generated = true;
             await profile.save();
           }
         } catch (generationError) {
-          console.error("❌ Rolling reconciliation failed:", generationError.message);
+          console.error("❌ Auto-heal generation failed:", generationError.message);
         }
 
         obligations = await ComplianceObligation.find(filter)
           .sort({ due_date: 1 })
           .lean();
 
-        console.log(`📊 After rolling reconciliation, found ${obligations.length} obligations`);
+        console.log(`📊 After auto-heal, found ${obligations.length} obligations`);
       } else {
-        console.warn("⚠️ No compliance profile found. Skipping rolling reconciliation.");
+        console.warn("⚠️ No compliance profile found. Skipping auto-heal generation.");
       }
     }
 
