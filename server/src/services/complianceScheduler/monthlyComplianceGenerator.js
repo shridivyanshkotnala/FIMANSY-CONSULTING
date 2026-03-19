@@ -1,4 +1,4 @@
-import { Organization } from "../../models/organizationModel.js";
+import Organization from "../../models/organizationModel.js";
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
 
 function getCurrentFinancialYearFromDate(date = new Date()) {
