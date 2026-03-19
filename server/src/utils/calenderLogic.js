@@ -55,41 +55,24 @@ function generateMonthlyDueDates(template, fyStart, fyEnd) {
   }
 
   const { due_day, offset_months = 0 } = template.recurrence_config;
-  
-  // Start from first month of FY
-  let currentYear = fyStart.getFullYear();
-  let currentMonth = fyStart.getMonth(); // April = 3
-  
-  // Maximum 12 months in a FY
-  const MAX_ITERATIONS = 12;
-  let iterations = 0;
-  
-  while (iterations < MAX_ITERATIONS) {
-    // Calculate due date with offset
-    const totalMonths = currentMonth + offset_months;
-    const dueYear = currentYear + Math.floor(totalMonths / 12);
-    const dueMonth = totalMonths % 12;
-    
+
+  // Generate 12 monthly due dates that can fall inside the FY window.
+  // For offset-based templates (e.g. offset_months=1), start the source month
+  // before FY start so April dues are included for FY 2025-26.
+  const sourceStartTotalMonths =
+    (fyStart.getFullYear() * 12 + fyStart.getMonth()) - offset_months;
+
+  for (let i = 0; i < 12; i++) {
+    const sourceTotalMonths = sourceStartTotalMonths + i;
+    const dueTotalMonths = sourceTotalMonths + offset_months;
+
+    const dueYear = Math.floor(dueTotalMonths / 12);
+    const dueMonth = dueTotalMonths % 12;
+
     const dueDate = buildSafeDate(dueYear, dueMonth, due_day);
-    
-    // Only add if within FY
+
     if (dueDate >= fyStart && dueDate <= fyEnd) {
       dueDates.push(dueDate);
-    }
-    
-    // Move to next month
-    currentMonth++;
-    if (currentMonth > 11) {
-      currentMonth = 0;
-      currentYear++;
-    }
-    
-    iterations++;
-    
-    // Stop if we've gone past FY end
-    if (currentYear > fyEnd.getFullYear() || 
-        (currentYear === fyEnd.getFullYear() && currentMonth > fyEnd.getMonth())) {
-      break;
     }
   }
   
