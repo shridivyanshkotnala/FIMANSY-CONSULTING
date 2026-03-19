@@ -72,7 +72,7 @@ const formatStatusText = (status) => {
 export function FixedScheduleTab() {
   const navigate = useNavigate();
   const { obligations: serverObligations, loading, refetch: refetchCompliance } = useCompliance();
-  const { createTicket, refetchTickets, tickets, updateTicketStatus } = useTickets();
+  const { createTicket, refetchTickets, tickets, uploadTicketDocument } = useTickets();
   const { toast } = useToast();
 
   // Local state for optimistic updates
@@ -168,7 +168,8 @@ export function FixedScheduleTab() {
     try {
       const result = await createTicket({ 
         obligation_id: filingModal._id, 
-        comment: data.comment 
+        comment: data.comment,
+        attachments: Array.isArray(data?.attachments) ? data.attachments : [],
       });
 
       console.log("📦 Create ticket result:", result); // Debug log
@@ -201,6 +202,33 @@ export function FixedScheduleTab() {
         console.log("🎯 Extracted ticket:", newTicket);
 
         if (newTicket) {
+          const selectedFiles = Array.isArray(data?.files) ? data.files : [];
+
+          if (selectedFiles.length > 0) {
+            const uploadResults = await Promise.allSettled(
+              selectedFiles.map((file) =>
+                uploadTicketDocument(newTicket._id, {
+                  file,
+                  intent: "working_doc",
+                  message: `Client uploaded document: ${file.name}`,
+                })
+              )
+            );
+
+            const failedUploads = uploadResults.filter((result) => {
+              if (result.status === "rejected") return true;
+              return Boolean(result.value?.error);
+            }).length;
+
+            if (failedUploads > 0) {
+              toast({
+                title: "Some uploads failed",
+                description: `${failedUploads} of ${selectedFiles.length} document(s) could not be uploaded. You can re-upload from ticket documents tab.",
+                variant: "destructive",
+              });
+            }
+          }
+
           // 🎯 OPTIMISTIC UPDATE 1: Update the obligation to show it has a ticket
           setLocalObligations(prev => 
             prev.map(ob => 

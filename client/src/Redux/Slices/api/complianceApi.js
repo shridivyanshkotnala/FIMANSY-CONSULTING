@@ -188,8 +188,6 @@ export const complianceApi = baseApi.injectEndpoints({
 
       invalidatesTags: (result, error, { ticketId }) => [
         { type: "Comment", id: ticketId },
-        { type: "Ticket", id: ticketId },
-        { type: "TicketList", id: "LIST" },
       ],
     }),
 

@@ -36,7 +36,8 @@ export const createTicket = async (req, res) => {
     console.log("Body:", req.body);
 
     const user_id = req.user._id;
-    const user_role = (req.role === "owner" || req.role === "admin") ? "admin" : "user";
+    const actorRole = req.user?.role || req.role;
+    const user_role = (actorRole === "admin" || actorRole === "accountant") ? "admin" : "user";
 
     const {
       obligation_id,
@@ -151,6 +152,8 @@ export const createTicket = async (req, res) => {
         ticket.last_comment_at = newComment.createdAt;
         ticket.last_comment_by_role = user_role;
         ticket.last_activity_at = new Date();
+        ticket.has_unread_client_update = user_role === "user";
+        ticket.has_unread_accountant_update = user_role === "admin";
 
         await ticket.save();
         console.log("✅ Ticket updated with comment metadata");

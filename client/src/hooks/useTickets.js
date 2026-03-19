@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { uploadFileToSignedUrl } from "@/lib/r2Upload";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8800/api";
 
@@ -266,6 +267,82 @@ export function useTickets() {
 
   /*
   =====================================
+  Ticket Documents (Client + Accountant uploads visibility)
+  =====================================
+  */
+  const getTicketDocuments = async (ticketId) => {
+    const { data, error } = await apiFetch(
+      `/compliance/tickets/${ticketId}/documents?_=${Date.now()}`,
+      { headers: getHeaders() }
+    );
+
+    const docs = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+    return { data: docs, error };
+  };
+
+  const initTicketDocumentUpload = async (ticketId, payload) => {
+    return await apiFetch(`/compliance/tickets/${ticketId}/documents/init-upload`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+  };
+
+  const completeTicketDocumentUpload = async (ticketId, payload) => {
+    return await apiFetch(`/compliance/tickets/${ticketId}/documents/complete-upload`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+  };
+
+  const uploadTicketDocument = async (ticketId, { file, intent = "working_doc", message = "" }) => {
+    if (!file) {
+      return { data: null, error: new Error("No file selected") };
+    }
+
+    const initResp = await initTicketDocumentUpload(ticketId, {
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+      fileSize: file.size,
+      intent,
+    });
+
+    if (initResp.error) {
+      return initResp;
+    }
+
+    const initData = initResp?.data?.data || initResp?.data;
+    const uploadUrl = initData?.uploadUrl;
+    const key = initData?.key;
+
+    if (!uploadUrl || !key) {
+      return { data: null, error: new Error("Failed to initialize document upload") };
+    }
+
+    try {
+      await uploadFileToSignedUrl(file, uploadUrl);
+    } catch (error) {
+      return { data: null, error };
+    }
+
+    return await completeTicketDocumentUpload(ticketId, {
+      key,
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+      fileSize: file.size,
+      intent,
+      message,
+    });
+  };
+
+  /*
+  =====================================
   Load Tickets
   =====================================
   */
@@ -284,5 +361,9 @@ export function useTickets() {
     updateTicketStatus, // ✅ FIXED
     getTicketComments,
     addTicketComment,
+    getTicketDocuments,
+    initTicketDocumentUpload,
+    completeTicketDocumentUpload,
+    uploadTicketDocument,
   };
 }

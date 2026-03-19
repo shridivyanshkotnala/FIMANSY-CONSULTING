@@ -22,6 +22,9 @@ const ALLOWED_CONTENT_TYPES = new Set([
   "image/webp",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "text/plain",
   "text/csv",
   "application/zip",
 ]);

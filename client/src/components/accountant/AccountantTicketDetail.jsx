@@ -76,7 +76,6 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
     data: ticketData,
     currentData: currentTicketData,
     isLoading: ticketLoading,
-    isFetching: ticketFetching,
   } = useGetTicketByIdQuery(selectedTicketId, { skip: !selectedTicketId || !drawerOpen });
   const {
     data: commentsData = [],
@@ -345,7 +344,7 @@ export function AccountantTicketDetail({ ticket: ticketProp, open, onOpenChange,
 
   const cfg = STATUS_CONFIG[ticket.status] || STATUS_CONFIG.not_started;
   const allowedTransitions = STATUS_TRANSITIONS[ticket.status] || [];
-  const showTicketLoading = drawerOpen && !!selectedTicketId && (ticketLoading || ticketFetching || !currentTicketData);
+  const showTicketLoading = drawerOpen && !!selectedTicketId && ((ticketLoading && !currentTicketData) || !currentTicketData);
 
   const effectiveOpen = typeof drawerOpen === "boolean" ? drawerOpen : open;
 

@@ -38,7 +38,7 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
   const [activeSection, setActiveSection] = useState("timeline");
   const [localTicket, setLocalTicket] = useState(null);
 
-  const canUpdateStatus = user?.role === "admin" || user?.role === "accountant";
+  const canUpdateStatus = false;
 
   // 🔥 FIX 1: PROPER PROP SYNC - NEVER IGNORE SAME TICKET UPDATES
   useEffect(() => {
@@ -134,7 +134,7 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
     };
 
     loadTicketData();
-  }, [localTicket?._id, open, activeSection, getTicketComments, toast]);
+  }, [localTicket?._id, open, activeSection]);
 
   const handleAddComment = async () => {
     if (!localTicket?._id || !newComment.trim()) return;
@@ -377,7 +377,7 @@ export function TicketDetailDrawer({ ticket, open, onOpenChange, onStatusUpdate 
               />
             )}
 
-            {activeSection === "documents" && <TicketDocuments />}
+            {activeSection === "documents" && <TicketDocuments ticketId={localTicket?._id} />}
           </div>
         </ScrollArea>
 

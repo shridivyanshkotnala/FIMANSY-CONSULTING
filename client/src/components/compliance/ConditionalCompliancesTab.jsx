@@ -58,6 +58,7 @@ export function ConditionalCompliancesTab() {
     createConditionalTicket,
     refetchTickets,
     tickets,
+    uploadTicketDocument,
   } = useTickets();
 
   const { toast } = useToast();
@@ -170,6 +171,32 @@ export function ConditionalCompliancesTab() {
 
       if (!newTicket?._id) {
         throw new Error("Invalid ticket response");
+      }
+
+      const selectedFiles = Array.isArray(data?.files) ? data.files : [];
+      if (selectedFiles.length > 0) {
+        const uploadResults = await Promise.allSettled(
+          selectedFiles.map((file) =>
+            uploadTicketDocument(newTicket._id, {
+              file,
+              intent: "working_doc",
+              message: `Client uploaded document: ${file.name}`,
+            })
+          )
+        );
+
+        const failedUploads = uploadResults.filter((result) => {
+          if (result.status === "rejected") return true;
+          return Boolean(result.value?.error);
+        }).length;
+
+        if (failedUploads > 0) {
+          toast({
+            title: "Some uploads failed",
+            description: `${failedUploads} of ${selectedFiles.length} document(s) could not be uploaded. You can re-upload from ticket documents tab.",
+            variant: "destructive",
+          });
+        }
       }
 
       // ✅ ONLY store ticket_id (NO duplicate ticket data)

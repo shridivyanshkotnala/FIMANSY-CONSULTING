@@ -75,6 +75,7 @@ export function ComplianceFilingModal({
       const payload = {
         comment: comment.trim(),
         attachments: files.map((f) => f.name),
+        files,
       };
 
       // 🔥 Parent handles API + refresh

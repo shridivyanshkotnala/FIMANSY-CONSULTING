@@ -41,6 +41,11 @@ import {
 } from "../controllers/compliance/conditionalCompliance.controller.js";
 
 import { createConditionalTicket } from "../controllers/compliance/conditionalTicket.controller.js";
+import {
+  initComplianceTicketDocumentUpload,
+  completeComplianceTicketDocumentUpload,
+  listComplianceTicketDocuments,
+} from "../controllers/compliance/complianceDocument.controller.js";
 const complianceRoutes = express.Router();
 
 complianceRoutes.get("/", getAllTemplates);
@@ -80,6 +85,9 @@ complianceRoutes.get("/tickets/:id", protectRoute, getTicketById);
 complianceRoutes.patch("/tickets/:id/status", protectRoute, updateTicketStatus);
 complianceRoutes.post("/tickets/:id/comments", protectRoute, orgMiddleware, addComment);
 complianceRoutes.get("/tickets/:id/comments", protectRoute, getTicketComments);
+complianceRoutes.post("/tickets/:id/documents/init-upload", protectRoute, initComplianceTicketDocumentUpload);
+complianceRoutes.post("/tickets/:id/documents/complete-upload", protectRoute, completeComplianceTicketDocumentUpload);
+complianceRoutes.get("/tickets/:id/documents", protectRoute, listComplianceTicketDocuments);
 // Add this with your other ticket routes
 complianceRoutes.post("/conditional/ticket", protectRoute, orgMiddleware, createConditionalTicket);
 complianceRoutes.get("/conditional/:template_id/check", protectRoute, orgMiddleware, checkApplicability);
