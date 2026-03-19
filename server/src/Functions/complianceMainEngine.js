@@ -279,9 +279,58 @@ function resolveLegacyComplianceType(complianceCategory, complianceSubtype) {
   return undefined;
 }
 
-export async function generateObligationsForFY(organization_id, financialYear) {
+function getCurrentFinancialYearFromDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  return month >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+}
+
+function isSameMonth(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth()
+  );
+}
+
+function getFyQuarter(date) {
+  const month = date.getMonth();
+  if (month >= 3 && month <= 5) return 1; // Apr-Jun
+  if (month >= 6 && month <= 8) return 2; // Jul-Sep
+  if (month >= 9 && month <= 11) return 3; // Oct-Dec
+  return 4; // Jan-Mar
+}
+
+function filterDueDatesForMode(dueDates, recurrenceType, mode, referenceDate) {
+  if (mode === "full_fy") return dueDates;
+
+  if (recurrenceType === "monthly") {
+    return dueDates.filter((d) => isSameMonth(d, referenceDate));
+  }
+
+  if (recurrenceType === "quarterly") {
+    const targetQuarter = getFyQuarter(referenceDate);
+    return dueDates.filter((d) => getFyQuarter(d) === targetQuarter);
+  }
+
+  // annual stays visible for the FY in rolling mode
+  return dueDates;
+}
+
+export async function generateObligationsForFY(
+  organization_id,
+  financialYear,
+  options = {}
+) {
+  const mode = options.mode || "full_fy"; // full_fy | rolling
+  const referenceDate = options.referenceDate
+    ? new Date(options.referenceDate)
+    : new Date();
+  const safeFinancialYear =
+    financialYear || getCurrentFinancialYearFromDate(referenceDate);
+
   console.log("\n========== 🚀 GENERATE OBLIGATIONS STARTED ==========");
-  console.log(`📌 Input - organization_id: ${organization_id}, financialYear: ${financialYear}`);
+  console.log(`📌 Input - organization_id: ${organization_id}, financialYear: ${safeFinancialYear}`);
+  console.log(`📌 Mode: ${mode}`);
   console.log(`📌 Timestamp: ${new Date().toISOString()}`);
 
   // Step 1: Check company
@@ -326,7 +375,7 @@ export async function generateObligationsForFY(organization_id, financialYear) {
 
   // Step 3: Calculate FY range
   console.log("\n🔍 Step 3: Calculating financial year range...");
-  const { start: fyStart, end: fyEnd } = getFinancialYearDates(financialYear);
+  const { start: fyStart, end: fyEnd } = getFinancialYearDates(safeFinancialYear);
 
   console.log(`📅 FY Range: ${fyStart.toISOString()} → ${fyEnd.toISOString()}`);
 
@@ -404,6 +453,14 @@ export async function generateObligationsForFY(organization_id, financialYear) {
     // Filter dates before incorporation (extra safety)
     dueDates = dueDates.filter(d => d >= generationStart);
 
+    // Rolling mode filters
+    dueDates = filterDueDatesForMode(
+      dueDates,
+      template.recurrence_type,
+      mode,
+      referenceDate
+    );
+
     console.log(`✅ ${dueDates.length} valid due dates generated`);
 
     if (dueDates.length > 0) {
@@ -434,7 +491,7 @@ export async function generateObligationsForFY(organization_id, financialYear) {
         compliance_subtype: complianceSubtype,
         compliance_description: complianceDescription,
 
-        financial_year: financialYear,
+        financial_year: safeFinancialYear,
 
         due_date: dueDate,
 
@@ -461,32 +518,40 @@ export async function generateObligationsForFY(organization_id, financialYear) {
   }
 
   try {
+    const operations = obligationsToInsert.map((obligation) => ({
+      updateOne: {
+        filter: {
+          organization_id: obligation.organization_id,
+          form_name: obligation.form_name,
+          due_date: obligation.due_date,
+          financial_year: obligation.financial_year,
+        },
+        update: { $setOnInsert: obligation },
+        upsert: true,
+      },
+    }));
 
-    const result = await ComplianceObligation.insertMany(
-      obligationsToInsert,
-      { ordered: false }
-    );
+    const result = await ComplianceObligation.bulkWrite(operations, {
+      ordered: false,
+    });
 
-    console.log(`✅ Inserted ${result.length} obligations`);
+    const insertedCount = Number(result?.upsertedCount || 0);
+    console.log(`✅ Inserted ${insertedCount} obligations`);
 
     const verifyCount = await ComplianceObligation.countDocuments({
       organization_id,
-      financial_year: financialYear
+      financial_year: safeFinancialYear
     });
 
     console.log(`📊 Verification count: ${verifyCount}`);
 
     console.log("\n========== ✅ GENERATION COMPLETED ==========");
 
-    return result.length;
+    return insertedCount;
 
   } catch (error) {
 
     console.error("❌ Error inserting obligations:", error.message);
-
-    if (error.writeErrors) {
-      console.error(`Write Errors: ${error.writeErrors.length}`);
-    }
 
     throw error;
   }

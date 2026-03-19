@@ -77,6 +77,12 @@ export function ComplianceTracking() {
 
   const today = startOfDay(new Date());
 
+  const currentFinancialYear = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+  }, []);
+
   /* ------------------------------ */
   /* Filter tickets */
   /* ------------------------------ */
@@ -130,9 +136,17 @@ export function ComplianceTracking() {
   }, [tickets]);
 
   const fyOptions = useMemo(() => {
-    if (!tickets || tickets.length === 0) return [];
-    return [...new Set(tickets.map(t => t.financial_year).filter(Boolean))];
-  }, [tickets]);
+    const values = new Set(
+      (tickets || []).map((t) => t.financial_year).filter(Boolean)
+    );
+    values.add(currentFinancialYear);
+
+    return [...values].sort((a, b) => {
+      const aStart = Number(String(a).split("-")[0]) || 0;
+      const bStart = Number(String(b).split("-")[0]) || 0;
+      return bStart - aStart;
+    });
+  }, [tickets, currentFinancialYear]);
 
   /* ------------------------------ */
   /* Handlers */
