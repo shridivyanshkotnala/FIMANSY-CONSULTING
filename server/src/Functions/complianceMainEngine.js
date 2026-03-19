@@ -508,8 +508,26 @@ export async function generateObligationsForFY(organization_id, financialYear) {
 
     console.error("❌ Error inserting obligations:", error.message);
 
-    if (error.writeErrors) {
+    if (error.writeErrors?.length) {
       console.error(`Write Errors: ${error.writeErrors.length}`);
+
+      const nonDuplicateErrors = error.writeErrors.filter((writeErr) => {
+        const code = writeErr?.code;
+        return code !== 11000;
+      });
+
+      if (nonDuplicateErrors.length === 0) {
+        const insertedCount =
+          Number(error?.result?.result?.nInserted) ||
+          Number(error?.result?.nInserted) ||
+          Number(error?.insertedDocs?.length) ||
+          0;
+
+        console.log(
+          `ℹ️ Duplicate obligations skipped during merge generation. Newly inserted: ${insertedCount}`
+        );
+        return insertedCount;
+      }
     }
 
     throw error;

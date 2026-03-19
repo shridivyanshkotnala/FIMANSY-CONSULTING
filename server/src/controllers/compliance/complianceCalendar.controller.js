@@ -34,17 +34,19 @@ export const generateFY = async (req, res) => {
     });
 
     if (existing > 0) {
-      return res.status(409).json({
-        success: false,
-        message: "Obligations already generated for this FY",
-      });
+      console.log(
+        `ℹ️ generateFY merge-mode: ${existing} obligations already exist for org=${organization_id}, FY=${financialYear}`
+      );
     }
 
     const count = await generateObligationsForFY(organization_id, financialYear);
 
     res.status(201).json({
       success: true,
-      message: `${count} obligations generated`,
+      message:
+        existing > 0
+          ? `${count} missing obligations added (existing obligations kept)`
+          : `${count} obligations generated`,
       count,
     });
   } catch (error) {
