@@ -149,7 +149,7 @@ complianceObligationSchema.index({ organization_id: 1, compliance_type: 1 });
 complianceObligationSchema.index({ organization_id: 1, compliance_category: 1 }); // Updated
 
 // Keep legacy and new fields synchronized for compatibility.
-complianceObligationSchema.pre("validate", function (next) {
+complianceObligationSchema.pre("validate", function () {
   if (!this.compliance_category && this.category_tag) {
     this.compliance_category = this.category_tag;
   }
@@ -171,7 +171,6 @@ complianceObligationSchema.pre("validate", function (next) {
     this.description = this.compliance_description;
   }
 
-  next();
 });
 
 // ✅ Compound unique index to prevent duplicates

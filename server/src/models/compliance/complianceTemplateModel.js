@@ -76,7 +76,7 @@ const complianceTemplateSchema = new mongoose.Schema(
 );
 
 // Keep legacy and new fields in sync so old and new code paths both work.
-complianceTemplateSchema.pre("validate", function (next) {
+complianceTemplateSchema.pre("validate", function () {
   if (!this.compliance_category && this.category_tag) {
     this.compliance_category = this.category_tag;
   }
@@ -98,7 +98,6 @@ complianceTemplateSchema.pre("validate", function (next) {
     this.description = this.compliance_description;
   }
 
-  next();
 });
 
 // Update the compound index with new field names
