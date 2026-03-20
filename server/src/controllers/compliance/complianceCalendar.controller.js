@@ -87,10 +87,20 @@ export const getObligations = async (req, res) => {
 
     console.log(`📊 Found ${obligations.length} obligations`);
 
+    const currentFY = getCurrentFinancialYear();
+    const targetFY = financialYear || currentFY;
+
+    // Auto-generate when target FY has no obligations yet.
+    // Important: this must work even if previous FY obligations exist,
+    // otherwise FY rollover (e.g. 2025-26 -> 2026-27) never self-heals.
+    const targetFYCount = await ComplianceObligation.countDocuments({
+      organization_id: new mongoose.Types.ObjectId(organization_id),
+      financial_year: targetFY,
+    });
+
     const shouldAutoGenerate =
-      obligations.length === 0 &&
+      targetFYCount === 0 &&
       !status &&
-      !financialYear &&
       !compliance_category;
 
     if (shouldAutoGenerate) {
@@ -101,11 +111,10 @@ export const getObligations = async (req, res) => {
       });
 
       if (profile) {
-        const currentFY = getCurrentFinancialYear();
-        console.log(`🛠️ Auto-heal target FY: ${currentFY}`);
+        console.log(`🛠️ Auto-heal target FY: ${targetFY}`);
 
         try {
-          const generatedCount = await generateObligationsForFY(organization_id, currentFY);
+          const generatedCount = await generateObligationsForFY(organization_id, targetFY);
           console.log(`✅ Auto-heal generated obligations: ${generatedCount}`);
 
           if (generatedCount > 0 && !profile.obligations_generated) {
