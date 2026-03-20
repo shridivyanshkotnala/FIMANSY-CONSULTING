@@ -119,7 +119,7 @@ export function mapToZohoInvoice(aiInvoice) {
       extracted_vendor: aiInvoice.vendor_name,
       confidence: aiInvoice.confidence,
       source_pdf: aiInvoice.source_file,
-      extraction_model: "gemini"
+      extraction_model: "claude"
     }
   };
 }

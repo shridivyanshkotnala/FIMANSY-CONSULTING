@@ -1,17 +1,17 @@
 import axios from "axios";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import { ApiError } from "../utils/ApiError.js";
 
 /* =========================
-   GEMINI INIT
+   CLAUDE INIT
 ========================= */
-const getGenAIClient = () => {
-  const key = String(process.env.GEMINI_API_KEY || "").trim();
+const getAnthropicClient = () => {
+  const key = String(process.env.ANTHROPIC_API_KEY || "").trim();
   if (!key) {
-    throw new ApiError(500, "GEMINI_API_KEY is not configured");
+    throw new ApiError(500, "ANTHROPIC_API_KEY is not configured");
   }
 
-  return new GoogleGenerativeAI(key);
+  return new Anthropic({ apiKey: key });
 };
 
 
@@ -82,36 +82,56 @@ async function downloadFile(url) {
 
 
 /* =========================
-   CALL GEMINI
+   CALL CLAUDE
 ========================= */
-async function callGemini(buffer, mimeType) {
+async function callClaude(buffer, mimeType) {
   try {
     const base64 = buffer.toString("base64");
 
-    const imagePart = {
-      inlineData: {
-        mimeType: mimeType,
-        data: base64
-      }
-    };
-
-    const genAI = getGenAIClient();
-    const candidateModels = ["gemini-2.5-pro", "gemini-1.5-pro"];
+    const anthropic = getAnthropicClient();
+    const candidateModels = ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"];
     let lastModelError = null;
 
     for (const candidateModel of candidateModels) {
       try {
-        const model = genAI.getGenerativeModel({
+        const filePart = mimeType.includes("pdf")
+          ? {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: base64,
+              },
+            }
+          : {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mimeType,
+                data: base64,
+              },
+            };
+
+        const response = await anthropic.messages.create({
           model: candidateModel,
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 2048,
-          },
+          max_tokens: 2048,
+          temperature: 0.1,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: extractionPrompt },
+                filePart,
+              ],
+            },
+          ],
         });
 
-        const result = await model.generateContent([extractionPrompt, imagePart]);
-        const response = await result.response;
-        const text = response.text();
+        const text = (response.content || [])
+          .filter((part) => part?.type === "text")
+          .map((part) => part?.text || "")
+          .join("\n")
+          .trim();
 
         if (!text) throw new Error("Empty AI response");
         return text;
@@ -129,35 +149,28 @@ async function callGemini(buffer, mimeType) {
       }
     }
 
-    throw lastModelError || new Error("No compatible Gemini model available");
+    throw lastModelError || new Error("No compatible Claude model available");
     
   } catch (error) {
     const message = String(error?.message || "");
     const status = error?.status || error?.statusCode;
-    const isServiceDisabled =
-      status === 403 &&
-      (/SERVICE_DISABLED/i.test(message) ||
-        /has not been used in project/i.test(message) ||
-        /generativelanguage\.googleapis\.com/i.test(message));
+    const errorType = String(error?.error?.type || "").toLowerCase();
 
-    console.error("❌ Gemini API Error:", message);
-    
-    if (isServiceDisabled) {
-      throw new ApiError(
-        503,
-        "Gemini API is disabled for the configured Google project. Enable Generative Language API or use a valid GEMINI_API_KEY."
-      );
-    }
+    console.error("❌ Claude API Error:", message);
 
-    if (/API key|API_KEY|invalid api key|permission denied/i.test(message)) {
-      throw new ApiError(500, "Invalid or missing Gemini API key. Please check your .env file");
+    if (
+      status === 401 ||
+      /API key|ANTHROPIC_API_KEY|authentication|unauthorized|permission denied/i.test(message) ||
+      errorType === "authentication_error"
+    ) {
+      throw new ApiError(500, "Invalid or missing Anthropic API key. Please check ANTHROPIC_API_KEY in your .env file");
     }
     
     if (status === 404 || /404|not found/i.test(message)) {
-      throw new ApiError(500, "Gemini model not available. Try using gemini-pro-vision or gemini-1.5-pro");
+      throw new ApiError(500, "Claude model not available for this API key. Try another Claude model.");
     }
     
-    if (/quota|limit|rate/i.test(message)) {
+    if (status === 429 || /quota|limit|rate/i.test(message) || errorType === "rate_limit_error") {
       throw new ApiError(429, "API quota exceeded. Please try again later");
     }
     
@@ -198,8 +211,8 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
   // 1️⃣ Download from Supabase (same logic works)
   const { buffer, mime } = await downloadFile(fileUrl);
 
-  // 2️⃣ Send to Gemini
-  const aiContent = await callGemini(buffer, mime);
+  // 2️⃣ Send to Claude
+  const aiContent = await callClaude(buffer, mime);
 
   // 3️⃣ Parse AI JSON
   const extractedData = parseAIJSON(aiContent);
@@ -267,8 +280,8 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
 //     // 1️⃣ Download from R2
 //     const { buffer, mime } = await downloadFile(fileUrl);
 
-//     // 2️⃣ Send to Gemini
-//     const aiContent = await callGemini(buffer, mime);
+//     // 2️⃣ Send to Claude
+//     const aiContent = await callClaude(buffer, mime);
 
 //     // 3️⃣ Parse AI JSON
 //     const extractedData = parseAIJSON(aiContent);
@@ -336,7 +349,7 @@ What you achieved now (important)
 You now have a real ingestion pipeline:
 
 Frontend → upload to R2 → send URL
-Backend → fetch → validate → Gemini → normalize → DB ready JSON
+Backend → fetch → validate → Claude → normalize → DB ready JSON
 
 This is exactly how production accounting AI systems are built.
 
