@@ -48,6 +48,12 @@ function parseAddress(fullAddress) {
   return { line1: addressBeforePincode, city: "", state: "", pincode };
 }
 
+function normalizeOptionalIdentifier(value, regex) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized) return "";
+  return regex.test(normalized) ? normalized : "";
+}
+
 export function ComplianceSetupForm({ onComplete }) {
   const { complianceProfile, saveComplianceProfile } = useCompliance();
   const { toast } = useToast();
@@ -136,13 +142,26 @@ export function ComplianceSetupForm({ onComplete }) {
 
     setIsLoading(true);
     try {
+      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+      const tanRegex = /^[A-Z]{4}[0-9]{5}[A-Z]{1}$/;
+      const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/;
+
+      const normalizedPAN = normalizeOptionalIdentifier(formData.pan, panRegex);
+      const normalizedTAN = normalizeOptionalIdentifier(formData.tan, tanRegex);
+      const normalizedGSTIN = normalizeOptionalIdentifier(formData.gstin, gstinRegex);
+
       const combinedAddress = `${formData.address_line_1}, ${formData.city}, ${formData.state} - ${formData.pincode}`;
       const submitData = {
         ...formData,
+        llpin: String(formData.llpin || "").trim().toUpperCase(),
+        pan: normalizedPAN || null,
+        tan: normalizedTAN || null,
+        gstin: normalizedGSTIN || null,
+        date_of_incorporation: formatDateForInput(formData.date_of_incorporation),
         // For LLP, use LLPIN as CIN for all downstream flows that consume CIN.
         cin: formData.company_type === "llp"
-          ? (formData.llpin || formData.cin || "")
-          : formData.cin,
+          ? (String(formData.llpin || formData.cin || "").trim().toUpperCase())
+          : String(formData.cin || "").trim().toUpperCase(),
         registered_office_address: combinedAddress,
       };
 
@@ -158,7 +177,11 @@ export function ComplianceSetupForm({ onComplete }) {
       if (onComplete) onComplete();
     } catch (err) {
       console.error("❌ Save error:", err);
-      toast({ title: "Error", description: "Failed to save profile or generate obligations.", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to save profile or generate obligations.",
+        variant: "destructive"
+      });
     } finally {
       setIsLoading(false);
     }

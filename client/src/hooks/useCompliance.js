@@ -17,7 +17,21 @@ async function apiFetch(endpoint, options = {}) {
       return { data: null, error: null };
     }
 
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (!res.ok) {
+      let serverMessage = "";
+      try {
+        const errorData = await res.json();
+        serverMessage =
+          errorData?.message ||
+          errorData?.error ||
+          errorData?.data?.message ||
+          "";
+      } catch {
+        serverMessage = "";
+      }
+
+      throw new Error(serverMessage ? `API ${res.status}: ${serverMessage}` : `API ${res.status}`);
+    }
     return { data: await res.json(), error: null };
   } catch (err) {
     console.warn(`[useCompliance] API call failed: ${endpoint}`, err.message);
@@ -27,6 +41,9 @@ async function apiFetch(endpoint, options = {}) {
 
 export function useCompliance() {
   const { organization } = useAuth();
+  const organizationId =
+    organization?.id ||
+    (typeof window !== "undefined" ? localStorage.getItem("activeOrgId") : null);
 
   const [complianceProfile, setComplianceProfile] = useState(null);
   const [directors, setDirectors] = useState([]);
@@ -45,12 +62,12 @@ export function useCompliance() {
   const getCurrentFinancialYear = () => getFinancialYearFromDate(currentDate);
 
   const fetchConditionalCompliances = async (financialYear) => {
-    if (!organization?.id) return;
+    if (!organizationId) return;
 
     setLoadingConditional(true);
     try {
       const { data } = await apiFetch(
-        `/compliance/conditional?organization_id=${organization.id}&financialYear=${financialYear}`
+        `/compliance/conditional?organization_id=${organizationId}&financialYear=${financialYear}`
       );
 
       if (data?.data) setConditionalItems(data.data);
@@ -64,14 +81,14 @@ export function useCompliance() {
   };
 
   const generateConditionalObligation = async (templateId, filingData) => {
-    if (!organization?.id) return { error: new Error('No organization') };
+    if (!organizationId) return { error: new Error('No organization') };
 
     const fy = getCurrentFinancialYear();
 
     const { data, error } = await apiFetch('/compliance/conditional/generate', {
       method: 'POST',
       body: JSON.stringify({
-        organization_id: organization.id,
+        organization_id: organizationId,
         template_id: templateId,
         financialYear: fy,
         filingData
@@ -89,7 +106,7 @@ export function useCompliance() {
   // Fetch all compliance data
   // =========================
   const fetchAll = async () => {
-    if (!organization?.id) {
+    if (!organizationId) {
       setLoading(false);
       return;
     }
@@ -99,10 +116,10 @@ export function useCompliance() {
 
     try {
       const [profileRes, dirsRes, obsRes, evtsRes] = await Promise.all([
-        apiFetch(`/compliance/profile?organization_id=${organization.id}`),
-        apiFetch(`/compliance/directors?organization_id=${organization.id}`),
-        apiFetch(`/compliance/obligations?organization_id=${organization.id}`),
-        apiFetch(`/compliance/events?organization_id=${organization.id}`),
+        apiFetch(`/compliance/profile?organization_id=${organizationId}`),
+        apiFetch(`/compliance/directors?organization_id=${organizationId}`),
+        apiFetch(`/compliance/obligations?organization_id=${organizationId}`),
+        apiFetch(`/compliance/events?organization_id=${organizationId}`),
       ]);
 
       if (profileRes.data?.data) setComplianceProfile(profileRes.data.data);
@@ -136,15 +153,15 @@ export function useCompliance() {
 
   useEffect(() => {
     fetchAll();
-  }, [organization?.id]);
+  }, [organizationId]);
 
   // =========================
   // Save / Upsert profile
   // =========================
   const saveComplianceProfile = async (data) => {
-    if (!organization?.id) return { error: new Error('No organization') };
+    if (!organizationId) return { error: new Error('No organization') };
 
-    const profileData = { ...data, organization_id: organization.id };
+    const profileData = { ...data, organization_id: organizationId };
     const method = complianceProfile?._id ? 'PATCH' : 'POST';
     const url = complianceProfile?._id
       ? `/compliance/profile/${complianceProfile._id}`
@@ -169,7 +186,7 @@ export function useCompliance() {
   // Directors
   // =========================
   const addDirector = async (data) => {
-    if (!organization?.id) return { error: new Error('No organization') };
+    if (!organizationId) return { error: new Error('No organization') };
 
     const insertData = {
       din: data.din || '',
@@ -182,7 +199,7 @@ export function useCompliance() {
       email: data.email,
       phone: data.phone,
       is_active: data.is_active ?? true,
-      organization_id: organization.id,
+      organization_id: organizationId,
     };
 
     const { error } = await apiFetch('/compliance/directors', {
@@ -214,7 +231,7 @@ export function useCompliance() {
   // Compliance Obligations
   // =========================
   const createObligation = async (data) => {
-    if (!organization?.id) return { error: new Error('No organization') };
+    if (!organizationId) return { error: new Error('No organization') };
 
     const insertData = {
       compliance_category: data.compliance_category || data.compliance_type,
@@ -240,7 +257,7 @@ export function useCompliance() {
       notes: data.notes,
       documents: data.documents || [],
       priority: data.priority ?? 5,
-      organization_id: organization.id,
+      organization_id: organizationId,
     };
 
     const { error } = await apiFetch('/compliance/obligations', {
@@ -282,10 +299,10 @@ export function useCompliance() {
   };
 
   const createEvent = async (data) => {
-    if (!organization?.id) return { error: new Error('No organization') };
+    if (!organizationId) return { error: new Error('No organization') };
     const { error } = await apiFetch('/compliance/events', {
       method: 'POST',
-      body: JSON.stringify({ ...data, organization_id: organization.id }),
+      body: JSON.stringify({ ...data, organization_id: organizationId }),
     });
     if (!error) await fetchAll();
     return { error };
