@@ -1,5 +1,9 @@
+// TEMP TEST OVERRIDE: single source of time for FY rollover testing.
+// Revert to real-time after verification.
+const FORCED_TEST_DATE_ISO = "2026-04-02T00:00:00+05:30";
+
 export function getCurrentSystemDate() {
-  return new Date();
+  return new Date(FORCED_TEST_DATE_ISO);
 }
 
 export function normalizeFinancialYear(financialYear) {
