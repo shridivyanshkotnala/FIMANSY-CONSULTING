@@ -24,6 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
 import { ComplianceCalendar } from "./ComplianceCalendarWidget";
@@ -86,6 +96,8 @@ export function FixedScheduleTab({ currentDate }) {
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [selectedCalendarObligations, setSelectedCalendarObligations] = useState([]);
   const [ignoringObligationId, setIgnoringObligationId] = useState(null);
+  const [ignoreConfirmOpen, setIgnoreConfirmOpen] = useState(false);
+  const [pendingIgnoreObligation, setPendingIgnoreObligation] = useState(null);
 
   const effectiveCurrentDate = currentDate || new Date();
   const today = startOfDay(new Date(effectiveCurrentDate));
@@ -503,7 +515,8 @@ export function FixedScheduleTab({ currentDate }) {
             className="h-7 px-2 text-xs"
             onClick={(e) => {
               e.stopPropagation();
-              handleIgnoreObligation(obligation);
+              setPendingIgnoreObligation(obligation);
+              setIgnoreConfirmOpen(true);
             }}
             disabled={ignoringObligationId === obligation._id}
           >
@@ -654,6 +667,30 @@ export function FixedScheduleTab({ currentDate }) {
         onOpenChange={handleDrawerClose}
         onStatusUpdate={handleTicketUpdate}
       />
+
+      <AlertDialog open={ignoreConfirmOpen} onOpenChange={setIgnoreConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ignore this compliance?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark the obligation as not applicable and remove it from calendar and active filing lists.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingIgnoreObligation) {
+                  handleIgnoreObligation(pendingIgnoreObligation);
+                }
+                setPendingIgnoreObligation(null);
+              }}
+            >
+              Confirm Ignore
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
