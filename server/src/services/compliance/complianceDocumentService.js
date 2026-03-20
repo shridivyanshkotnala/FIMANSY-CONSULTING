@@ -35,6 +35,26 @@ const DEFAULT_R2_BUCKET = "fimansy-documents";
 
 const getR2Bucket = () => String(process.env.R2_BUCKET || DEFAULT_R2_BUCKET).trim();
 
+const encodeObjectKey = (key = "") =>
+  String(key)
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+
+const normalizeObjectKey = (key = "") => {
+  const raw = String(key || "").trim().replace(/^\/+/, "");
+  if (!raw) return "";
+
+  const bucket = getR2Bucket();
+  if (raw === bucket) return "";
+  if (raw.startsWith(`${bucket}/`)) {
+    return raw.slice(bucket.length + 1);
+  }
+
+  return raw;
+};
+
 const sanitizeFileName = (name = "document") =>
   String(name)
     .trim()
@@ -51,8 +71,33 @@ const toRole = (rawRole) => {
 const toPublicUrl = (key) => {
   const raw = String(process.env.R2_PUBLIC_URL || "").trim();
   const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  const base = withProtocol.replace(/\/+$/, "");
-  return `${base}/${key}`;
+  const parsed = new URL(withProtocol);
+
+  const bucket = getR2Bucket();
+  const normalizedKey = normalizeObjectKey(key);
+  const encodedKey = encodeObjectKey(normalizedKey);
+
+  if (!encodedKey) {
+    return parsed.toString().replace(/\/+$/, "");
+  }
+
+  const isR2DevHost = /\.r2\.dev$/i.test(parsed.hostname);
+  if (isR2DevHost) {
+    return `${parsed.origin}/${encodedKey}`;
+  }
+
+  const pathPrefix = parsed.pathname.replace(/\/+$/, "");
+  if (pathPrefix) {
+    return `${parsed.origin}${pathPrefix}/${encodedKey}`;
+  }
+
+  const isAccountApiEndpoint = /\.r2\.cloudflarestorage\.com$/i.test(parsed.hostname);
+  const hasBucketAsSubdomain = parsed.hostname.toLowerCase().startsWith(`${bucket.toLowerCase()}.`);
+  if (isAccountApiEndpoint && !hasBucketAsSubdomain) {
+    return `${parsed.origin}/${encodeURIComponent(bucket)}/${encodedKey}`;
+  }
+
+  return `${parsed.origin}/${encodedKey}`;
 };
 
 const ensureR2Config = () => {
@@ -259,7 +304,10 @@ export const listTicketDocumentsService = async (ticketId) => {
     .populate("uploaded_by", "name email")
     .lean();
 
-  return docs;
+  return docs.map((doc) => ({
+    ...doc,
+    url: doc?.key ? toPublicUrl(doc.key) : doc?.url,
+  }));
 };
 
 export const markFinalVerifiedDocumentService = async ({
