@@ -1,6 +1,10 @@
 import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
 import { MCA_ANNUAL_FILINGS, ADVANCE_TAX_SCHEDULE, EVENT_COMPLIANCE_MAP } from './types';
 
+// TEMPORARY TEST OVERRIDE: force compliance FY/date context to 1 Apr 2026.
+// Revert after rollover testing is completed.
+const TEST_CURRENT_DATE = new Date('2026-04-01T00:00:00+05:30');
+
 /* ============================================================
    Financial Year Helpers
 ============================================================ */
@@ -10,7 +14,7 @@ import { MCA_ANNUAL_FILINGS, ADVANCE_TAX_SCHEDULE, EVENT_COMPLIANCE_MAP } from '
  * e.g., "2025-2026"
  */
 export function getCurrentFinancialYear() {
-  const today = new Date();
+  const today = TEST_CURRENT_DATE;
   const year = today.getFullYear();
   const month = today.getMonth(); // 0 = Jan, 3 = April
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { getCurrentFinancialYear } from '@/lib/compliance/utils';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8800/api';
 
@@ -39,12 +40,6 @@ export function useCompliance() {
   // -------------------------
   const [conditionalItems, setConditionalItems] = useState([]);
   const [loadingConditional, setLoadingConditional] = useState(false);
-
-  const getCurrentFinancialYear = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
-  };
 
   const fetchConditionalCompliances = async (financialYear) => {
     if (!organization?.id) return;
@@ -100,10 +95,13 @@ export function useCompliance() {
     setError(null);
 
     try {
+      const financialYear = getCurrentFinancialYear();
       const [profileRes, dirsRes, obsRes, evtsRes] = await Promise.all([
         apiFetch(`/compliance/profile?organization_id=${organization.id}`),
         apiFetch(`/compliance/directors?organization_id=${organization.id}`),
-        apiFetch(`/compliance/obligations?organization_id=${organization.id}`),
+        apiFetch(
+          `/compliance/obligations?organization_id=${organization.id}&financialYear=${encodeURIComponent(financialYear)}`
+        ),
         apiFetch(`/compliance/events?organization_id=${organization.id}`),
       ]);
 
