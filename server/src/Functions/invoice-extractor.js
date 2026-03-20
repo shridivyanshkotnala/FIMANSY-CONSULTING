@@ -5,7 +5,14 @@ import { ApiError } from "../utils/ApiError.js";
 /* =========================
    GEMINI INIT
 ========================= */
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const getGenAIClient = () => {
+  const key = String(process.env.GEMINI_API_KEY || "").trim();
+  if (!key) {
+    throw new ApiError(500, "GEMINI_API_KEY is not configured");
+  }
+
+  return new GoogleGenerativeAI(key);
+};
 
 
 /* =========================
@@ -79,54 +86,82 @@ async function downloadFile(url) {
 ========================= */
 async function callGemini(buffer, mimeType) {
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new ApiError(500, "GEMINI_API_KEY is not configured");
-    }
-/*
- */   // Use gemini-2.5-pro for higher quality invoice extraction
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-pro",
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 2048,
-      }
-    });
-
     const base64 = buffer.toString("base64");
 
-   const imagePart = {
+    const imagePart = {
       inlineData: {
         mimeType: mimeType,
         data: base64
       }
     };
 
-    const result = await model.generateContent([extractionPrompt, imagePart]);
+    const genAI = getGenAIClient();
+    const candidateModels = ["gemini-2.5-pro", "gemini-1.5-pro"];
+    let lastModelError = null;
 
-    const response = await result.response;
-    const text = response.text();
+    for (const candidateModel of candidateModels) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: candidateModel,
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 2048,
+          },
+        });
 
-    if (!text) throw new Error("Empty AI response");
+        const result = await model.generateContent([extractionPrompt, imagePart]);
+        const response = await result.response;
+        const text = response.text();
 
-    return text;
+        if (!text) throw new Error("Empty AI response");
+        return text;
+      } catch (modelError) {
+        lastModelError = modelError;
+
+        const status = modelError?.status || modelError?.statusCode;
+        const message = String(modelError?.message || "");
+        const isMissingModel =
+          status === 404 || /404|not found|model.*not.*available/i.test(message);
+
+        if (!isMissingModel) {
+          throw modelError;
+        }
+      }
+    }
+
+    throw lastModelError || new Error("No compatible Gemini model available");
     
   } catch (error) {
-    console.error("❌ Gemini API Error:", error.message);
-    console.error("Full error:", error);
+    const message = String(error?.message || "");
+    const status = error?.status || error?.statusCode;
+    const isServiceDisabled =
+      status === 403 &&
+      (/SERVICE_DISABLED/i.test(message) ||
+        /has not been used in project/i.test(message) ||
+        /generativelanguage\.googleapis\.com/i.test(message));
+
+    console.error("❌ Gemini API Error:", message);
     
-    if (error.message?.includes("API key") || error.message?.includes("API_KEY")) {
+    if (isServiceDisabled) {
+      throw new ApiError(
+        503,
+        "Gemini API is disabled for the configured Google project. Enable Generative Language API or use a valid GEMINI_API_KEY."
+      );
+    }
+
+    if (/API key|API_KEY|invalid api key|permission denied/i.test(message)) {
       throw new ApiError(500, "Invalid or missing Gemini API key. Please check your .env file");
     }
     
-    if (error.message?.includes("404") || error.message?.includes("not found")) {
+    if (status === 404 || /404|not found/i.test(message)) {
       throw new ApiError(500, "Gemini model not available. Try using gemini-pro-vision or gemini-1.5-pro");
     }
     
-    if (error.message?.includes("quota") || error.message?.includes("limit")) {
+    if (/quota|limit|rate/i.test(message)) {
       throw new ApiError(429, "API quota exceeded. Please try again later");
     }
     
-    throw new ApiError(500, `AI extraction failed: ${error.message}`);
+    throw new ApiError(500, `AI extraction failed: ${message}`);
   }
 }
 
