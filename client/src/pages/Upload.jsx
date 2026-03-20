@@ -269,6 +269,14 @@ export default function Upload() {
   };
 
   const handleCompanyDocumentUpload = async (file, index) => {
+    setFiles((prev) =>
+      prev.map((f, i) =>
+        i === index
+          ? { ...f, status: "uploading", progress: 30 }
+          : f
+      )
+    );
+
     const initPayload = await initCompanyDocumentUpload({
       fileName: file.name,
       contentType: file.type || "application/pdf",
@@ -279,7 +287,7 @@ export default function Upload() {
     setFiles((prev) =>
       prev.map((f, i) =>
         i === index
-          ? { ...f, status: "extracting", progress: 55, pdfUrl: initPayload?.fileUrl }
+          ? { ...f, status: "saving", progress: 70, pdfUrl: initPayload?.fileUrl }
           : f
       )
     );
@@ -692,7 +700,15 @@ export default function Upload() {
       return (
         <span className="text-primary flex items-center gap-1">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Extracting data with AI...
+          {isCompanyDocumentType ? 'Saving document...' : 'Extracting data with AI...'}
+        </span>
+      );
+    }
+    if (uploadedFile.status === 'saving') {
+      return (
+        <span className="text-primary flex items-center gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Saving document...
         </span>
       );
     }
@@ -778,6 +794,13 @@ export default function Upload() {
   const getCurrentStep = () => {
     if (files.length === 0) return 0;
     const latestFile = files[files.length - 1];
+
+    if (isCompanyDocumentType) {
+      if (latestFile.status === 'uploading') return 0;
+      if (latestFile.status === 'saving') return 1;
+      return 1;
+    }
+
     if (latestFile.status === 'uploading') return 0;
     if (latestFile.status === 'extracting') return 1;
     if (latestFile.status === 'review') return 2;
@@ -785,11 +808,16 @@ export default function Upload() {
   };
 
   // Workflow steps configuration for the stepper component
-  const workflowSteps = [
-    { id: 'upload', label: 'Upload', description: 'Select your file' },
-    { id: 'extract', label: 'Extracting', description: 'AI reads the document' },
-    { id: 'verify', label: 'Verify & Save', description: 'Review and confirm' },
-  ];
+  const workflowSteps = isCompanyDocumentType
+    ? [
+        { id: 'upload', label: 'Upload', description: 'Select your file' },
+        { id: 'save', label: 'Save', description: 'Store document securely' },
+      ]
+    : [
+        { id: 'upload', label: 'Upload', description: 'Select your file' },
+        { id: 'extract', label: 'Extracting', description: 'AI reads the document' },
+        { id: 'verify', label: 'Verify & Save', description: 'Review and confirm' },
+      ];
 
   // ========== COMPONENT RENDER ==========
   return (
@@ -801,7 +829,7 @@ export default function Upload() {
             <h1 className="text-2xl font-bold">{`Upload ${config.title}`}</h1>
             <p className="text-muted-foreground">{config.description}</p>
           </div>
-          <ContextualHelp content="Upload your document here. Our AI will extract key data like dates, amounts, GST details, and vendor info. Review the results before saving." />
+          <ContextualHelp content={isCompanyDocumentType ? "Upload your document and it will be saved securely for you and your accountant." : "Upload your document here. Our AI will extract key data like dates, amounts, GST details, and vendor info. Review the results before saving."} />
         </div>
 
         {/* Main content container with max width */}
@@ -847,7 +875,9 @@ export default function Upload() {
               <CardHeader>
                 <CardTitle>Upload {config.title}</CardTitle>
                 <CardDescription>
-                  {config.description}. Our AI will extract all details automatically.
+                  {isCompanyDocumentType
+                    ? `${config.description}. This is a simple secure upload.`
+                    : `${config.description}. Our AI will extract all details automatically.`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -920,14 +950,14 @@ export default function Upload() {
                           {renderFileStatus(uploadedFile, index)}
                         </div>
                         {/* Progress bar - shown during uploading and extracting */}
-                        {(uploadedFile.status === 'uploading' || uploadedFile.status === 'extracting') && (
+                        {(uploadedFile.status === 'uploading' || uploadedFile.status === 'extracting' || uploadedFile.status === 'saving') && (
                           <div className="mt-2 h-1.5 w-full bg-muted rounded-full overflow-hidden">
                             <div className="h-full bg-primary transition-all duration-300" style={{ width: `${uploadedFile.progress}%` }} />
                           </div>
                         )}
                       </div>
                       {/* Remove file button - disabled during processing */}
-                      <Button variant="ghost" size="icon" onClick={() => removeFile(index)} disabled={uploadedFile.status === 'uploading' || uploadedFile.status === 'extracting'}>
+                      <Button variant="ghost" size="icon" onClick={() => removeFile(index)} disabled={uploadedFile.status === 'uploading' || uploadedFile.status === 'extracting' || uploadedFile.status === 'saving'}>
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
