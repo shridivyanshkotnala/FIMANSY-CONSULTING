@@ -26,6 +26,11 @@ import {
   listTicketDocuments,
   markTicketDocumentFinalVerified,
 } from "../controllers/accountant/complianceDocumentController.js";
+import {
+  initAccountantCompanyDocumentUpload,
+  completeAccountantCompanyDocumentUpload,
+  listAccountantOrganizationCompanyDocuments,
+} from "../controllers/companyDocumentController.js";
 
 
 const accountantRoutes = express.Router();
@@ -87,6 +92,9 @@ accountantRoutes.post("/compliance-requests/:ticketId/documents/complete-upload"
 accountantRoutes.get("/compliance-requests/:ticketId/documents", protectRoute, isAdmin, listTicketDocuments);
 accountantRoutes.patch("/compliance-requests/:ticketId/documents/:documentId/mark-final-verified", protectRoute, isAdmin, markTicketDocumentFinalVerified);
 accountantRoutes.get("/organizations/:orgId/directors", protectRoute, isAdmin, getOrgDirectors);
+accountantRoutes.get("/organizations/:orgId/company-documents", protectRoute, isAdmin, listAccountantOrganizationCompanyDocuments);
+accountantRoutes.post("/organizations/:orgId/company-documents/init-upload", protectRoute, isAdmin, initAccountantCompanyDocumentUpload);
+accountantRoutes.post("/organizations/:orgId/company-documents/complete-upload", protectRoute, isAdmin, completeAccountantCompanyDocumentUpload);
 
 // ─── Manual Ticket Creation ───────────────────────────────────────────────
 // Fetch dropdown data

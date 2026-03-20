@@ -1,5 +1,5 @@
 // React and routing imports
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useProcessInvoiceMutation } from "@/Redux/Slices/api/uploadApi"; // Redux mutation for AI extraction
 // Layout and UI components
@@ -15,9 +15,31 @@ import { TransactionApprovalTable } from "@/components/bank/TransactionApprovalT
 import { InvoiceReviewModal } from "@/components/invoice/InvoiceReviewModal";
 import { WorkflowStepper } from "@/components/ui/workflow-stepper";
 import { ContextualHelp } from "@/components/ui/contextual-help";
-import { uploadInvoice } from "@/lib/r2Upload"; // Function to upload files to Cloudflare R2
+import { uploadFileToSignedUrl, uploadInvoice } from "@/lib/r2Upload"; // Function to upload files to Cloudflare R2
 import { mapToZohoInvoice } from "@/lib/mapToZohoInvoice"; // Function to map extracted data to Zoho Invoice format
 import {useSyncInvoiceMutation} from "@/Redux/Slices/api/invoiceApi"; // Redux mutation for syncing invoice to Zoho
+import {
+  useCompleteCompanyDocumentUploadMutation,
+  useGetCompanyDocumentsQuery,
+  useInitCompanyDocumentUploadMutation,
+} from "@/Redux/Slices/api/companyDocumentsApi";
+
+const COMPANY_DOCUMENT_TYPES = ["loan", "equity", "other"];
+
+const formatFileSize = (bytes) => {
+  const size = Number(bytes || 0);
+  if (!size) return "0 B";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatDateTime = (dateString) => {
+  if (!dateString) return "—";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString();
+};
 /**
  * Configuration object defining settings for each document type
  * Maps document types to their UI labels, descriptions, accepted file types, and extraction functions
@@ -88,6 +110,7 @@ export default function Upload() {
 
   // Get document type from URL query params, default to expense_invoice
   const documentType = searchParams.get('type') || 'expense_invoice';
+  const isCompanyDocumentType = COMPANY_DOCUMENT_TYPES.includes(documentType);
   // Get configuration for the selected document type
   const config = documentTypeConfig[documentType] || documentTypeConfig.expense_invoice;
 
@@ -107,6 +130,15 @@ export default function Upload() {
   const [reviewingInvoice, setReviewingInvoice] = useState(null); // Index of invoice being reviewed
   const [isSaving, setIsSaving] = useState(false); // Flag for save operation in progress // Flag for save operation in progress
   const [extractInvoice, { isLoading: isExtracting, error: extractError }] = useProcessInvoiceMutation();
+  const [initCompanyDocumentUpload] = useInitCompanyDocumentUploadMutation();
+  const [completeCompanyDocumentUpload] = useCompleteCompanyDocumentUploadMutation();
+  const {
+    data: companyDocuments = [],
+    isFetching: companyDocumentsLoading,
+  } = useGetCompanyDocumentsQuery(
+    { documentType },
+    { skip: !isCompanyDocumentType }
+  );
   /**
    * Handles drag over event for file drop zone
    * Prevents default behavior and sets dragging state to true
@@ -155,6 +187,11 @@ export default function Upload() {
     ));
 
     try {
+
+      if (isCompanyDocumentType) {
+        await handleCompanyDocumentUpload(file, index);
+        return;
+      }
 
       // ===============================
       // 1️⃣ Upload to Cloudflare R2
@@ -229,6 +266,49 @@ export default function Upload() {
         i === index ? { ...f, status: 'error', error: error.message } : f
       ));
     }
+  };
+
+  const handleCompanyDocumentUpload = async (file, index) => {
+    const initPayload = await initCompanyDocumentUpload({
+      fileName: file.name,
+      contentType: file.type || "application/pdf",
+      fileSize: file.size,
+      documentType,
+    }).unwrap();
+
+    setFiles((prev) =>
+      prev.map((f, i) =>
+        i === index
+          ? { ...f, status: "extracting", progress: 55, pdfUrl: initPayload?.fileUrl }
+          : f
+      )
+    );
+
+    await uploadFileToSignedUrl(file, initPayload.uploadUrl);
+
+    const savedDoc = await completeCompanyDocumentUpload({
+      key: initPayload.key,
+      fileName: file.name,
+      contentType: file.type || "application/pdf",
+      fileSize: file.size,
+      documentType,
+    }).unwrap();
+
+    setFiles((prev) =>
+      prev.map((f, i) =>
+        i === index
+          ? {
+              ...f,
+              status: "success",
+              progress: 100,
+              extractedData: {
+                ...savedDoc,
+                document_type: documentType,
+              },
+            }
+          : f
+      )
+    );
   };
 
 
@@ -487,30 +567,19 @@ export default function Upload() {
 
 
 
-  /*
   const handleGenericDocumentResult = async (result, pdfUrl, fileName, index) => {
-    if (!organization) return;
-
-    // Save document directly to documents table without review
-    const { error: docError } = await supabase
-      .from('documents')
-      .insert({
-        organization_id: organization.id,
-        document_type: documentType,
-        file_name: fileName,
-        file_url: pdfUrl,
-        status: 'processed',
-        metadata: result.data,
-      });
-
-    if (docError) throw new Error(`Document save failed: ${docError.message}`);
-
-    // Update file status to success
-    setFiles(prev => prev.map((f, i) => 
-      i === index ? { ...f, status: 'success', progress: 100, extractedData: result.data } : f
+    setFiles(prev => prev.map((f, i) =>
+      i === index
+        ? {
+            ...f,
+            status: 'success',
+            progress: 100,
+            extractedData: result?.data || result,
+            pdfUrl,
+          }
+        : f
     ));
   };
-*/
 
 
 
@@ -864,6 +933,46 @@ export default function Upload() {
                     </div>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {isCompanyDocumentType && !reviewingBankFile && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Saved {config.title}s</CardTitle>
+                <CardDescription>
+                  These files are saved in Cloudflare R2 and visible to your accountant.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {companyDocumentsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading uploaded documents...</p>
+                ) : companyDocuments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {companyDocuments.map((doc) => (
+                      <div key={doc._id} className="rounded-lg border p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{doc.display_file_name || doc.original_file_name || 'Document'}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {formatFileSize(doc.file_size)} • Uploaded {formatDateTime(doc.createdAt)}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
+                          >
+                            View
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

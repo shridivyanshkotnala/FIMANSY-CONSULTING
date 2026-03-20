@@ -93,6 +93,7 @@ export const baseApi = createApi({
     "TicketStatusHistory",
     "ComplianceTemplate",
     "TicketDocument",
+    "CompanyDocument",
   ],
   endpoints: () => ({}),
 });
