@@ -2,18 +2,12 @@ import mongoose from "mongoose";
 import { ComplianceObligation } from "../../models/compliance/complianceObligationModel.js";
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
-import { getTestingAwareNow } from "../../utils/testingDate.js";
-
-function getCurrentFinancialYear() {
-  const today = getTestingAwareNow();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-
-  if (month >= 3) {
-    return `${year}-${year + 1}`;
-  }
-  return `${year - 1}-${year}`;
-}
+import {
+  getCurrentSystemDate,
+  getCurrentFinancialYear,
+  normalizeFinancialYear,
+  getFinancialYearAliases,
+} from "../../utils/dateTime.js";
 
 // ==============================
 // GENERATE FINANCIAL YEAR
@@ -62,6 +56,7 @@ export const generateFY = async (req, res) => {
 export const getObligations = async (req, res) => {
   try {
     const { organization_id, status, financialYear, compliance_category } = req.query;
+    const serverNow = getCurrentSystemDate();
 
     if (!organization_id) {
       return res.status(400).json({
@@ -76,7 +71,10 @@ export const getObligations = async (req, res) => {
     };
 
     if (status) filter.status = status;
-    if (financialYear) filter.financial_year = financialYear;
+    if (financialYear) {
+      const aliases = getFinancialYearAliases(financialYear);
+      filter.financial_year = aliases.length > 0 ? { $in: aliases } : financialYear;
+    }
     if (compliance_category) filter.compliance_category = compliance_category; // Updated
 
     console.log("🔍 Obligations filter:", JSON.stringify(filter, null, 2));
@@ -87,15 +85,16 @@ export const getObligations = async (req, res) => {
 
     console.log(`📊 Found ${obligations.length} obligations`);
 
-    const currentFY = getCurrentFinancialYear();
-    const targetFY = financialYear || currentFY;
+    const currentFY = getCurrentFinancialYear(serverNow);
+    const targetFY = normalizeFinancialYear(financialYear) || currentFY;
 
     // Auto-generate when target FY has no obligations yet.
     // Important: this must work even if previous FY obligations exist,
     // otherwise FY rollover (e.g. 2025-26 -> 2026-27) never self-heals.
+    const targetFYAliases = getFinancialYearAliases(targetFY);
     const targetFYCount = await ComplianceObligation.countDocuments({
       organization_id: new mongoose.Types.ObjectId(organization_id),
-      financial_year: targetFY,
+      financial_year: { $in: targetFYAliases },
     });
 
     const shouldAutoGenerate =
@@ -135,9 +134,19 @@ export const getObligations = async (req, res) => {
       }
     }
 
+    const normalizedObligations = obligations.map((obligation) => ({
+      ...obligation,
+      financial_year:
+        normalizeFinancialYear(obligation.financial_year) || obligation.financial_year,
+    }));
+
     res.json({
       success: true,
-      data: obligations,
+      data: normalizedObligations,
+      meta: {
+        current_date: serverNow.toISOString(),
+        current_financial_year: currentFY,
+      },
     });
   } catch (error) {
     console.error("❌ Error in getObligations:", error);
@@ -221,7 +230,7 @@ export const getDashboardSummary = async (req, res) => {
       });
     }
 
-    const today = new Date();
+    const today = getCurrentSystemDate();
 
     // Count overdue obligations (not filed and due date passed)
     const overdue = await ComplianceObligation.countDocuments({

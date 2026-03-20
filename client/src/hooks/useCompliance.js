@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { getCurrentFinancialYear as getFinancialYearFromDate } from '@/lib/compliance/utils';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8800/api';
 
@@ -31,6 +32,7 @@ export function useCompliance() {
   const [directors, setDirectors] = useState([]);
   const [obligations, setObligations] = useState([]);
   const [events, setEvents] = useState([]);
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -40,11 +42,7 @@ export function useCompliance() {
   const [conditionalItems, setConditionalItems] = useState([]);
   const [loadingConditional, setLoadingConditional] = useState(false);
 
-  const getCurrentFinancialYear = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
-  };
+  const getCurrentFinancialYear = () => getFinancialYearFromDate(currentDate);
 
   const fetchConditionalCompliances = async (financialYear) => {
     if (!organization?.id) return;
@@ -113,8 +111,18 @@ export function useCompliance() {
       if (dirsRes.data)
         setDirectors(Array.isArray(dirsRes.data) ? dirsRes.data : dirsRes.data?.data || []);
 
-      if (obsRes.data)
-        setObligations(Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || []);
+      if (obsRes.data) {
+        const obligationsData = Array.isArray(obsRes.data) ? obsRes.data : obsRes.data?.data || [];
+        setObligations(obligationsData);
+
+        const serverDate = obsRes.data?.meta?.current_date;
+        if (serverDate) {
+          const parsedDate = new Date(serverDate);
+          if (!Number.isNaN(parsedDate.getTime())) {
+            setCurrentDate(parsedDate);
+          }
+        }
+      }
 
       if (evtsRes.data)
         setEvents(Array.isArray(evtsRes.data) ? evtsRes.data : evtsRes.data?.data || []);
@@ -291,6 +299,8 @@ export function useCompliance() {
     directors,
     obligations,
     events,
+    currentDate,
+    currentFinancialYear: getCurrentFinancialYear(),
     loading,
     error,
     refetch: fetchAll,

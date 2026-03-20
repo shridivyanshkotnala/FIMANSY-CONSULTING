@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Clock, AlertTriangle } from "lucide-react";
 
-import { getCurrentFinancialYear } from "@/lib/compliance/utils";
+import { getCurrentFinancialYear, getCurrentQuarterRange } from "@/lib/compliance/utils";
 
 import {
   startOfMonth,
@@ -30,43 +30,16 @@ function getFYRange(fy) {
 
 /*
   ==========================================================
-  Helper: Current Quarter (Indian FY based)
-  Q1: Apr-Jun
-  Q2: Jul-Sep
-  Q3: Oct-Dec
-  Q4: Jan-Mar
-  ==========================================================
-*/
-function getCurrentQuarterRange() {
-  const today = new Date();
-  const month = today.getMonth();
-  const year = today.getFullYear();
-
-  if (month >= 3 && month <= 5)
-    return { start: new Date(year, 3, 1), end: new Date(year, 5, 30) };
-
-  if (month >= 6 && month <= 8)
-    return { start: new Date(year, 6, 1), end: new Date(year, 8, 30) };
-
-  if (month >= 9 && month <= 11)
-    return { start: new Date(year, 9, 1), end: new Date(year, 11, 31) };
-
-  // Jan-Mar
-  return { start: new Date(year, 0, 1), end: new Date(year, 2, 31) };
-}
-
-/*
-  ==========================================================
   Compliance Status Cards
   Props:
   - obligations (array)
   ==========================================================
 */
 
-export function ComplianceStatusCards({ obligations }) {
+export function ComplianceStatusCards({ obligations, currentDate }) {
 
-  const today = startOfDay(new Date());
-  const fy = getCurrentFinancialYear();
+  const today = startOfDay(new Date(currentDate || new Date()));
+  const fy = getCurrentFinancialYear(currentDate);
 
   /*
     ==========================================================
@@ -80,7 +53,7 @@ export function ComplianceStatusCards({ obligations }) {
       end: endOfMonth(today),
     };
 
-    const quarterRange = getCurrentQuarterRange();
+    const quarterRange = getCurrentQuarterRange(currentDate);
     const fyRange = getFYRange(fy);
 
     /*
@@ -129,7 +102,7 @@ export function ComplianceStatusCards({ obligations }) {
       overdue: overdue.length,
     };
 
-  }, [obligations, today, fy]);
+  }, [obligations, today, fy, currentDate]);
 
   return (
     <div className="grid gap-4 md:grid-cols-2">

@@ -9,8 +9,8 @@ import { MCA_ANNUAL_FILINGS, ADVANCE_TAX_SCHEDULE, EVENT_COMPLIANCE_MAP } from '
  * Returns the current financial year in full-year format
  * e.g., "2025-2026"
  */
-export function getCurrentFinancialYear() {
-  const today = new Date();
+export function getCurrentFinancialYear(referenceDate = new Date()) {
+  const today = new Date(referenceDate);
   const year = today.getFullYear();
   const month = today.getMonth(); // 0 = Jan, 3 = April
 
@@ -19,6 +19,36 @@ export function getCurrentFinancialYear() {
   } else {
     return `${year - 1}-${year}`;
   }
+}
+
+export function getCurrentQuarterLabel(referenceDate = new Date()) {
+  const date = new Date(referenceDate);
+  const month = date.getMonth();
+
+  if (month >= 3 && month <= 5) return "Q1 (Apr–Jun)";
+  if (month >= 6 && month <= 8) return "Q2 (Jul–Sep)";
+  if (month >= 9 && month <= 11) return "Q3 (Oct–Dec)";
+  return "Q4 (Jan–Mar)";
+}
+
+export function getCurrentQuarterRange(referenceDate = new Date()) {
+  const date = new Date(referenceDate);
+  const month = date.getMonth();
+  const year = date.getFullYear();
+
+  if (month >= 3 && month <= 5) {
+    return { start: new Date(year, 3, 1), end: new Date(year, 5, 30), label: "Q1" };
+  }
+
+  if (month >= 6 && month <= 8) {
+    return { start: new Date(year, 6, 1), end: new Date(year, 8, 30), label: "Q2" };
+  }
+
+  if (month >= 9 && month <= 11) {
+    return { start: new Date(year, 9, 1), end: new Date(year, 11, 31), label: "Q3" };
+  }
+
+  return { start: new Date(year, 0, 1), end: new Date(year, 2, 31), label: "Q4" };
 }
 
 /**
@@ -44,8 +74,8 @@ export function getAssessmentYear(fy) {
    Due Date Calculations
 ============================================================ */
 
-export function getDaysUntilDue(dueDate) {
-  const today = startOfDay(new Date());
+export function getDaysUntilDue(dueDate, referenceDate = new Date()) {
+  const today = startOfDay(new Date(referenceDate));
   const due = startOfDay(new Date(dueDate));
   return differenceInDays(due, today);
 }

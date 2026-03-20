@@ -1,17 +1,17 @@
 // server/src/services/complianceScheduler/monthlyJob.js
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
 import { generateCurrentMonthObligations } from "./monthlyComplianceGenerator.js";
-import Organization from "../../models/organizationModel.js";
-import { getTestingAwareNow } from "../../utils/testingDate.js";
+import { Organization } from "../../models/organizationModel.js";
+import { getCurrentSystemDate, getCurrentFinancialYear } from "../../utils/dateTime.js";
 
 export async function runMonthlyJob() {
-  const today = getTestingAwareNow();
+  const today = getCurrentSystemDate();
   console.log(`\n RUNNING MONTHLY JOB: ${today.toISOString()}`);
   
   // CASE 1: April 1st - Generate FULL FY obligations (annual setup)
   if (today.getMonth() === 3 && today.getDate() === 1) {
     console.log("📆 April 1st detected - Generating full FY obligations for all companies...");
-    const currentFY = `${today.getFullYear()}-${(today.getFullYear()+1).toString().slice(2)}`;
+    const currentFY = getCurrentFinancialYear(today);
     
     const organizations = await Organization.find({});
     console.log(`📊 Found ${organizations.length} organizations`);

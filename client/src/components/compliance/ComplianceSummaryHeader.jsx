@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Building2, Calendar, Users } from "lucide-react";
 
-import { getCurrentFinancialYear } from "@/lib/compliance/utils";
+import { getCurrentFinancialYear, getCurrentQuarterLabel } from "@/lib/compliance/utils";
 
 /*
   ==========================================================
@@ -13,27 +13,15 @@ import { getCurrentFinancialYear } from "@/lib/compliance/utils";
   ==========================================================
 */
 
-export function ComplianceSummaryHeader({ profile, directors }) {
-  const fy = getCurrentFinancialYear();
+export function ComplianceSummaryHeader({ profile, directors, currentDate }) {
+  const fy = getCurrentFinancialYear(currentDate);
 
   // Count active directors for this profile
   const activeDirectors = (directors || []).filter(
     (d) => d.is_active && d.profile_id === profile?._id
   ).length;
 
-  /*
-    ==========================================================
-    Get Current Quarter (Indian FY)
-    ==========================================================
-  */
-  const getCurrentQuarter = () => {
-    const month = new Date().getMonth();
-
-    if (month >= 3 && month <= 5) return "Q1 (Apr–Jun)";
-    if (month >= 6 && month <= 8) return "Q2 (Jul–Sep)";
-    if (month >= 9 && month <= 11) return "Q3 (Oct–Dec)";
-    return "Q4 (Jan–Mar)";
-  };
+  const quarterLabel = getCurrentQuarterLabel(currentDate);
 
   return (
     <Card className="bg-card border">
@@ -63,7 +51,7 @@ export function ComplianceSummaryHeader({ profile, directors }) {
             <div>
               <p className="text-xs text-muted-foreground">Financial Year</p>
               <p className="font-semibold text-sm">
-                FY {fy} · {getCurrentQuarter()}
+                FY {fy} · {quarterLabel}
               </p>
             </div>
           </div>

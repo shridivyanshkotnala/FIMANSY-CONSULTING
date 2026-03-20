@@ -49,7 +49,7 @@ const formatStatusText = (status) => {
 
 const CLOSED_STATUS = "closed";
 
-export function ConditionalCompliancesTab() {
+export function ConditionalCompliancesTab({ currentDate }) {
   const {
     conditionalItems: serverConditionalItems,
     loadingConditional,
@@ -74,7 +74,7 @@ export function ConditionalCompliancesTab() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const fy = getCurrentFinancialYear();
+  const fy = getCurrentFinancialYear(currentDate);
 
   /* ================= Sync ================= */
   useEffect(() => {

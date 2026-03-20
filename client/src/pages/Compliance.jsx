@@ -59,6 +59,7 @@ export default function Compliance() {
     complianceProfile,
     obligations,
     directors,
+    currentDate,
     loading,
     addDirector,
     refetch
@@ -308,9 +309,10 @@ export default function Compliance() {
         <ComplianceSummaryHeader
           profile={complianceProfile}
           directors={profileDirectors}
+          currentDate={currentDate}
         />
 
-        <ComplianceStatusCards obligations={obligations} />
+        <ComplianceStatusCards obligations={obligations} currentDate={currentDate} />
 
         {/* ================= TABS ================= */}
 
@@ -345,11 +347,11 @@ export default function Compliance() {
           </TabsList>
 
           <TabsContent value="fixed">
-            <FixedScheduleTab key={`fixed-${obligations.length}-${ticketStatusKey}`} />
+            <FixedScheduleTab key={`fixed-${obligations.length}-${ticketStatusKey}`} currentDate={currentDate} />
           </TabsContent>
 
           <TabsContent value="conditional">
-            <ConditionalCompliancesTab key={`conditional-${obligations.length}-${ticketStatusKey}`} />
+            <ConditionalCompliancesTab key={`conditional-${obligations.length}-${ticketStatusKey}`} currentDate={currentDate} />
           </TabsContent>
 
           <TabsContent value="tracking">

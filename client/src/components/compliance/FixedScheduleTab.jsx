@@ -25,7 +25,7 @@ import { TicketDetailDrawer } from "./TicketDetailDrawer/TicketDetailDrawer";
 import { useCompliance } from "@/hooks/useCompliance";
 import { useTickets } from "@/hooks/useTickets";
 
-import { getCurrentFinancialYear, getDaysUntilDue } from "@/lib/compliance/utils";
+import { getCurrentFinancialYear, getDaysUntilDue, getCurrentQuarterRange } from "@/lib/compliance/utils";
 
 import { format, isSameMonth, startOfDay, isWithinInterval, parseISO } from "date-fns";
 
@@ -36,18 +36,6 @@ import { cn } from "@/lib/utils";
 
 /* ================= Quarterly subtype definitions ================= */
 const QUARTERLY_SUBTYPES = ["tds_return", "advance_tax_q1", "advance_tax_q2", "advance_tax_q3", "advance_tax_q4"];
-
-/* ================= Helpers ================= */
-function getCurrentQuarterRange() {
-  const today = new Date();
-  const month = today.getMonth();
-  const year = today.getFullYear();
-
-  if (month >= 3 && month <= 5) return { start: new Date(year, 3, 1), end: new Date(year, 5, 30), label: "Q1" };
-  if (month >= 6 && month <= 8) return { start: new Date(year, 6, 1), end: new Date(year, 8, 30), label: "Q2" };
-  if (month >= 9 && month <= 11) return { start: new Date(year, 9, 1), end: new Date(year, 11, 31), label: "Q3" };
-  return { start: new Date(year, 0, 1), end: new Date(year, 2, 31), label: "Q4" };
-}
 
 const getTicketStatusBadge = (status) => {
   const variants = {
@@ -69,7 +57,7 @@ const formatStatusText = (status) => {
 };
 
 /* ================= Component ================= */
-export function FixedScheduleTab() {
+export function FixedScheduleTab({ currentDate }) {
   const navigate = useNavigate();
   const { obligations: serverObligations, loading, refetch: refetchCompliance } = useCompliance();
   const { createTicket, refetchTickets, tickets, uploadTicketDocument } = useTickets();
@@ -83,9 +71,10 @@ export function FixedScheduleTab() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [localTickets, setLocalTickets] = useState([]);
 
-  const today = startOfDay(new Date());
-  const fy = getCurrentFinancialYear();
-  const quarterRange = getCurrentQuarterRange();
+  const effectiveCurrentDate = currentDate || new Date();
+  const today = startOfDay(new Date(effectiveCurrentDate));
+  const fy = getCurrentFinancialYear(effectiveCurrentDate);
+  const quarterRange = getCurrentQuarterRange(effectiveCurrentDate);
 
   // Sync server obligations with local state when they change
   useEffect(() => {
@@ -376,7 +365,7 @@ export function FixedScheduleTab() {
   };
 
   const isObligationOverdue = (ob) => {
-    const daysUntil = getDaysUntilDue(ob.due_date);
+    const daysUntil = getDaysUntilDue(ob.due_date, effectiveCurrentDate);
     const ticket = getTicketForObligation(ob);
     // ✅ Use ticket status if available
     const status = ticket?.status || ob.status;
@@ -385,7 +374,7 @@ export function FixedScheduleTab() {
 
   const renderObligationRow = (obligation) => {
     const dueDate = parseISO(obligation.due_date);
-    const daysUntil = getDaysUntilDue(obligation.due_date);
+    const daysUntil = getDaysUntilDue(obligation.due_date, effectiveCurrentDate);
     const isOverdue = isObligationOverdue(obligation);
     const ticket = getTicketForObligation(obligation);
     // ✅ Use ticket status if available
@@ -462,7 +451,7 @@ export function FixedScheduleTab() {
         </Card>
       </div>
 
-      <ComplianceCalendar obligations={localObligations} />
+      <ComplianceCalendar obligations={localObligations} currentDate={effectiveCurrentDate} />
 
       <Card>
         <CardHeader>

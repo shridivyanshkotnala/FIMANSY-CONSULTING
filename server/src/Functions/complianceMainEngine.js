@@ -3,6 +3,7 @@ import { ComplianceObligation } from "../models/compliance/complianceObligationM
 import { CompanyComplianceProfile } from "../models/compliance/companyComplianceProfileModel.js";
 import { getFinancialYearDates } from "../utils/calenderLogic.js";
 import { generateMonthlyDueDates, generateQuarterlyDueDates, generateAnnualDueDate } from "../utils/calenderLogic.js";
+import { normalizeFinancialYear } from "../utils/dateTime.js";
 
 // Default templates to seed if none exist
 const DEFAULT_TEMPLATES = [
@@ -298,8 +299,13 @@ function deriveSubtypeFromName(name) {
 }
 
 export async function generateObligationsForFY(organization_id, financialYear) {
+  const normalizedFinancialYear = normalizeFinancialYear(financialYear);
+  if (!normalizedFinancialYear) {
+    throw new Error(`Invalid financial year format: ${financialYear}`);
+  }
+
   console.log("\n========== 🚀 GENERATE OBLIGATIONS STARTED ==========");
-  console.log(`📌 Input - organization_id: ${organization_id}, financialYear: ${financialYear}`);
+  console.log(`📌 Input - organization_id: ${organization_id}, financialYear: ${normalizedFinancialYear}`);
   console.log(`📌 Timestamp: ${new Date().toISOString()}`);
 
   // Step 1: Check company
@@ -344,7 +350,7 @@ export async function generateObligationsForFY(organization_id, financialYear) {
 
   // Step 3: Calculate FY range
   console.log("\n🔍 Step 3: Calculating financial year range...");
-  const { start: fyStart, end: fyEnd } = getFinancialYearDates(financialYear);
+  const { start: fyStart, end: fyEnd } = getFinancialYearDates(normalizedFinancialYear);
 
   console.log(`📅 FY Range: ${fyStart.toISOString()} → ${fyEnd.toISOString()}`);
 
@@ -461,7 +467,7 @@ export async function generateObligationsForFY(organization_id, financialYear) {
         subtag: complianceSubtype,
         description: complianceDescription,
 
-        financial_year: financialYear,
+        financial_year: normalizedFinancialYear,
 
         due_date: dueDate,
 
@@ -498,7 +504,7 @@ export async function generateObligationsForFY(organization_id, financialYear) {
 
     const verifyCount = await ComplianceObligation.countDocuments({
       organization_id,
-      financial_year: financialYear
+      financial_year: normalizedFinancialYear
     });
 
     console.log(`📊 Verification count: ${verifyCount}`);

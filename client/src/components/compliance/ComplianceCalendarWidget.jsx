@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -9,8 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Data Source
-import { useCompliance } from "@/hooks/useCompliance";
 import { getDaysUntilDue } from "@/lib/compliance/utils";
 import {
   format,
@@ -34,10 +32,16 @@ const parseDate = (dateStr) => {
   }
 };
 
-export function ComplianceCalendar({ obligations = [], loading }) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+export function ComplianceCalendar({ obligations = [], loading, currentDate }) {
+  const effectiveCurrentDate = currentDate || new Date();
+  const effectiveTimestamp = new Date(effectiveCurrentDate).getTime();
+  const [currentMonth, setCurrentMonth] = useState(new Date(effectiveCurrentDate));
 
-  const today = new Date();
+  useEffect(() => {
+    setCurrentMonth(new Date(effectiveCurrentDate));
+  }, [effectiveTimestamp]);
+
+  const today = new Date(effectiveCurrentDate);
   today.setHours(0, 0, 0, 0);
 
   const monthStart = startOfMonth(currentMonth);
@@ -90,12 +94,12 @@ export function ComplianceCalendar({ obligations = [], loading }) {
     if (!dayObs?.length) return "";
 
     const hasOverdue = dayObs.some(
-      (ob) => ob.status === "overdue" || getDaysUntilDue(ob.due_date) < 0
+      (ob) => ob.status === "overdue" || getDaysUntilDue(ob.due_date, effectiveCurrentDate) < 0
     );
 
     const hasUrgent = dayObs.some(
       (ob) =>
-        getDaysUntilDue(ob.due_date) <= 3 &&
+        getDaysUntilDue(ob.due_date, effectiveCurrentDate) <= 3 &&
         ob.status !== "filed"
     );
 
@@ -240,10 +244,10 @@ export function ComplianceCalendar({ obligations = [], loading }) {
                         dotColor = "bg-success";
                       else if (
                         ob.status === "overdue" ||
-                        getDaysUntilDue(ob.due_date) < 0
+                        getDaysUntilDue(ob.due_date, effectiveCurrentDate) < 0
                       )
                         dotColor = "bg-destructive";
-                      else if (getDaysUntilDue(ob.due_date) <= 3)
+                      else if (getDaysUntilDue(ob.due_date, effectiveCurrentDate) <= 3)
                         dotColor = "bg-warning";
 
                       return (
