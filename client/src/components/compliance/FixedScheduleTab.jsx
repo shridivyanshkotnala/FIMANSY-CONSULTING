@@ -36,7 +36,7 @@ import { getCurrentFinancialYear, getDaysUntilDue, getCurrentQuarterRange } from
 
 import { format, isSameMonth, startOfDay, isWithinInterval, parseISO } from "date-fns";
 
-import { Calendar, FileText, ChevronRight, Ticket, MessageCircle, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Calendar, FileText, ChevronRight, Ticket, MessageCircle, AlertCircle, CheckCircle2, EyeOff } from "lucide-react";
 
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -66,7 +66,12 @@ const formatStatusText = (status) => {
 /* ================= Component ================= */
 export function FixedScheduleTab({ currentDate }) {
   const navigate = useNavigate();
-  const { obligations: serverObligations, loading, refetch: refetchCompliance } = useCompliance();
+  const {
+    obligations: serverObligations,
+    loading,
+    refetch: refetchCompliance,
+    updateObligationStatus,
+  } = useCompliance();
   const { createTicket, refetchTickets, tickets, uploadTicketDocument } = useTickets();
   const { toast } = useToast();
 
@@ -80,6 +85,7 @@ export function FixedScheduleTab({ currentDate }) {
   const [calendarDayPickerOpen, setCalendarDayPickerOpen] = useState(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [selectedCalendarObligations, setSelectedCalendarObligations] = useState([]);
+  const [ignoringObligationId, setIgnoringObligationId] = useState(null);
 
   const effectiveCurrentDate = currentDate || new Date();
   const today = startOfDay(new Date(effectiveCurrentDate));
@@ -132,33 +138,41 @@ export function FixedScheduleTab({ currentDate }) {
     [allTickets, normalizeId]
   );
 
+  const visibleObligations = useMemo(
+    () =>
+      localObligations.filter(
+        (ob) => ob.status !== "not_applicable" && ob.status !== "ignored"
+      ),
+    [localObligations]
+  );
+
   /* ================= Filters ================= */
   const obligationsWithTickets = useMemo(
-    () => localObligations.filter((ob) => Boolean(getTicketForObligation(ob))),
-    [localObligations, getTicketForObligation]
+    () => visibleObligations.filter((ob) => Boolean(getTicketForObligation(ob))),
+    [visibleObligations, getTicketForObligation]
   );
   const obligationsWithoutTickets = useMemo(
-    () => localObligations.filter((ob) => !getTicketForObligation(ob)),
-    [localObligations, getTicketForObligation]
+    () => visibleObligations.filter((ob) => !getTicketForObligation(ob)),
+    [visibleObligations, getTicketForObligation]
   );
   
   const thisMonthObligations = useMemo(
-    () => localObligations.filter((ob) => ob.due_date && isSameMonth(parseISO(ob.due_date), today) && ob.recurrence_type === "monthly"),
-    [localObligations, today]
+    () => visibleObligations.filter((ob) => ob.due_date && isSameMonth(parseISO(ob.due_date), today) && ob.recurrence_type === "monthly"),
+    [visibleObligations, today]
   );
   
   const quarterlyObligations = useMemo(
     () =>
-      localObligations.filter((ob) => {
+      visibleObligations.filter((ob) => {
         if (!ob.due_date) return false;
         const isQuarterly = ob.recurrence_type === "quarterly" || QUARTERLY_SUBTYPES.includes(ob.compliance_subtype);
         if (!isQuarterly) return false;
         return isWithinInterval(parseISO(ob.due_date), quarterRange);
       }),
-    [localObligations, quarterRange]
+    [visibleObligations, quarterRange]
   );
   
-  const thisFYObligations = useMemo(() => localObligations.filter((ob) => ob.financial_year === fy), [localObligations, fy]);
+  const thisFYObligations = useMemo(() => visibleObligations.filter((ob) => ob.financial_year === fy), [visibleObligations, fy]);
 
   /* ================= Ticket Handling ================= */
   const handleViewTicket = useCallback(
@@ -198,6 +212,48 @@ export function FixedScheduleTab({ currentDate }) {
       setCalendarDayPickerOpen(true);
     },
     [handleObligationClick]
+  );
+
+  const handleIgnoreObligation = useCallback(
+    async (obligation) => {
+      if (!obligation?._id) return;
+
+      try {
+        setIgnoringObligationId(obligation._id);
+
+        const result = await updateObligationStatus(obligation._id, "not_applicable", {
+          notes: "Ignored by user (already filed externally)",
+        });
+
+        if (result?.error) {
+          throw result.error;
+        }
+
+        setLocalObligations((prev) =>
+          prev.map((ob) =>
+            ob._id === obligation._id
+              ? { ...ob, status: "not_applicable" }
+              : ob
+          )
+        );
+
+        toast({
+          title: "Compliance ignored",
+          description: "This obligation is removed from calendar and active lists.",
+        });
+
+        refetchCompliance().catch(console.error);
+      } catch (error) {
+        toast({
+          title: "Failed to ignore",
+          description: error?.message || "Could not ignore this compliance.",
+          variant: "destructive",
+        });
+      } finally {
+        setIgnoringObligationId(null);
+      }
+    },
+    [toast, updateObligationStatus, refetchCompliance]
   );
 
   const handleDrawerClose = useCallback((open) => {
@@ -440,6 +496,20 @@ export function FixedScheduleTab({ currentDate }) {
           </div>
         </div>
         <div className="flex items-center gap-3 ml-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleIgnoreObligation(obligation);
+            }}
+            disabled={ignoringObligationId === obligation._id}
+          >
+            <EyeOff className="h-3.5 w-3.5 mr-1" />
+            Ignore
+          </Button>
           {renderTicketStatus(obligation)}
           <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
         </div>
@@ -463,7 +533,7 @@ export function FixedScheduleTab({ currentDate }) {
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{localObligations.length}</div>
+            <div className="text-2xl font-bold">{visibleObligations.length}</div>
             <p className="text-xs text-muted-foreground">Total Obligations</p>
           </CardContent>
         </Card>
@@ -482,7 +552,7 @@ export function FixedScheduleTab({ currentDate }) {
       </div>
 
       <ComplianceCalendar
-        obligations={localObligations}
+        obligations={visibleObligations}
         currentDate={effectiveCurrentDate}
         onDayClick={handleCalendarDayClick}
       />
