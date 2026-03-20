@@ -7,6 +7,7 @@ import { rebuildBankLedger } from "../services/banking/rebuildBankLedger.js";
 
 export const runBankFeedSync = async (job) => {
   console.log(`[BANK SYNC] Starting for connection ${job.connectionId}`);
+  const startedAt = Date.now();
 
   const connection = await ZohoConnection.findById(job.connectionId);
   if (!connection) throw new Error("Zoho connection not found");
@@ -19,9 +20,14 @@ export const runBankFeedSync = async (job) => {
   // ----------------------------
   const jobMeta = job.meta || {};
 
-  const lastBankAccountSync =
-    jobMeta.lastBankAccountSync ||
-    "1970-01-01T00:00:00+00:00";
+  const normalizeCursor = (value) => {
+    if (!value) return null;
+    if (typeof value !== "string") return null;
+    if (value.startsWith("1970-01-01")) return null;
+    return Number.isNaN(Date.parse(value)) ? null : value;
+  };
+
+  const lastBankAccountSync = normalizeCursor(jobMeta.lastBankAccountSync);
 
   const lastTransactionSync =
     jobMeta.lastTransactionSync || {};
@@ -86,8 +92,7 @@ export const runBankFeedSync = async (job) => {
     const accountId = account.zohoBankAccountId;
 
     const txnCursor =
-      lastTransactionSync[accountId] ||
-      "1970-01-01T00:00:00+00:00";
+      normalizeCursor(lastTransactionSync[accountId]);
 
     const {
       records: transactions,
@@ -129,11 +134,6 @@ export const runBankFeedSync = async (job) => {
       ).toLowerCase().trim();
 
       const normalizedType = ZOHO_CREDIT_TYPES.has(txnTypeRaw) ? "credit" : "debit";
-
-      // Debug — remove once confirmed correct in production
-      console.log(
-        `[BANK SYNC] txn ${txn.transaction_id} raw_type="${txnTypeRaw}" → normalizedType="${normalizedType}"`
-      );
 
       await RawZohoBankTransaction.findOneAndUpdate(
         {
@@ -184,7 +184,7 @@ export const runBankFeedSync = async (job) => {
       $set: {
         meta: {
           lastBankAccountSync:
-            accountLastModified || lastBankAccountSync,
+            accountLastModified || lastBankAccountSync || "1970-01-01T00:00:00+00:00",
           lastTransactionSync,
         },
       },
@@ -203,6 +203,6 @@ export const runBankFeedSync = async (job) => {
   }
 
   console.log(
-    `[BANK SYNC] Completed successfully for org ${organizationId}`
+    `[BANK SYNC] Completed successfully for org ${organizationId} in ${Date.now() - startedAt}ms`
   );
 };

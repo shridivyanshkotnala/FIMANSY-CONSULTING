@@ -34,6 +34,13 @@ function getBackoffDelay(retryCount) {
   return 60 * 60 * 1000;                         // 60 min max
 }
 
+const normalizeRetryDelay = (ms, fallback) => {
+  if (!Number.isFinite(ms) || ms <= 0) return fallback;
+  const min = 60 * 1000;
+  const max = 2 * 60 * 60 * 1000;
+  return Math.min(max, Math.max(min, ms));
+};
+
 export const startScheduler = async () => {
   console.log(`[SCHEDULER] Started instance ${INSTANCE_ID}`);
 
@@ -62,7 +69,7 @@ export const startScheduler = async () => {
           { status: { $ne: "running" } },
           { lockedAt: { $lt: lockExpiry } }
         ]
-      }).limit(10);
+      }).sort({ nextRunAt: 1 }).limit(10);
 
       for (const job of dueJobs) {
 
@@ -84,11 +91,18 @@ export const startScheduler = async () => {
           console.log(`[SCHEDULER] Completed ${job.jobType}`);
 
         } catch (err) {
-
-          const retryDelay = getBackoffDelay(job.retryCount + 1);
+          const fallbackDelay = getBackoffDelay(job.retryCount + 1);
+          const retryDelay = normalizeRetryDelay(err?.retryAfterMs, fallbackDelay);
           const nextRunAt = new Date(Date.now() + retryDelay);
 
-          console.error("REAL WORKER ERROR:", err);
+          console.error("REAL WORKER ERROR:", {
+            jobType: job.jobType,
+            connectionId: String(job.connectionId),
+            retryCount: job.retryCount,
+            retryDelayMs: retryDelay,
+            message: err?.message,
+            stack: err?.stack,
+          });
           await failJob(job._id, INSTANCE_ID, err.stack || err.message, nextRunAt);
 
           console.log(`[SCHEDULER] Failed ${job.jobType} → retry in ${retryDelay / 60000} min`);

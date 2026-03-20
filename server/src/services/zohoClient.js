@@ -39,13 +39,53 @@
 // We will implement generic idempotency at client layer.
 
 import { getValidZohoToken } from "./zohoTokenService.js";
-import { ZohoConnection } from "../models/zohoConnectionModel.js";
-import { toZohoTime } from "../utils/zohoTime.js";
 
 const ZOHO_BASE = "https://www.zohoapis.in/books/v3";
+const ZOHO_DEBUG = process.env.ZOHO_DEBUG === "true";
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 45_000;
+const MAX_ATTEMPTS = 6;
+const CONNECTION_COOLDOWN_UNTIL = new Map();
+
+const jitter = (ms) => Math.floor(Math.random() * ms);
+
+const getConnectionKey = (connection, organizationId) => {
+  if (connection?._id) return String(connection._id);
+  if (organizationId) return `org:${organizationId}`;
+  return "global";
+};
+
+const setConnectionCooldown = (key, retryAfterMs) => {
+  const cooldownUntil = Date.now() + retryAfterMs;
+  const current = CONNECTION_COOLDOWN_UNTIL.get(key) || 0;
+  CONNECTION_COOLDOWN_UNTIL.set(key, Math.max(current, cooldownUntil));
+};
+
+const waitForConnectionCooldown = async (key) => {
+  const cooldownUntil = CONNECTION_COOLDOWN_UNTIL.get(key) || 0;
+  const waitMs = cooldownUntil - Date.now();
+  if (waitMs > 0) {
+    await sleep(waitMs);
+  }
+};
+
+const parseResetHeaderMs = (resetHeader) => {
+  if (!resetHeader) return null;
+  const unixSeconds = Number(resetHeader);
+  if (!Number.isFinite(unixSeconds) || unixSeconds <= 0) return null;
+  const resetMs = unixSeconds * 1000 - Date.now();
+  return resetMs > 0 ? resetMs : null;
+};
+
+const isTransientHttpStatus = (status) => {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+};
+
+const getAttemptBackoffMs = (attempt) => {
+  const base = Math.min(30_000, 750 * (2 ** Math.max(0, attempt - 1)));
+  return base + jitter(350);
+};
 
 const parseRetryAfterMs = (retryAfterHeader, fallbackMs) => {
   if (!retryAfterHeader) return fallbackMs;
@@ -93,12 +133,18 @@ export class ZohoClient {
   async request(method, path, { params = {}, body = null, idempotencyKey = null } = {}) {
     let attempts = 0;
     let lastError = null;
+    let lastStatus = null;
+    let lastBodySnippet = null;
+    let retryAfterMsFromServer = null;
     let unauthorizedCount = 0;
+    const startedAt = Date.now();
+    const connectionKey = getConnectionKey(this.connection, this.organizationId);
 
-    while (attempts < 4) {
+    while (attempts < MAX_ATTEMPTS) {
       attempts++;
 
       await this.ensureAuth();
+      await waitForConnectionCooldown(connectionKey);
 
 
       const url = new URL(`${ZOHO_BASE}${path}`);
@@ -129,7 +175,10 @@ export class ZohoClient {
         }
       } catch (networkErr) {
         lastError = networkErr;
-        const delay = 1000 * attempts;
+        const delay = getAttemptBackoffMs(attempts);
+        if (ZOHO_DEBUG) {
+          console.warn(`[ZOHO RETRY] network error on ${method} ${path} attempt=${attempts} delay_ms=${delay} error=${networkErr?.message}`);
+        }
         await sleep(delay);
         continue;
       }
@@ -154,20 +203,43 @@ export class ZohoClient {
 
       // rate limit
       if (res.status === 429) {
-        const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"), 1500 * attempts);
+        const fromRetryAfter = parseRetryAfterMs(res.headers.get("retry-after"), getAttemptBackoffMs(attempts));
+        const fromRateReset = parseResetHeaderMs(res.headers.get("x-ratelimit-reset"));
+        const retryAfterMs = Math.max(fromRetryAfter, fromRateReset || 0);
+        retryAfterMsFromServer = retryAfterMs;
+        setConnectionCooldown(connectionKey, retryAfterMs);
+        if (ZOHO_DEBUG) {
+          console.warn(`[ZOHO RETRY] rate-limited ${method} ${path} attempt=${attempts} retry_after_ms=${retryAfterMs}`);
+        }
         await sleep(retryAfterMs);
         continue;
       }
 
       // temporary server failure
       if (res.status >= 500) {
-        await sleep(1000 * attempts);
+        const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"), getAttemptBackoffMs(attempts));
+        if (ZOHO_DEBUG) {
+          console.warn(`[ZOHO RETRY] server error ${res.status} on ${method} ${path} attempt=${attempts} retry_after_ms=${retryAfterMs}`);
+        }
+        await sleep(retryAfterMs);
         continue;
       }
 
       const { data, raw } = await safeParseResponse(res);
+      lastStatus = res.status;
+      lastBodySnippet = raw ? raw.slice(0, 400) : null;
 
       if (!res.ok) {
+        if (isTransientHttpStatus(res.status)) {
+          lastError = new Error(`Transient Zoho API ${res.status}`);
+          const delay = getAttemptBackoffMs(attempts);
+          if (ZOHO_DEBUG) {
+            console.warn(`[ZOHO RETRY] transient response ${res.status} ${method} ${path} attempt=${attempts} delay_ms=${delay}`);
+          }
+          await sleep(delay);
+          continue;
+        }
+
         const messageFromBody =
           data?.message ||
           data?.error?.message ||
@@ -180,8 +252,20 @@ export class ZohoClient {
       return data;
     }
 
+    const elapsedMs = Date.now() - startedAt;
     const message = lastError?.message || "Zoho request failed after retries";
-    throw new Error(`Zoho request failed after retries: ${message}`);
+    const statusMeta = lastStatus ? ` status=${lastStatus}` : "";
+    const retryMeta = retryAfterMsFromServer ? ` retry_after_ms=${retryAfterMsFromServer}` : "";
+    const bodyMeta = lastBodySnippet ? ` body=${lastBodySnippet}` : "";
+    const diagnostic = `[ZOHO RETRY EXHAUSTED] ${method} ${path} attempts=${attempts} elapsed_ms=${elapsedMs}${statusMeta}${retryMeta}`;
+
+    const finalError = new Error(`${message} | ${diagnostic}${bodyMeta}`);
+    if (retryAfterMsFromServer) {
+      finalError.retryAfterMs = retryAfterMsFromServer;
+    }
+    finalError.isRetryExhausted = true;
+
+    throw finalError;
   }
 
   get(path, params) {
@@ -206,8 +290,13 @@ export class ZohoClient {
     let page = 1;
     let all = [];
     let lastModified = null;
+    const MAX_PAGES = 500;
 
     while (true) {
+      if (page > MAX_PAGES) {
+        throw new Error(`[ZOHO PAGINATION SAFEGUARD] Exceeded ${MAX_PAGES} pages for ${path}`);
+      }
+
       // Pass last_modified_time through as-is — Zoho returns timestamps in a format
       // it already accepts, so no conversion is needed. If the stored cursor is from
       // the old broken code (no timezone suffix), drop it and do a full resync
@@ -221,7 +310,7 @@ export class ZohoClient {
         }
       }
 
-      const data = await this.get(path, { ...safeParams, page });
+      const data = await this.get(path, { ...safeParams, page, per_page: 200 });
 
       const records = data[arrayKey] || [];
       if (!records.length) break;
@@ -234,6 +323,9 @@ export class ZohoClient {
       if (!data.page_context?.has_more_page) break;
 
       page++;
+
+      // Light pacing between pages to avoid burst limits in large backfills.
+      await sleep(120 + jitter(120));
     }
 
     return { records: all, lastModified };

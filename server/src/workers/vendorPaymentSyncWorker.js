@@ -1,7 +1,6 @@
 import { RawZohoVendorPayment } from "../models/raw/rawZohoVendorPaymentModel.js";
 import { ZohoConnection } from "../models/zohoConnectionModel.js";
 import { ZohoClient } from "../services/zohoClient.js";
-import { SyncJob } from "../models/scheduler/syncJobModel.js";
 import { rebuildVendorPaymentLedger } from "../services/ledger/rebuildVendorPaymentLedger.js";
 
 export const runVendorPaymentSync = async (job) => {
@@ -118,19 +117,8 @@ export const runVendorPaymentSync = async (job) => {
 
   } catch (error) {
     console.error("[PAYMENT SYNC] Failed:", error.message);
-
-    // ❗ DO NOT overwrite cursor on failure
-    await SyncJob.updateOne(
-      { _id: job._id },
-      {
-        $set: {
-          status: "failed",
-          lastError: error.message,
-        },
-        $inc: { retryCount: 1 },
-      }
-    );
-
+    error.jobType = job.jobType;
+    error.connectionId = String(job.connectionId);
     throw error;
   }
 };
