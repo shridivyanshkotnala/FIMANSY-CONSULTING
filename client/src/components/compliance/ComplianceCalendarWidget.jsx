@@ -32,7 +32,7 @@ const parseDate = (dateStr) => {
   }
 };
 
-export function ComplianceCalendar({ obligations = [], loading, currentDate }) {
+export function ComplianceCalendar({ obligations = [], loading, currentDate, onDayClick }) {
   const effectiveCurrentDate = currentDate || new Date();
   const effectiveTimestamp = new Date(effectiveCurrentDate).getTime();
   const [currentMonth, setCurrentMonth] = useState(new Date(effectiveCurrentDate));
@@ -214,12 +214,18 @@ export function ComplianceCalendar({ obligations = [], loading, currentDate }) {
             const key = format(day, "yyyy-MM-dd");
             const dayObs = obligationsByDate[key];
             const isToday = isSameDay(day, today);
+            const hasObligations = Array.isArray(dayObs) && dayObs.length > 0;
 
             return (
               <div
                 key={key}
+                onClick={() => {
+                  if (!hasObligations) return;
+                  onDayClick?.(day, dayObs);
+                }}
                 className={cn(
-                  "h-12 flex flex-col items-center justify-center rounded-lg transition relative cursor-pointer hover:ring-1 hover:ring-primary",
+                  "h-12 flex flex-col items-center justify-center rounded-lg transition relative hover:ring-1 hover:ring-primary",
+                  hasObligations ? "cursor-pointer" : "cursor-default",
                   getDayClass(day),
                   isToday && "ring-2 ring-primary ring-offset-2"
                 )}

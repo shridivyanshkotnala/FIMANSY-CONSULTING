@@ -17,6 +17,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { ComplianceFilingModal } from "./ComplianceFilingModal";
 import { ComplianceCalendar } from "./ComplianceCalendarWidget";
@@ -70,6 +77,9 @@ export function FixedScheduleTab({ currentDate }) {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [localTickets, setLocalTickets] = useState([]);
+  const [calendarDayPickerOpen, setCalendarDayPickerOpen] = useState(false);
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
+  const [selectedCalendarObligations, setSelectedCalendarObligations] = useState([]);
 
   const effectiveCurrentDate = currentDate || new Date();
   const today = startOfDay(new Date(effectiveCurrentDate));
@@ -169,6 +179,26 @@ export function FixedScheduleTab({ currentDate }) {
       setFilingModal(obligation);
     }
   };
+
+  const handleCalendarDayClick = useCallback(
+    (day, dayObligations) => {
+      if (!Array.isArray(dayObligations) || dayObligations.length === 0) return;
+
+      const sorted = [...dayObligations].sort(
+        (a, b) => new Date(a?.due_date || 0) - new Date(b?.due_date || 0)
+      );
+
+      if (sorted.length === 1) {
+        handleObligationClick(sorted[0]);
+        return;
+      }
+
+      setSelectedCalendarDay(day);
+      setSelectedCalendarObligations(sorted);
+      setCalendarDayPickerOpen(true);
+    },
+    [handleObligationClick]
+  );
 
   const handleDrawerClose = useCallback((open) => {
     setDrawerOpen(open);
@@ -451,7 +481,40 @@ export function FixedScheduleTab({ currentDate }) {
         </Card>
       </div>
 
-      <ComplianceCalendar obligations={localObligations} currentDate={effectiveCurrentDate} />
+      <ComplianceCalendar
+        obligations={localObligations}
+        currentDate={effectiveCurrentDate}
+        onDayClick={handleCalendarDayClick}
+      />
+
+      <Dialog open={calendarDayPickerOpen} onOpenChange={setCalendarDayPickerOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedCalendarDay
+                ? `Compliances due on ${format(selectedCalendarDay, "dd MMM yyyy")}`
+                : "Compliances for selected date"}
+            </DialogTitle>
+            <DialogDescription>
+              Select a compliance below to view ticket status or raise a new ticket.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[55vh] overflow-y-auto space-y-2 pr-1">
+            {selectedCalendarObligations.map((obligation) => (
+              <div
+                key={obligation._id}
+                onClick={() => {
+                  setCalendarDayPickerOpen(false);
+                  handleObligationClick(obligation);
+                }}
+              >
+                {renderObligationRow(obligation)}
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
