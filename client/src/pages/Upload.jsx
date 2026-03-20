@@ -1,7 +1,7 @@
 // React and routing imports
 import { useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useProcessInvoiceMutation } from "@/Redux/Slices/api/uploadApi"; // Redux mutation for AI extraction
+import { useInitInvoiceUploadMutation, useProcessInvoiceMutation } from "@/Redux/Slices/api/uploadApi"; // Redux mutation for AI extraction
 // Layout and UI components
 import { PillarLayout } from "@/components/layout/PillarLayout";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,9 @@ import { TransactionApprovalTable } from "@/components/bank/TransactionApprovalT
 import { InvoiceReviewModal } from "@/components/invoice/InvoiceReviewModal";
 import { WorkflowStepper } from "@/components/ui/workflow-stepper";
 import { ContextualHelp } from "@/components/ui/contextual-help";
-import { uploadFileToSignedUrl, uploadInvoice } from "@/lib/r2Upload"; // Function to upload files to Cloudflare R2
+import { uploadFileToSignedUrl } from "@/lib/r2Upload"; // Function to upload files to Cloudflare R2
 import { mapToZohoInvoice } from "@/lib/mapToZohoInvoice"; // Function to map extracted data to Zoho Invoice format
+import { mapToZohoExpense } from "@/lib/mapToZohoExpense";
 import {useSyncInvoiceMutation} from "@/Redux/Slices/api/invoiceApi"; // Redux mutation for syncing invoice to Zoho
 import {
   useCompleteCompanyDocumentUploadMutation,
@@ -129,6 +130,7 @@ export default function Upload() {
   const [reviewingBankStatement, setReviewingBankStatement] = useState(null); // Index of bank statement being reviewed
   const [reviewingInvoice, setReviewingInvoice] = useState(null); // Index of invoice being reviewed
   const [isSaving, setIsSaving] = useState(false); // Flag for save operation in progress // Flag for save operation in progress
+  const [initInvoiceUpload] = useInitInvoiceUploadMutation();
   const [extractInvoice, { isLoading: isExtracting, error: extractError }] = useProcessInvoiceMutation();
   const [initCompanyDocumentUpload] = useInitCompanyDocumentUploadMutation();
   const [completeCompanyDocumentUpload] = useCompleteCompanyDocumentUploadMutation();
@@ -196,8 +198,14 @@ export default function Upload() {
       // ===============================
       // 1️⃣ Upload to Cloudflare R2
       // ===============================
-      const userId = localStorage.getItem("userId") || "guest";
-      const publicUrl = await uploadInvoice(file, userId);
+      const uploadInit = await initInvoiceUpload({
+        fileName: file.name,
+        contentType: file.type || "application/pdf",
+        fileSize: file.size,
+      }).unwrap();
+
+      await uploadFileToSignedUrl(file, uploadInit.uploadUrl);
+      const publicUrl = uploadInit.fileUrl;
 
 
       setFiles(prev => prev.map((f, i) =>
@@ -210,7 +218,8 @@ export default function Upload() {
       // ===============================
       const extractionResult = await extractInvoice({
         fileUrl: publicUrl,
-        fileName: file.name
+        fileName: file.name,
+        documentType,
       }).unwrap();
 
 
@@ -526,9 +535,12 @@ export default function Upload() {
         status: "approved",
         approvedAt: new Date().toISOString(),
         pdf_url: fileData.pdfUrl, // comes from R2 upload
+          source_file: fileData.pdfUrl,
         duplicate_check_key: `${invoice.vendor_name}-${invoice.invoice_number}`,
       };
-      const zohoInvoicePayload = mapToZohoInvoice(approvedInvoice);
+      const zohoInvoicePayload = documentType === "expense_invoice"
+        ? mapToZohoExpense(approvedInvoice)
+        : mapToZohoInvoice(approvedInvoice);
 
       const result = await syncInvoice(zohoInvoicePayload).unwrap();
       if (!result.success) {
@@ -545,7 +557,9 @@ export default function Upload() {
 
       toast({
         title: "Success",
-        description: "Invoice data extracted and approved successfully",
+        description: documentType === "expense_invoice"
+          ? "Expense pushed to Zoho successfully"
+          : "Invoice data extracted and approved successfully",
       });
 
       setReviewingInvoice(null);
@@ -867,6 +881,7 @@ export default function Upload() {
             pdfUrl={reviewingInvoiceFile?.pdfUrl}
             onSave={handleConfirmInvoice}
             isSubmitting={isSaving}
+            saveLabel={documentType === "expense_invoice" ? "Approve & Push to Zoho" : "Save to Ledger"}
           />
 
           {/* Upload drop zone card - hidden when reviewing bank statement */}

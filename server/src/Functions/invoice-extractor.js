@@ -83,9 +83,9 @@ async function callGemini(buffer, mimeType) {
       throw new ApiError(500, "GEMINI_API_KEY is not configured");
     }
 /*
- */   // Use gemini-2.5-flash for PDF/image processing (latest model with available quota)
+ */   // Use gemini-2.5-pro for higher quality invoice extraction
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 2048,

@@ -23,7 +23,7 @@ const DOCUMENT_CATEGORIES = [
 ];
 
 // ---------------- COMPONENT ----------------
-export function InvoiceReviewModal({ open,onClose,invoice: initialInvoice,pdfUrl,onSave,isSubmitting = false }) {
+export function InvoiceReviewModal({ open,onClose,invoice: initialInvoice,pdfUrl,onSave,isSubmitting = false, saveLabel = "Save to Ledger" }) {
   const [invoice, setInvoice] = useState(initialInvoice);
 
   // Sync incoming invoice prop to local state
@@ -202,7 +202,7 @@ export function InvoiceReviewModal({ open,onClose,invoice: initialInvoice,pdfUrl
         <DialogFooter className="mt-6">
           {!isValidTotal&&(<div className="flex-1 flex items-center gap-2 text-yellow-600"><AlertTriangle className="h-4 w-4" /><span className="text-sm">Total amount must be greater than 0</span></div>)}
           <Button variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-          <Button onClick={()=>onSave(invoice)} disabled={!isValidTotal||isSubmitting}>{isSubmitting?'Saving...':(<><CheckCircle2 className="h-4 w-4 mr-2" />Save to Ledger</>)}</Button>
+          <Button onClick={()=>onSave(invoice)} disabled={!isValidTotal||isSubmitting}>{isSubmitting?'Saving...':(<><CheckCircle2 className="h-4 w-4 mr-2" />{saveLabel}</>)}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
