@@ -14,6 +14,15 @@ const LOCK_TIMEOUT = 10 * 60 * 1000;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const JOB_STAGGER_MS = {
+  sync_invoices: 0,
+  sync_payments: 45 * 1000,
+  sync_credits: 90 * 1000,
+  generate_dso_metrics: 135 * 1000,
+  sync_bank_feeds: 180 * 1000,
+  sync_vendor_payments: 225 * 1000,
+};
+
 /**
  * Controlled retry delays
  * Prevents both hammering and infinite delays
@@ -67,7 +76,8 @@ export const startScheduler = async () => {
           // 3) run worker
           await runJobWorker(job);
 
-          const nextRunAt = new Date(Date.now() + JOB_FREQUENCY);
+          const stagger = JOB_STAGGER_MS[job.jobType] ?? 0;
+          const nextRunAt = new Date(Date.now() + JOB_FREQUENCY + stagger);
 
           await completeJob(job._id, INSTANCE_ID, nextRunAt);
 

@@ -45,6 +45,34 @@ import { toZohoTime } from "../utils/zohoTime.js";
 const ZOHO_BASE = "https://www.zohoapis.in/books/v3";
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+const parseRetryAfterMs = (retryAfterHeader, fallbackMs) => {
+  if (!retryAfterHeader) return fallbackMs;
+
+  const numeric = Number(retryAfterHeader);
+  if (Number.isFinite(numeric) && numeric >= 0) {
+    return Math.max(fallbackMs, numeric * 1000);
+  }
+
+  const retryDate = new Date(retryAfterHeader);
+  if (!Number.isNaN(retryDate.getTime())) {
+    return Math.max(fallbackMs, retryDate.getTime() - Date.now());
+  }
+
+  return fallbackMs;
+};
+
+const safeParseResponse = async (res) => {
+  const raw = await res.text();
+  if (!raw) return { data: null, raw: "" };
+
+  try {
+    return { data: JSON.parse(raw), raw };
+  } catch {
+    return { data: null, raw };
+  }
+};
 
 export class ZohoClient {
   constructor({ accessToken = null, organizationId = null, connection = null }) {
@@ -64,6 +92,8 @@ export class ZohoClient {
 
   async request(method, path, { params = {}, body = null, idempotencyKey = null } = {}) {
     let attempts = 0;
+    let lastError = null;
+    let unauthorizedCount = 0;
 
     while (attempts < 4) {
       attempts++;
@@ -78,26 +108,54 @@ export class ZohoClient {
         if (v !== undefined && v !== null) url.searchParams.set(k, v);
       });
 
-      const res = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Zoho-oauthtoken ${this.accessToken}`,
-          "Content-Type": "application/json",
-          ...(idempotencyKey && { "X-Idempotency-Key": idempotencyKey }),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      let res;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+        try {
+          res = await fetch(url, {
+            method,
+            headers: {
+              Authorization: `Zoho-oauthtoken ${this.accessToken}`,
+              "Content-Type": "application/json",
+              ...(idempotencyKey && { "X-Idempotency-Key": idempotencyKey }),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
+      } catch (networkErr) {
+        lastError = networkErr;
+        const delay = 1000 * attempts;
+        await sleep(delay);
+        continue;
+      }
 
       // token revoked while job running
       if (res.status === 401 && this.connection) {
+        unauthorizedCount += 1;
+
+        if (unauthorizedCount >= 2) {
+          this.connection.status = "expired";
+          await this.connection.save();
+
+          throw new Error("Zoho authorization expired or revoked. Please reconnect Zoho integration.");
+        }
+
         // force refresh next loop
         this.connection.tokenExpiry = new Date(0);
         continue;
       }
 
+      unauthorizedCount = 0;
+
       // rate limit
       if (res.status === 429) {
-        await sleep(1500 * attempts);
+        const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"), 1500 * attempts);
+        await sleep(retryAfterMs);
         continue;
       }
 
@@ -107,14 +165,23 @@ export class ZohoClient {
         continue;
       }
 
-      const data = await res.json();
+      const { data, raw } = await safeParseResponse(res);
 
-      if (!res.ok) throw new Error(data.message || "Zoho API error");
+      if (!res.ok) {
+        const messageFromBody =
+          data?.message ||
+          data?.error?.message ||
+          data?.error ||
+          (raw ? raw.slice(0, 300) : "");
+
+        throw new Error(`Zoho API ${res.status}: ${messageFromBody || "Request failed"}`);
+      }
 
       return data;
     }
 
-    throw new Error("Zoho request failed after retries");
+    const message = lastError?.message || "Zoho request failed after retries";
+    throw new Error(`Zoho request failed after retries: ${message}`);
   }
 
   get(path, params) {
