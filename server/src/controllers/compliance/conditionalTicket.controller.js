@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { ComplianceTicket } from "../../models/compliance/complianceTicketModel.js";
 import { ComplianceComment } from "../../models/compliance/complianceCommentModel.js";
 import { ComplianceTemplate } from "../../models/compliance/complianceTemplateModel.js";
+import { getTestingAwareNow } from "../../utils/testingDate.js";
 
 const ALLOWED_CATEGORY = new Set(["gst", "tds", "income_tax", "mca", "payroll", "other"]);
 
@@ -49,7 +50,7 @@ async function generateTicketNumber() {
  * Get current financial year
  */
 function getCurrentFinancialYear() {
-  const now = new Date();
+  const now = getTestingAwareNow();
   const year = now.getFullYear();
   return now.getMonth() >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
 }

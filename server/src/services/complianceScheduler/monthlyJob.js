@@ -2,9 +2,10 @@
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
 import { generateCurrentMonthObligations } from "./monthlyComplianceGenerator.js";
 import Organization from "../../models/organizationModel.js";
+import { getTestingAwareNow } from "../../utils/testingDate.js";
 
 export async function runMonthlyJob() {
-  const today = new Date();
+  const today = getTestingAwareNow();
   console.log(`\n RUNNING MONTHLY JOB: ${today.toISOString()}`);
   
   // CASE 1: April 1st - Generate FULL FY obligations (annual setup)

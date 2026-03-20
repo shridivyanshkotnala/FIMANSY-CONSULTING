@@ -2,9 +2,10 @@ import mongoose from "mongoose";
 import { ComplianceObligation } from "../../models/compliance/complianceObligationModel.js";
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
+import { getTestingAwareNow } from "../../utils/testingDate.js";
 
 function getCurrentFinancialYear() {
-  const today = new Date();
+  const today = getTestingAwareNow();
   const year = today.getFullYear();
   const month = today.getMonth();
 

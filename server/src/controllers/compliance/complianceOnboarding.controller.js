@@ -9,6 +9,7 @@ import { asynchandler } from "../../utils/asynchandler.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { generateObligationsForFY } from "../../Functions/complianceMainEngine.js";
+import { getTestingAwareNow } from "../../utils/testingDate.js";
 
 // ==============================
 // Constants for company types
@@ -36,7 +37,7 @@ const getMissingFields = (profile) => {
 };
 
 const getCurrentFinancialYear = () => {
-  const today = new Date();
+  const today = getTestingAwareNow();
   const year = today.getFullYear();
   const month = today.getMonth();
   return month >= 3 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
