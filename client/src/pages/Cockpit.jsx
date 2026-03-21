@@ -138,51 +138,51 @@ export default function Cockpit() {
 
   return (
     <PillarLayout>
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-8">
 
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary/10">
+            <div className="p-2.5 rounded-xl bg-primary/10 border border-primary/20">
               <Zap className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Command Centre</h1>
-              <p className="text-muted-foreground">Your daily operating console</p>
+              <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Command Centre</h1>
+              <p className="text-sm md:text-base text-muted-foreground">A clean view of your daily financial priorities</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            <Badge variant="outline" className="text-sm">
+              {format(new Date(), "EEEE, dd MMM")}
+            </Badge>
             <Button variant="outline" onClick={() => setBookingModalOpen(true)} className="gap-2">
               <CalendarClock className="h-4 w-4" />
               Book a Consultant
             </Button>
-            <Badge variant="outline" className="text-sm">
-              {format(new Date(), "EEEE, dd MMM")}
-            </Badge>
           </div>
         </div>
 
-        <Card className="border-primary/30 bg-gradient-to-r from-primary/10 via-background to-warning/10">
+        <Card className="border-border/70 bg-gradient-to-r from-primary/5 via-background to-warning/5 shadow-sm">
           <CardContent className="p-5">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="flex items-start gap-3">
+            <div className="grid gap-5 md:grid-cols-3">
+              <div className="flex items-start gap-3 md:pr-4 md:border-r md:border-border/60">
                 <div className="p-2 rounded-lg bg-primary/15">
                   <Building2 className="h-4 w-4 text-primary" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Organization</p>
-                  <p className="text-lg font-semibold leading-tight">{organizationName}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Organization</p>
+                  <p className="text-lg font-semibold leading-tight mt-0.5">{organizationName}</p>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 md:px-2 md:border-r md:border-border/60">
                 <div className="p-2 rounded-lg bg-warning/15">
                   <IndianRupee className="h-4 w-4 text-warning" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Financial Year</p>
-                  <p className="text-lg font-semibold leading-tight">{fyLabel}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Current Financial Year</p>
+                  <p className="text-lg font-semibold leading-tight mt-0.5">{fyLabel}</p>
                 </div>
               </div>
 
@@ -191,16 +191,23 @@ export default function Cockpit() {
                   <CalendarRange className="h-4 w-4 text-success" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Quarter</p>
-                  <p className="text-lg font-semibold leading-tight">{quarter.label} • {quarter.period}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Current Quarter</p>
+                  <p className="text-lg font-semibold leading-tight mt-0.5">{quarter.label} • {quarter.period}</p>
                 </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg md:text-xl font-semibold">Today’s priorities</h2>
+            <p className="text-sm text-muted-foreground">Click a card to open the relevant workflow.</p>
+          </div>
+        </div>
+
         {/* Pulse Tiles */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
 
           <PulseTile
             id="cashflow"

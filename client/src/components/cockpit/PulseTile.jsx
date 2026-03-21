@@ -27,59 +27,75 @@ export function PulseTile({
   onDrillDown
 }) {
   const statusColors = {
-    green: "border-primary/30 bg-primary/5 hover:bg-primary/10",
-    amber: "border-warning/30 bg-warning/5 hover:bg-warning/10",
-    red: "border-destructive/30 bg-destructive/5 hover:bg-destructive/10",
+    green: "border-primary/25 bg-card hover:bg-primary/5",
+    amber: "border-warning/25 bg-card hover:bg-warning/5",
+    red: "border-destructive/25 bg-card hover:bg-destructive/5",
   };
 
   const iconColors = {
-    green: "text-primary bg-primary/10",
-    amber: "text-warning bg-warning/10",
-    red: "text-destructive bg-destructive/10",
+    green: "text-primary bg-primary/10 border border-primary/20",
+    amber: "text-warning bg-warning/10 border border-warning/20",
+    red: "text-destructive bg-destructive/10 border border-destructive/20",
   };
 
-  const StatusIndicator = () => {
-    if (status === "green") return <CheckCircle2 className="h-4 w-4 text-primary" />;
-    if (status === "amber") return <Clock className="h-4 w-4 text-warning" />;
-    return <AlertCircle className="h-4 w-4 text-destructive" />;
+  const statusLabel = {
+    green: "Healthy",
+    amber: "Watch",
+    red: "Urgent",
   };
+
+  const StatusIcon =
+    status === "green"
+      ? CheckCircle2
+      : status === "amber"
+      ? Clock
+      : AlertCircle;
 
   return (
     <button
       onClick={onDrillDown}
       className={cn(
-        "w-full p-5 rounded-2xl border-2 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-lg group",
+        "w-full rounded-2xl border p-5 md:p-6 text-left transition-all duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 group",
         statusColors[status]
       )}
     >
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-5">
         <div className={cn("p-3 rounded-xl", iconColors[status])}>
           <Icon className="h-5 w-5" />
         </div>
-        <StatusIndicator />
+
+        <span className={cn(
+          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium",
+          status === "green" && "bg-primary/10 text-primary",
+          status === "amber" && "bg-warning/10 text-warning",
+          status === "red" && "bg-destructive/10 text-destructive"
+        )}>
+          <StatusIcon className="h-3.5 w-3.5" />
+          {statusLabel[status]}
+        </span>
       </div>
 
-      <div className="mb-4">
-        <p className="text-3xl font-bold tracking-tight">{value}</p>
+      <div className="mb-5">
+        <p className="text-2xl md:text-[2rem] font-semibold tracking-tight">{value}</p>
         {subtitle && (
-          <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+          <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{subtitle}</p>
         )}
 
         {details.length > 0 && (
-          <div className="mt-3 space-y-1.5">
+          <div className="mt-4 rounded-xl border border-border/70 bg-muted/20 p-3 space-y-2">
             {details.map((detail) => (
               <div key={detail.label} className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{detail.label}</span>
-                <span className="font-medium text-foreground">{detail.value}</span>
+                <span className="font-semibold text-foreground">{detail.value}</span>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">{title}</span>
-        <span className="text-xs text-primary font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-sm font-semibold">{title}</span>
+        <span className="text-xs text-primary font-medium flex items-center gap-1 transition-transform group-hover:translate-x-0.5">
           {actionLabel}
           <ChevronRight className="h-3 w-3" />
         </span>
