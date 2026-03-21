@@ -83,24 +83,46 @@ const STATE_NAME_TO_POS = {
   dadraandnagarhavelianddamananddiu: "DN",
 };
 
+const POS_TO_GST_STATE_CODE = Object.entries(GST_STATE_CODE_TO_POS).reduce(
+  (acc, [code, pos]) => {
+    acc[pos] = code;
+    return acc;
+  },
+  {}
+);
+
 const normalizePlaceOfSupply = (value) => {
   const raw = String(value || "").trim();
-  if (!raw) return undefined;
+  if (!raw) return { alpha: undefined, numeric: undefined };
 
   const directCode = raw.match(/^([A-Za-z]{2})$/);
-  if (directCode) return directCode[1].toUpperCase();
+  if (directCode) {
+    const alpha = directCode[1].toUpperCase();
+    return { alpha, numeric: POS_TO_GST_STATE_CODE[alpha] };
+  }
 
   const gstCodeWithState = raw.match(/^(\d{1,2})\s*[- ]\s*([A-Za-z]{2})$/);
-  if (gstCodeWithState) return gstCodeWithState[2].toUpperCase();
+  if (gstCodeWithState) {
+    const numeric = gstCodeWithState[1].padStart(2, "0");
+    const alpha = gstCodeWithState[2].toUpperCase();
+    return { alpha, numeric };
+  }
 
   const onlyGstCode = raw.match(/^(\d{1,2})$/);
   if (onlyGstCode) {
     const padded = onlyGstCode[1].padStart(2, "0");
-    return GST_STATE_CODE_TO_POS[padded] || undefined;
+    return {
+      alpha: GST_STATE_CODE_TO_POS[padded] || undefined,
+      numeric: padded,
+    };
   }
 
   const normalizedName = String(raw).toLowerCase().replace(/[^a-z]/g, "");
-  return STATE_NAME_TO_POS[normalizedName] || undefined;
+  const alpha = STATE_NAME_TO_POS[normalizedName] || undefined;
+  return {
+    alpha,
+    numeric: alpha ? POS_TO_GST_STATE_CODE[alpha] : undefined,
+  };
 };
 
 const toDateString = (value) => {
@@ -193,12 +215,39 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
     is_inclusive_tax: true,
     ...(paidThroughAccountId ? { paid_through_account_id: paidThroughAccountId } : {}),
     ...(gstNo ? { gst_no: gstNo, gst_treatment: "business_gst" } : {}),
-    ...(placeOfSupply ? { place_of_supply: placeOfSupply } : {}),
+    ...(placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
   };
 
-  return await zohoClient.post(
-    "/expenses",
-    payload,
-    `expense-${expenseData.invoice_number || Date.now()}`
-  );
+  const idempotencyKey = `expense-${expenseData.invoice_number || Date.now()}`;
+
+  try {
+    return await zohoClient.post("/expenses", payload, idempotencyKey);
+  } catch (error) {
+    const message = String(error?.message || "").toLowerCase();
+    const invalidPos = message.includes("invalid element place_of_supply");
+
+    if (!invalidPos) {
+      throw error;
+    }
+
+    // Fallback 1: try numeric GST state code if available (e.g., 27).
+    if (placeOfSupply?.numeric) {
+      const numericPayload = {
+        ...payload,
+        place_of_supply: placeOfSupply.numeric,
+      };
+      try {
+        return await zohoClient.post("/expenses", numericPayload, idempotencyKey);
+      } catch (secondError) {
+        const secondMessage = String(secondError?.message || "").toLowerCase();
+        if (!secondMessage.includes("invalid element place_of_supply")) {
+          throw secondError;
+        }
+      }
+    }
+
+    // Fallback 2: omit place_of_supply entirely when Zoho rejects it.
+    const { place_of_supply, ...payloadWithoutPos } = payload;
+    return await zohoClient.post("/expenses", payloadWithoutPos, idempotencyKey);
+  }
 }
