@@ -207,10 +207,16 @@ async function resolveExpenseTaxId(zohoClient, expenseData) {
 
   const desiredRate = Number(effectiveRate.toFixed(2));
 
-  const taxData = await zohoClient.get("/settings/taxes", {
-    page: 1,
-    per_page: 200,
-  });
+  let taxData;
+  try {
+    taxData = await zohoClient.get("/settings/taxes", {
+      page: 1,
+      per_page: 200,
+    });
+  } catch (err) {
+    // Non-fatal: some orgs/users may not have access to tax settings endpoint.
+    return null;
+  }
 
   const taxGroups = taxData?.tax_groups || [];
   const taxes = taxData?.taxes || [];

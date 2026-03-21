@@ -27,10 +27,40 @@ const rawBaseQuery = fetchBaseQuery({
   }
 });
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const runWithTransientRetry = async (args, api, extraOptions) => {
+  const maxAttempts = 3;
+  let attempt = 0;
+  let result;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    result = await rawBaseQuery(args, api, extraOptions);
+
+    const status = result?.error?.status;
+    const isTransient =
+      status === "FETCH_ERROR" ||
+      status === "PARSING_ERROR" ||
+      status === 502 ||
+      status === 503 ||
+      status === 504;
+
+    if (!isTransient || attempt >= maxAttempts) {
+      return result;
+    }
+
+    // Backoff for Render cold starts / transient gateway errors
+    await sleep(700 * attempt);
+  }
+
+  return result;
+};
+
 
 const baseQueryWithRefresh = async (args, api, extraOptions) => {
   try {
-    let result = await rawBaseQuery(args, api, extraOptions);
+    let result = await runWithTransientRetry(args, api, extraOptions);
 
     // access token expired → attempt refresh
     if (result?.error?.status === 401) {
@@ -63,7 +93,7 @@ const baseQueryWithRefresh = async (args, api, extraOptions) => {
         );
 
         // retry original request after refresh
-        result = await rawBaseQuery(args, api, extraOptions);
+        result = await runWithTransientRetry(args, api, extraOptions);
       } else {
         api.dispatch(clearAuth());
       }
