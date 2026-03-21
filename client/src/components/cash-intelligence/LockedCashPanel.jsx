@@ -51,7 +51,7 @@ export function LockedCashPanel() {
       className="col-span-1 cursor-pointer transition-all hover:shadow-card-hover group"
       onClick={() => navigate("/documents?filter=receivables")}
     >
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-1">
         <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
           <div className="p-1.5 rounded-md bg-warning/10">
             <Lock className="h-4 w-4 text-warning" />
@@ -61,42 +61,47 @@ export function LockedCashPanel() {
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold">{formatCurrency(totalLocked)}</span>
-          {atRiskCount > 0 && (
-            <Badge variant="destructive" className="text-xs">
-              <AlertTriangle className="h-3 w-3 mr-1" />
-              {atRiskCount} at risk
-            </Badge>
-          )}
-        </div>
+      <CardContent className="pt-3 pb-4">
+        <div className="grid gap-3 lg:grid-cols-[1.15fr_1fr]">
+          <div className="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-3xl font-bold leading-none">{formatCurrency(totalLocked)}</span>
+              {atRiskCount > 0 && (
+                <Badge variant="destructive" className="text-xs">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  {atRiskCount} at risk
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">Outstanding receivables currently locked in cycle</p>
 
-        {/* Aging Buckets */}
-        <div className="space-y-1.5 text-xs">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">0–30 days</span>
-            <span className="font-medium text-success">{formatCurrency(b0_30)}</span>
+            <div className="h-2.5 flex rounded-full overflow-hidden bg-background/70 border border-border/50 max-w-sm">
+              {totalLocked > 0 && (
+                <>
+                  <div className="bg-success" style={{ width: `${(b0_30 / totalLocked) * 100}%` }} />
+                  <div className="bg-warning" style={{ width: `${(b30_45 / totalLocked) * 100}%` }} />
+                  <div className="bg-destructive" style={{ width: `${(b46_plus / totalLocked) * 100}%` }} />
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">31–45 days</span>
-            <span className="font-medium text-warning">{formatCurrency(b30_45)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">46+ days</span>
-            <span className="font-medium text-destructive">{formatCurrency(b46_plus)}</span>
-          </div>
-        </div>
 
-        {/* Progress bar */}
-        <div className="h-2 flex rounded-full overflow-hidden bg-muted">
-          {totalLocked > 0 && (
-            <>
-              <div className="bg-success"     style={{ width: `${(b0_30    / totalLocked) * 100}%` }} />
-              <div className="bg-warning"     style={{ width: `${(b30_45   / totalLocked) * 100}%` }} />
-              <div className="bg-destructive" style={{ width: `${(b46_plus / totalLocked) * 100}%` }} />
-            </>
-          )}
+          <div className="rounded-xl border border-border/60 bg-muted/10 p-2.5 grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-2">
+            <div className="rounded-lg border border-border/50 bg-background/40 px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">0–30 days</p>
+              <p className="text-sm font-semibold text-success mt-0.5">{formatCurrency(b0_30)}</p>
+            </div>
+
+            <div className="rounded-lg border border-border/50 bg-background/40 px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">31–45 days</p>
+              <p className="text-sm font-semibold text-warning mt-0.5">{formatCurrency(b30_45)}</p>
+            </div>
+
+            <div className="rounded-lg border border-border/50 bg-background/40 px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">46+ days</p>
+              <p className="text-sm font-semibold text-destructive mt-0.5">{formatCurrency(b46_plus)}</p>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
