@@ -90,6 +90,15 @@ export function BankTransactionList() {
       .trim()
       .replace(/\b\w/g, (m) => m.toUpperCase());
 
+  const firstNonEmpty = (...values) => {
+    for (const value of values) {
+      if (value == null) continue;
+      const str = String(value).trim();
+      if (str) return str;
+    }
+    return null;
+  };
+
   const getCategoryLabel = (t, desc = "") => {
     const zohoLabel = t.zohoCategory || "";
     if (zohoLabel) return toLabel(zohoLabel);
@@ -145,11 +154,24 @@ export function BankTransactionList() {
     const isExpense = normalizedTag.includes("expense");
     const isVendorAdvance = normalizedTag.includes("vendor advance");
     const isVendorPayment = normalizedTag.includes("vendor payment");
-    const isTransfer = normalizedTag.includes("transfer to another account") || normalizedTag === "transfer";
+    const isTransfer =
+      normalizedTag.includes("transfer to another account") ||
+      normalizedTag.includes("transfer") ||
+      normalizedTag === "transfer";
     const isCardPayment = normalizedTag.includes("card payment");
-    const isOwnerDrawings = normalizedTag.includes("owner drawings");
+    const isOwnerDrawings =
+      normalizedTag.includes("owner drawings") ||
+      normalizedTag.includes("owners drawings") ||
+      normalizedTag.includes("drawings");
     const isPaymentRefund = normalizedTag.includes("payment refund");
     const isCreditNoteRefund = normalizedTag.includes("credit note refund");
+    const ownerDrawingsAccount = firstNonEmpty(
+      toAccount,
+      expenseAccount,
+      fromAccount,
+      t.offsetAccount,
+      t.offset_account_name
+    );
 
     return (
       <div className="text-sm">
@@ -179,8 +201,12 @@ export function BankTransactionList() {
           <div className="text-muted-foreground text-sm">To Account: {toAccount}</div>
         )}
 
-        {isOwnerDrawings && toAccount && (
-          <div className="text-muted-foreground text-sm">To Account: {toAccount}</div>
+        {isOwnerDrawings && ownerDrawingsAccount && (
+          <div className="text-muted-foreground text-sm">Account: {ownerDrawingsAccount}</div>
+        )}
+
+        {(isTransfer || isCardPayment || isOwnerDrawings) && rawDesc && (
+          <div className="text-muted-foreground text-sm">Description: {cleanDescription(rawDesc)}</div>
         )}
 
         {isPaymentRefund && customer && (
@@ -201,7 +227,7 @@ export function BankTransactionList() {
           <div className="text-muted-foreground text-sm">Customer: {customer}</div>
         )}
 
-        {rawDesc && (
+        {rawDesc && !(isTransfer || isCardPayment || isOwnerDrawings) && (
           <div className="text-muted-foreground text-sm">{cleanDescription(rawDesc)}</div>
         )}
       </div>
@@ -380,7 +406,11 @@ export function BankTransactionList() {
                               <SelectItem value="rent">Rent</SelectItem>
                               <SelectItem value="salary">Salary</SelectItem>
                               <SelectItem value="payment">Vendor Payment</SelectItem>
-                              <SelectItem value="transfer">Transfer</SelectItem>
+                              <SelectItem value="transfer_to_another_account">Transfer To Another Account</SelectItem>
+                              <SelectItem value="owner_drawings">Owner Drawings</SelectItem>
+                              <SelectItem value="capital_stock">Capital Stock</SelectItem>
+                              <SelectItem value="dividends_paid">Dividends Paid</SelectItem>
+                              <SelectItem value="drawings">Drawings</SelectItem>
                               <SelectItem value="labor">Labor</SelectItem>
                               <SelectItem value="job_costing">Job Costing</SelectItem>
                               <SelectItem value="materials">Materials</SelectItem>

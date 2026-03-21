@@ -233,7 +233,10 @@ export const getBankDashboard = async ({
           payload.source_account_name,
           payload.paid_through_account_name,
           payload.paid_through,
-          payload.from_account
+          payload.from_account,
+          payload.account_name,
+          payload.bank_account_name,
+          payload.rule_details?.from_account_name
         );
 
         t.toAccount = pickFirst(
@@ -241,7 +244,11 @@ export const getBankDashboard = async ({
           payload.destination_account_name,
           payload.deposit_to_account_name,
           payload.deposit_to,
-          payload.to_account
+          payload.to_account,
+          payload.offset_account_name,
+          payload.offset_account,
+          payload.rule_details?.to_account_name,
+          payload.rule_details?.offset_account_name
         );
 
         t.paymentNumber = pickFirst(
