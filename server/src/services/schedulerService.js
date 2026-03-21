@@ -55,7 +55,6 @@ export const startScheduler = async () => {
         ]
       }).limit(10);
 
-
       for (const job of dueJobs) {
 
         // 2) attempt lock
