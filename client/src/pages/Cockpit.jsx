@@ -172,6 +172,14 @@ export default function Cockpit() {
 
   const complianceStatus = complianceCounts.overdue > 0 ? "red" : complianceCounts.pendingThisQuarter > 0 ? "amber" : "green";
 
+  // TODO: Replace with live payroll summary API when endpoint is finalized.
+  const payrollSnapshot = {
+    amount: 124000,
+    status: "amber",
+    employeesPayable: 14,
+    nextRunInDays: 3,
+  };
+
   return (
     <PillarLayout>
       <div className="mx-auto w-full max-w-[1380px] space-y-8 px-4 py-6 md:px-8">
@@ -288,12 +296,12 @@ export default function Cockpit() {
           />
 
           <PulseTile id="payroll" title="Payroll" icon={Wallet}
-            value={formatCurrency(mockData.payrollNetAmount)}
-            status={mockData.payrollStatus}
+            value={formatCurrency(payrollSnapshot.amount)}
+            status={payrollSnapshot.status}
             subtitle="Upcoming payroll outflow"
             details={[
-              { label: "Employees payable", value: `${mockData.employeesPayable}` },
-              { label: "Next run", value: `${mockData.payrollDueInDays} days` },
+              { label: "Employees payable", value: `${payrollSnapshot.employeesPayable}` },
+              { label: "Next run", value: `${payrollSnapshot.nextRunInDays} days` },
             ]}
             actionLabel="Open Payroll"
             onDrillDown={() => navigate("/payroll")}
