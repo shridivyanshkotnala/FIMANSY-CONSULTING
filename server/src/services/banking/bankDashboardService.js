@@ -26,6 +26,42 @@ const extractAmount = (...values) => {
   return null;
 };
 
+const matchesTransactionSearch = (t, searchText) => {
+  if (!searchText) return true;
+
+  const searchNumber = Number(String(searchText).replace(/[₹,\s]/g, ""));
+  if (Number.isFinite(searchNumber) && Number(t.amount) === searchNumber) {
+    return true;
+  }
+
+  const fields = [
+    t.description,
+    t.referenceNumber,
+    t.zohoDescription,
+    t.category,
+    t.zohoCategory,
+    t.vendor,
+    t.vendorName,
+    t.vendor_name,
+    t.customer,
+    t.customerName,
+    t.customer_name,
+    t.accountName,
+    t.offsetAccountName,
+    t.fromAccount,
+    t.toAccount,
+    t.expenseAccount,
+    t.paymentNumber,
+    t.reconciliationStatus,
+    t.type,
+    t.amount,
+  ]
+    .filter((v) => v !== null && v !== undefined)
+    .map((v) => String(v).toLowerCase());
+
+  return fields.some((value) => value.includes(searchText));
+};
+
 /**
  * Get Banking Dashboard Summary + Transactions
  *
@@ -80,60 +116,66 @@ export const getBankDashboard = async ({
     if (endDate) match.transactionDate.$lte = new Date(endDate);
   }
 
-  if (search) {
-    match.description = { $regex: search, $options: "i" };
-  }
-
   const skip = (page - 1) * limit;
+  const hasSearch = Boolean(String(search || "").trim());
+  const searchText = String(search || "").trim().toLowerCase();
 
   // -----------------------------
-  // PARALLEL EXECUTION
+  // FETCH BASE TRANSACTIONS
   // -----------------------------
-
-  const [summaryAgg, transactions, totalCount] = await Promise.all([
-
-    BankTransactionLedger.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: null,
-          totalCredits: {
-            $sum: {
-              $cond: [{ $eq: ["$type", "credit"] }, "$amount", 0]
-            }
-          },
-          totalDebits: {
-            $sum: {
-              $cond: [{ $eq: ["$type", "debit"] }, "$amount", 0]
-            }
-          },
-          unreconciledCount: {
-            $sum: {
-              $cond: [
-                { $eq: ["$reconciliationStatus", "unreconciled"] },
-                1,
-                0
-              ]
-            }
-          },
-        }
-      }
-    ]),
-
-    BankTransactionLedger.find(match)
-      .sort({ transactionDate: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-
-    BankTransactionLedger.countDocuments(match),
-  ]);
-
-  const summary = summaryAgg[0] || {
+  let summary = {
     totalCredits: 0,
     totalDebits: 0,
     unreconciledCount: 0,
   };
+  let transactions = [];
+  let totalCount = 0;
+
+  if (hasSearch) {
+    transactions = await BankTransactionLedger.find(match)
+      .sort({ transactionDate: -1 })
+      .lean();
+  } else {
+    const [summaryAgg, pagedTransactions, count] = await Promise.all([
+      BankTransactionLedger.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            totalCredits: {
+              $sum: {
+                $cond: [{ $eq: ["$type", "credit"] }, "$amount", 0]
+              }
+            },
+            totalDebits: {
+              $sum: {
+                $cond: [{ $eq: ["$type", "debit"] }, "$amount", 0]
+              }
+            },
+            unreconciledCount: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$reconciliationStatus", "unreconciled"] },
+                  1,
+                  0
+                ]
+              }
+            },
+          }
+        }
+      ]),
+      BankTransactionLedger.find(match)
+        .sort({ transactionDate: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      BankTransactionLedger.countDocuments(match),
+    ]);
+
+    summary = summaryAgg[0] || summary;
+    transactions = pagedTransactions;
+    totalCount = count;
+  }
 
   // -----------------------------
   // UI-FRIENDLY TRANSFORMATION
@@ -317,6 +359,29 @@ export const getBankDashboard = async ({
   } catch (err) {
     // non-fatal enrichment error
     console.warn("Failed to enrich bank transactions with raw Zoho payloads", err);
+  }
+
+  if (hasSearch) {
+    const filteredTransactions = transformedTransactions.filter((t) =>
+      matchesTransactionSearch(t, searchText)
+    );
+
+    totalCount = filteredTransactions.length;
+    transformedTransactions = filteredTransactions.slice(skip, skip + limit);
+
+    summary = filteredTransactions.reduce(
+      (acc, t) => {
+        if (t.type === "credit") acc.totalCredits += Number(t.amount || 0);
+        if (t.type === "debit") acc.totalDebits += Number(t.amount || 0);
+        if (t.reconciliationStatus === "unreconciled") acc.unreconciledCount += 1;
+        return acc;
+      },
+      {
+        totalCredits: 0,
+        totalDebits: 0,
+        unreconciledCount: 0,
+      }
+    );
   }
 
   return {

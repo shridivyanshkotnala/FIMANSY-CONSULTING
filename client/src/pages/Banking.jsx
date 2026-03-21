@@ -1,11 +1,9 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PillarLayout } from "@/components/layout/PillarLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { VendorManagement } from "@/components/banking/VendorManagement";
-import { MakePayment } from "@/components/banking/MakePayment";
 import { PaymentHistory } from "@/components/banking/PaymentHistory";
 import { BankTransactionList } from "@/components/banking/BankTransactionList";
-import { Building2, Send, History, Receipt, ArrowLeft, CreditCard, Upload } from "lucide-react";
+import { History, Receipt, ArrowLeft, CreditCard, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileBanking } from "@/components/mobile/MobileBanking";
@@ -16,7 +14,10 @@ export default function Banking() {
 
   // Persist tab in URL so refresh / navigation doesn't reset UI
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") || "transactions";
+  const activeTabFromUrl = searchParams.get("tab") || "transactions";
+  const activeTab = ["transactions", "history"].includes(activeTabFromUrl)
+    ? activeTabFromUrl
+    : "transactions";
 
   const setActiveTab = (value) => {
     setSearchParams({ tab: value });
@@ -58,40 +59,22 @@ export default function Banking() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-lg grid-cols-4">
+          <TabsList className="grid w-full max-w-lg grid-cols-2">
 
             <TabsTrigger value="transactions" className="flex items-center gap-2">
               <Receipt className="h-4 w-4" />
               <span className="hidden sm:inline">Transactions</span>
             </TabsTrigger>
 
-            <TabsTrigger value="vendors" className="flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Vendors</span>
-            </TabsTrigger>
-
-            <TabsTrigger value="payment" className="flex items-center gap-2">
-              <Send className="h-4 w-4" />
-              <span className="hidden sm:inline">Pay</span>
-            </TabsTrigger>
-
             <TabsTrigger value="history" className="flex items-center gap-2">
               <History className="h-4 w-4" />
-              <span className="hidden sm:inline">History</span>
+              <span className="hidden sm:inline">Vendor Payments</span>
             </TabsTrigger>
 
           </TabsList>
 
           <TabsContent value="transactions" className="mt-6">
             <BankTransactionList />
-          </TabsContent>
-
-          <TabsContent value="vendors" className="mt-6">
-            <VendorManagement />
-          </TabsContent>
-
-          <TabsContent value="payment" className="mt-6">
-            <MakePayment />
           </TabsContent>
 
           <TabsContent value="history" className="mt-6">

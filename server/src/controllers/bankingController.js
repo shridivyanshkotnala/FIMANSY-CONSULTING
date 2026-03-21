@@ -46,9 +46,33 @@ import { rebuildVendorPaymentLedger } from "../services/ledger/rebuildVendorPaym
 import { ZohoConnection } from "../models/zohoConnectionModel.js";
 import { SyncJob } from "../models/scheduler/syncJobModel.js";
 import { RawZohoVendorPayment } from "../models/raw/rawZohoVendorPaymentModel.js";
+import { RawZohoBankTransaction } from "../models/raw/rawZohoBankTransactionModel.js";
 import { ZohoClient } from "../services/zohoClient.js";
 import { VendorPaymentLedger } from "../models/ledger/vendorPaymentLedgerModel.js";
 import { BankReconQuery } from "../models/bankReconQueryModel.js";
+
+const pickFirst = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+      continue;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "object" && value) return value;
+  }
+  return null;
+};
+
+const extractAmount = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
 
 export const getBankDashboardController = async (req, res, next) => {
   try {
@@ -279,6 +303,48 @@ export const reportTransactionIssueController = async (req, res, next) => {
 
     const runningBalance = runningAgg[0]?.runningBalance ?? null;
 
+    const raw = transaction.zohoTransactionId
+      ? await RawZohoBankTransaction.findOne({
+          organizationId,
+          zohoTransactionId: transaction.zohoTransactionId,
+        }).lean()
+      : null;
+    const payload = raw?.payload || {};
+
+    const categoryCandidate = pickFirst(
+      payload.category_name,
+      payload.transaction_type_formatted,
+      payload.transaction_type_name,
+      payload.category,
+      payload.transaction_category,
+      payload.transaction_type,
+      payload.expense_type,
+      payload.payment_type,
+      payload.entry_type
+    );
+
+    let normalizedCategory =
+      typeof categoryCandidate === "string" && !["debit", "credit"].includes(categoryCandidate.toLowerCase())
+        ? categoryCandidate
+        : null;
+
+    const normalizedTxnType = String(
+      pickFirst(payload.transaction_type, payload.transaction_type_formatted, payload.transaction_category) || ""
+    )
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .trim();
+
+    if (transaction.type === "debit") {
+      if (normalizedTxnType === "vendor payment") {
+        normalizedCategory = "Vendor Payment";
+      } else if (normalizedTxnType === "vendor advance") {
+        normalizedCategory = "Vendor Advance";
+      } else if (normalizedTxnType === "customer payment") {
+        normalizedCategory = "Vendor Advance";
+      }
+    }
+
     const queryDoc = await BankReconQuery.create({
       organizationId,
       transactionId: transaction._id,
@@ -294,6 +360,82 @@ export const reportTransactionIssueController = async (req, res, next) => {
         type: transaction.type,
         reconciliationStatus: transaction.reconciliationStatus,
         category: transaction.category,
+        zohoCategory: normalizedCategory,
+        expenseAccount: pickFirst(
+          payload.offset_account_name,
+          payload.offset_account,
+          payload.expense_account_name,
+          payload.expense_account,
+          payload.expense_account_id,
+          payload.rule_details?.offset_account_name
+        ),
+        vendor: pickFirst(
+          payload.vendor_name,
+          payload.payee_name,
+          payload.payee,
+          payload.vendor,
+          payload.contact_name
+        ),
+        customer: pickFirst(
+          payload.customer_name,
+          payload.customer,
+          payload.contact_name
+        ),
+        accountName: pickFirst(
+          payload.account_name,
+          payload.bank_account_name,
+          payload.to_account_name,
+          payload.deposit_to_account_name,
+          payload.destination_account_name
+        ),
+        offsetAccountName: pickFirst(
+          payload.offset_account_name,
+          payload.offset_account,
+          payload.from_account_name,
+          payload.source_account_name,
+          payload.rule_details?.offset_account_name,
+          payload.rule_details?.from_account_name
+        ),
+        fromAccount: pickFirst(
+          payload.from_account_name,
+          payload.source_account_name,
+          payload.paid_through_account_name,
+          payload.paid_through,
+          payload.from_account,
+          payload.account_name,
+          payload.bank_account_name,
+          payload.rule_details?.from_account_name
+        ),
+        toAccount: pickFirst(
+          payload.to_account_name,
+          payload.destination_account_name,
+          payload.deposit_to_account_name,
+          payload.deposit_to,
+          payload.to_account,
+          payload.offset_account_name,
+          payload.offset_account,
+          payload.rule_details?.to_account_name,
+          payload.rule_details?.offset_account_name
+        ),
+        paymentNumber: pickFirst(
+          payload.payment_number,
+          payload.refund_payment_number,
+          payload.refund_against_payment_number,
+          payload.payment?.payment_number
+        ),
+        selectedPaymentAmount: extractAmount(
+          payload.refund_payment_amount,
+          payload.payment_amount,
+          payload.amount_applied,
+          payload.amount_to_refund,
+          payload.payment?.amount
+        ),
+        zohoDescription: pickFirst(
+          payload.description,
+          payload.memo,
+          payload.narration,
+          payload.notes
+        ),
       },
       status: true,
     });
