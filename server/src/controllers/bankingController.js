@@ -97,7 +97,6 @@ export const getBankDashboardController = async (req, res, next) => {
       startDate,
       endDate,
       status,          // reconciliationStatus
-      transactionType,
       search,
       page = 1,
       limit = 20,
@@ -120,7 +119,6 @@ export const getBankDashboardController = async (req, res, next) => {
       startDate,
       endDate,
       reconciliationStatus: status,
-      transactionType,
       search,
       page: parsedPage,
       limit: parsedLimit,

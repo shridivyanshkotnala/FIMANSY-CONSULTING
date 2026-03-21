@@ -37,7 +37,6 @@ export function BankTransactionList() {
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
-  const [transactionType, setTransactionType] = useState("all");
   const [page, setPage] = useState(1);
 
   const limit = 20;
@@ -45,7 +44,6 @@ export function BankTransactionList() {
   const { data, isLoading } =
     useGetBankDashboardQuery({
       status: status === "all" ? undefined : status,
-      transactionType: transactionType === "all" ? undefined : transactionType,
       search,
       page,
       limit,
@@ -435,7 +433,7 @@ export function BankTransactionList() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search category (expense, deposit, vendor payment...)"
+            placeholder="Search amount, category, vendor, customer, to/from account..."
             value={search}
             onChange={(e) => {
               setPage(1);
@@ -444,23 +442,6 @@ export function BankTransactionList() {
             className="pl-10"
           />
         </div>
-
-        <Select
-          value={transactionType}
-          onValueChange={(value) => {
-            setPage(1);
-            setTransactionType(value);
-          }}
-        >
-          <SelectTrigger className="w-52">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Transactions</SelectItem>
-            <SelectItem value="debit">Debit Transactions</SelectItem>
-            <SelectItem value="credit">Credit Transactions</SelectItem>
-          </SelectContent>
-        </Select>
 
         <Select
           value={status}
