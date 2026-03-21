@@ -91,24 +91,49 @@ export const runBankFeedSync = async (job) => {
   for (const account of activeAccounts) {
     const accountId = account.zohoBankAccountId;
 
-    const txnCursor =
-      normalizeCursor(lastTransactionSync[accountId]);
+    const txnCursor = normalizeCursor(lastTransactionSync[accountId]);
 
-    const {
+    const existingTxnCount = await RawZohoBankTransaction.countDocuments({
+      organizationId,
+      zohoBankAccountId: accountId,
+      isDeleted: false,
+    });
+
+    const shouldBootstrapFullFetch = existingTxnCount === 0;
+
+    let {
       records: transactions,
       lastModified: txnLastModified,
     } = await zohoClient.paginate(
       `/bankaccounts/${accountId}/transactions`,
-      txnCursor
-        ? { last_modified_time: txnCursor }
-        : {},
+      shouldBootstrapFullFetch
+        ? {}
+        : (txnCursor ? { last_modified_time: txnCursor } : {}),
       "banktransactions"
     );
 
+    // Recovery path: if cursor exists but returns no rows, force one full pull.
+    if (!transactions.length && txnCursor && !shouldBootstrapFullFetch) {
+      const fullFetch = await zohoClient.paginate(
+        `/bankaccounts/${accountId}/transactions`,
+        {},
+        "banktransactions"
+      );
+
+      transactions = fullFetch.records;
+      txnLastModified = fullFetch.lastModified;
+
+      if (transactions.length) {
+        console.log(`[BANK SYNC] Cursor fallback recovered ${transactions.length} transactions for ${accountId}`);
+      }
+    }
+
     if (!transactions.length) {
       console.log(
-        `[BANK SYNC] No new transactions for ${accountId}`
+        `[BANK SYNC] No transactions for ${accountId} (cursor=${txnCursor || "none"}, local_count=${existingTxnCount})`
       );
+    } else {
+      console.log(`[BANK SYNC] Fetched ${transactions.length} transactions for ${accountId}`);
     }
 
     // Zoho uses semantic type names — these are the known credit-side types

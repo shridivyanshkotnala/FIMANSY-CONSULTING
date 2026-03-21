@@ -88,6 +88,7 @@ export const startScheduler = async () => {
 
       // 1) fetch due jobs (also reclaim dead locks)
       const dueJobs = await SyncJob.find({
+        jobType: { $ne: "sync_vendor_payments" },
         nextRunAt: { $lte: now },
         $or: [
           { status: { $ne: "running" } },
