@@ -228,6 +228,23 @@ export const getBankDashboard = async ({
           payload.contact_name
         );
 
+        t.accountName = pickFirst(
+          payload.account_name,
+          payload.bank_account_name,
+          payload.to_account_name,
+          payload.deposit_to_account_name,
+          payload.destination_account_name
+        );
+
+        t.offsetAccountName = pickFirst(
+          payload.offset_account_name,
+          payload.offset_account,
+          payload.from_account_name,
+          payload.source_account_name,
+          payload.rule_details?.offset_account_name,
+          payload.rule_details?.from_account_name
+        );
+
         t.fromAccount = pickFirst(
           payload.from_account_name,
           payload.source_account_name,

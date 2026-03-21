@@ -23,6 +23,35 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
+const CREDIT_CATEGORY_OPTIONS = [
+  { value: "customer_payment", label: "Customer Payment" },
+  { value: "customer_advance", label: "Customer Advance" },
+  { value: "transfer_from_another_account", label: "Transfer From Another Account" },
+  { value: "deposit_from_another_account", label: "Deposit From Another Account" },
+  { value: "interest_income", label: "Interest Income" },
+  { value: "other_income", label: "Other Income" },
+  { value: "expense_refund", label: "Expense Refund" },
+  { value: "owners_contribution", label: "Owner's Contribution" },
+  { value: "vendor_credit_refund", label: "Vendor Credit Refund" },
+  { value: "other", label: "Other" },
+];
+
+const DEBIT_CATEGORY_OPTIONS = [
+  { value: "rent", label: "Rent" },
+  { value: "salary", label: "Salary" },
+  { value: "payment", label: "Vendor Payment" },
+  { value: "transfer_to_another_account", label: "Transfer To Another Account" },
+  { value: "owner_drawings", label: "Owner Drawings" },
+  { value: "capital_stock", label: "Capital Stock" },
+  { value: "dividends_paid", label: "Dividends Paid" },
+  { value: "drawings", label: "Drawings" },
+  { value: "labor", label: "Labor" },
+  { value: "job_costing", label: "Job Costing" },
+  { value: "materials", label: "Materials" },
+  { value: "lodging", label: "Lodging" },
+  { value: "other", label: "Other" },
+];
+
 export function BankTransactionList() {
 
   const [search, setSearch] = useState("");
@@ -107,6 +136,13 @@ export function BankTransactionList() {
     if (fallback) return toLabel(fallback);
 
     const text = (desc || "").toLowerCase();
+    if (t.type === "credit") {
+      if (text.includes("interest")) return "Interest Income";
+      if (text.includes("refund")) return "Expense Refund";
+      if (text.includes("transfer")) return "Transfer From Another Account";
+      return "Deposit";
+    }
+
     if (text.includes("transfer")) return "Transfer";
     if (text.includes("vendor") && text.includes("payment")) return "Vendor Payment";
     return "Expense";
@@ -117,16 +153,90 @@ export function BankTransactionList() {
     const cleaned = cleanDescription(desc);
 
     if (t.type === "credit") {
-      const customer = extractCapitalizedPhrase(desc) || "";
+      const tag = getCategoryLabel(t, desc);
+      const normalizedTag = normalizeCategory(tag);
+
+      const customer = firstNonEmpty(
+        t.customer,
+        t.customerName,
+        t.customer_name,
+        t.payee,
+        extractCapitalizedPhrase(desc)
+      );
+
+      const vendor = firstNonEmpty(
+        t.vendor,
+        t.vendorName,
+        t.vendor_name,
+        t.payee,
+        t.supplier
+      );
+
+      const accountName = firstNonEmpty(
+        t.accountName,
+        t.account_name,
+        t.fromAccount,
+        t.toAccount
+      );
+
+      const offsetAccountName = firstNonEmpty(
+        t.offsetAccountName,
+        t.offset_account_name,
+        t.toAccount,
+        t.expenseAccount,
+        t.expense_account_name
+      );
+
+      const isCustomerPayment =
+        normalizedTag.includes("customer payment") ||
+        normalizedTag.includes("customer advance");
+      const isTransferFromAnother =
+        normalizedTag.includes("transfer from another account") ||
+        normalizedTag.includes("transfer fund");
+      const isInterestIncome = normalizedTag.includes("interest income");
+      const isOtherIncome = normalizedTag.includes("other income");
+      const isExpenseRefund = normalizedTag.includes("expense refund");
+      const isOwnersContribution =
+        normalizedTag.includes("owners contribution") ||
+        normalizedTag.includes("owner s contribution") ||
+        normalizedTag.includes("owner contribution");
+      const isVendorCreditRefund = normalizedTag.includes("vendor credit refund");
+      const isDepositFromAnother = normalizedTag.includes("deposit from another account");
+
       return (
         <div className="text-sm">
-          <div className="font-medium">Deposit</div>
-          {customer ? (
+          <div className="font-medium">{tag}</div>
+
+          {isCustomerPayment && customer && (
             <div className="text-muted-foreground text-sm">Customer: {customer}</div>
-          ) : (
-            cleaned && (
-              <div className="text-muted-foreground text-sm">Details: {cleaned}</div>
-            )
+          )}
+
+          {(isTransferFromAnother || isDepositFromAnother) && accountName && (
+            <div className="text-muted-foreground text-sm">To Account: {accountName}</div>
+          )}
+
+          {(isTransferFromAnother || isDepositFromAnother) && offsetAccountName && (
+            <div className="text-muted-foreground text-sm">From Account: {offsetAccountName}</div>
+          )}
+
+          {isOtherIncome && offsetAccountName && (
+            <div className="text-muted-foreground text-sm">From Account: {offsetAccountName}</div>
+          )}
+
+          {isExpenseRefund && offsetAccountName && (
+            <div className="text-muted-foreground text-sm">From Account: {offsetAccountName}</div>
+          )}
+
+          {isOwnersContribution && offsetAccountName && (
+            <div className="text-muted-foreground text-sm">From Account: {offsetAccountName}</div>
+          )}
+
+          {isVendorCreditRefund && vendor && (
+            <div className="text-muted-foreground text-sm">Vendor: {vendor}</div>
+          )}
+
+          {(isInterestIncome || cleaned) && cleaned && (
+            <div className="text-muted-foreground text-sm">Description: {cleaned}</div>
           )}
         </div>
       );
@@ -403,19 +513,11 @@ export function BankTransactionList() {
                               <SelectValue placeholder="Set category" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="rent">Rent</SelectItem>
-                              <SelectItem value="salary">Salary</SelectItem>
-                              <SelectItem value="payment">Vendor Payment</SelectItem>
-                              <SelectItem value="transfer_to_another_account">Transfer To Another Account</SelectItem>
-                              <SelectItem value="owner_drawings">Owner Drawings</SelectItem>
-                              <SelectItem value="capital_stock">Capital Stock</SelectItem>
-                              <SelectItem value="dividends_paid">Dividends Paid</SelectItem>
-                              <SelectItem value="drawings">Drawings</SelectItem>
-                              <SelectItem value="labor">Labor</SelectItem>
-                              <SelectItem value="job_costing">Job Costing</SelectItem>
-                              <SelectItem value="materials">Materials</SelectItem>
-                              <SelectItem value="lodging">Lodging</SelectItem>
-                              <SelectItem value="other">Other</SelectItem>
+                              {(t.type === "credit" ? CREDIT_CATEGORY_OPTIONS : DEBIT_CATEGORY_OPTIONS).map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </TableCell>
