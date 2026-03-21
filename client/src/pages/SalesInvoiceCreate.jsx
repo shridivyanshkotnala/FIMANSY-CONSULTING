@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Sparkles, Trash2 } from "lucide-react";
 import {
   useCreateSalesInvoiceInZohoMutation,
   useCreateZohoCustomerMutation,
@@ -65,6 +65,12 @@ const createEmptyLine = () => ({
   discount: "",
 });
 
+const SPECIAL_TAX_OPTIONS = [
+  { id: "special:non-taxable", label: "Non-Taxable", percentage: 0, type: "special" },
+  { id: "special:out-of-scope", label: "Out of Scope", percentage: 0, type: "special" },
+  { id: "special:non-gst-supply", label: "Non-GST Supply", percentage: 0, type: "special" },
+];
+
 const AddressFields = ({ title, value, onChange }) => (
   <div className="space-y-3 rounded-md border p-3">
     <p className="font-medium">{title}</p>
@@ -105,6 +111,22 @@ export default function SalesInvoiceCreate() {
 
   const [createZohoCustomer, { isLoading: creatingCustomer }] = useCreateZohoCustomerMutation();
   const [createSalesInvoiceInZoho, { isLoading: creatingInvoice }] = useCreateSalesInvoiceInZohoMutation();
+
+  const taxOptions = useMemo(() => {
+    const apiTaxes = (taxes || []).map((t) => ({
+      id: t.id,
+      label: t.label,
+      percentage: Number(t.percentage || 0),
+      type: t.type || "tax",
+    }));
+
+    const dedup = new Map();
+    [...SPECIAL_TAX_OPTIONS, ...apiTaxes].forEach((option) => {
+      if (!dedup.has(option.id)) dedup.set(option.id, option);
+    });
+
+    return Array.from(dedup.values());
+  }, [taxes]);
 
   const totals = useMemo(() => {
     const subtotal = lineItems.reduce((sum, row) => {
@@ -162,8 +184,8 @@ export default function SalesInvoiceCreate() {
       return;
     }
 
-    const invalid = lineItems.some(
-      (r) => !r.description.trim() || !(Number(r.quantity) > 0) || !(Number(r.rate) >= 0) || !r.taxId
+    const invalid = lineItems.some((r) =>
+      !r.description.trim() || !(Number(r.quantity) > 0) || !(Number(r.rate) >= 0) || !r.taxId
     );
     if (invalid) {
       toast({ title: "Fill all required line-item fields including tax", variant: "destructive" });
@@ -192,9 +214,19 @@ export default function SalesInvoiceCreate() {
   return (
     <PillarLayout>
       <div className="p-6 max-w-6xl mx-auto space-y-6">
-        <Card>
+        <div className="rounded-xl border bg-gradient-to-r from-primary/10 via-background to-amber-500/10 p-5 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Create Sales Invoice</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Create invoice directly in Zoho Books with customer, GST state, item and tax details.
+            </p>
+          </div>
+          <Sparkles className="h-8 w-8 text-primary" />
+        </div>
+
+        <Card className="shadow-sm border-primary/20">
           <CardHeader>
-            <CardTitle>Create Sales Invoice</CardTitle>
+            <CardTitle>Invoice Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -220,6 +252,7 @@ export default function SalesInvoiceCreate() {
                     <SelectItem value="__create__">+ Create customer in Zoho</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">If customer is missing, create instantly from dropdown.</p>
               </div>
 
               <div className="space-y-2">
@@ -260,7 +293,7 @@ export default function SalesInvoiceCreate() {
                 {lineItems.map((row, index) => {
                   const amount = (Number(row.quantity || 0) * Number(row.rate || 0)) || 0;
                   return (
-                    <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 border rounded-md p-2">
+                    <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 border rounded-md p-2 bg-muted/20">
                       <Input
                         className="md:col-span-4"
                         placeholder="Description *"
@@ -289,7 +322,7 @@ export default function SalesInvoiceCreate() {
                       <Select
                         value={row.taxId}
                         onValueChange={(v) => {
-                          const selectedTax = taxes.find((t) => t.id === v);
+                          const selectedTax = taxOptions.find((t) => t.id === v);
                           updateLineItem(index, {
                             taxId: v,
                             taxPercentage: Number(selectedTax?.percentage || 0),
@@ -300,7 +333,7 @@ export default function SalesInvoiceCreate() {
                           <SelectValue placeholder="Select Tax *" />
                         </SelectTrigger>
                         <SelectContent>
-                          {taxes.map((tax) => (
+                          {taxOptions.map((tax) => (
                             <SelectItem key={tax.id} value={tax.id}>{tax.label}</SelectItem>
                           ))}
                         </SelectContent>
@@ -330,6 +363,10 @@ export default function SalesInvoiceCreate() {
             </div>
 
             <div className="text-right font-semibold">Subtotal: ₹ {totals.subtotal.toFixed(2)}</div>
+
+            <p className="text-xs text-muted-foreground">
+              Tax selection is mandatory for each item. Includes Non-Taxable, Out of Scope, Non-GST Supply and Zoho Tax Groups.
+            </p>
 
             <Button onClick={handleCreateInvoice} disabled={isBusy || !selectedCustomerId || !placeOfSupply}>
               {creatingInvoice ? "Creating..." : "Create Invoice in Zoho"}

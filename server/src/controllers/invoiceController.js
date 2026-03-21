@@ -160,6 +160,12 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     throw new ApiError(400, "At least one line item is required");
   }
 
+  const specialTaxLabels = {
+    "special:non-taxable": "Non-Taxable",
+    "special:out-of-scope": "Out of Scope",
+    "special:non-gst-supply": "Non-GST Supply",
+  };
+
   const items = [];
   for (const row of lineItems) {
     const description = String(row?.description || "").trim();
@@ -173,6 +179,8 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     if (!(rate >= 0)) throw new ApiError(400, "Each line item requires valid rate");
     if (!taxId) throw new ApiError(400, "Each line item requires tax selection");
 
+    const isSpecialTax = Object.prototype.hasOwnProperty.call(specialTaxLabels, taxId);
+
     const itemId = await getOrCreateZohoItem(req.zoho, {
       name: description,
       price: rate,
@@ -181,10 +189,10 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
 
     items.push({
       item_id: itemId,
-      description,
+      description: isSpecialTax ? `${description} (${specialTaxLabels[taxId]})` : description,
       quantity,
       rate,
-      tax_id: taxId,
+      ...(isSpecialTax ? {} : { tax_id: taxId }),
       ...(discount != null && !Number.isNaN(discount) ? { discount } : {}),
     });
   }
