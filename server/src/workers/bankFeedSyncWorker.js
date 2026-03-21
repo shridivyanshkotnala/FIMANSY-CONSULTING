@@ -85,9 +85,9 @@ export const runBankFeedSync = async (job) => {
   for (const account of activeAccounts) {
     const accountId = account.zohoBankAccountId;
 
-    const txnCursor =
-      lastTransactionSync[accountId] ||
-      "1970-01-01T00:00:00+00:00";
+      const txnCursor =
+    lastTransactionSync[accountId] ||
+    "1970-01-01T00:00:00+00:00";
 
     const {
       records: transactions,
