@@ -21,6 +21,7 @@ export const initializeSyncJobs = async (connection) => {
     { jobType: "sync_vendor_payments" }    // bank transaction sync
   ];
 
+  let upsertedCount = 0;
   for (const job of jobs) {
     await SyncJob.findOneAndUpdate(
       {
@@ -39,5 +40,12 @@ export const initializeSyncJobs = async (connection) => {
       },
       { upsert: true, returnDocument: 'after' }
     );
+    upsertedCount += 1;
   }
+
+  return {
+    success: true,
+    connectionId: connection._id,
+    upsertedCount,
+  };
 };

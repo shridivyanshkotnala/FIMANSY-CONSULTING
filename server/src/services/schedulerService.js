@@ -8,6 +8,7 @@ import { initializeSyncJobs } from "./syncJobInitializer.js";
 const LOOP_INTERVAL = 60 * 1000;
 const JOB_FREQUENCY = 5 * 60 * 1000;
 const LOCK_TIMEOUT = 10 * 60 * 1000;
+const JOB_HYDRATION_INTERVAL = 10 * 60 * 1000;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -32,6 +33,21 @@ function getJobFrequency(jobType) {
   return frequencies[jobType] || JOB_FREQUENCY;
 }
 
+let lastHydrationAt = 0;
+
+async function hydrateMissingSyncJobs(force = false) {
+  const now = Date.now();
+  if (!force && now - lastHydrationAt < JOB_HYDRATION_INTERVAL) return;
+
+  const connections = await ZohoConnection.find({ status: "connected" });
+  for (const conn of connections) {
+    await initializeSyncJobs(conn);
+  }
+
+  lastHydrationAt = now;
+  console.log(`[SCHEDULER] Sync jobs hydrated for ${connections.length} connection(s)`);
+}
+
 export const startScheduler = async () => {
   console.log(`[SCHEDULER] Started instance ${INSTANCE_ID}`);
 
@@ -39,17 +55,15 @@ export const startScheduler = async () => {
   // This catches any new job types added after a connection was first created
   // (e.g. sync_credits added later) without needing to re-do OAuth.
   try {
-    const connections = await ZohoConnection.find({ status: "connected" });
-    for (const conn of connections) {
-      await initializeSyncJobs(conn);
-    }
-    console.log(`[SCHEDULER] Sync jobs seeded for ${connections.length} connection(s)`);
+    await hydrateMissingSyncJobs(true);
   } catch (err) {
     console.error("[SCHEDULER] Failed to seed sync jobs on startup:", err);
   }
 
   while (true) {
     try {
+      await hydrateMissingSyncJobs(false);
+
       const now = new Date();
       const lockExpiry = new Date(Date.now() - LOCK_TIMEOUT);
 
