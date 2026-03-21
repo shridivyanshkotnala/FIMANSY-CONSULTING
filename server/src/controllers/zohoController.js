@@ -110,10 +110,7 @@ const zohoCallback = asynchandler(async (req, res) => {
   // Step 4 - initialize sync jobs for this connection
 
   const syncedJobs = await initializeSyncJobs(connection);
-
-  if (!syncedJobs) {
-    throw new ApiError(500, "Failed to initialize sync jobs for Zoho connection");
-  }
+  console.log(`[ZOHO OAUTH] Sync jobs initialized for connection ${connection._id}. required=${syncedJobs.requiredJobs} created=${syncedJobs.upsertedCount}`);
 
 
   /*
