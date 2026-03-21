@@ -24,8 +24,11 @@ export const syncInvoiceToZoho = asynchandler(async (req, res) => {
     return res.status(400).json({ success: false, message: "invoice payload is required" });
   }
 
+  const category = String(invoice.document_category || "").trim().toLowerCase();
+  const isExpenseLike = category === "expense" || category === "asset" || category === "liability";
+
   let result;
-  if ((invoice.document_category || "").toLowerCase() === "expense") {
+  if (isExpenseLike) {
     result = await pushExpenseToZoho(req.zoho, invoice);
   } else {
     result = await pushInvoiceToZoho(req.zoho, invoice);

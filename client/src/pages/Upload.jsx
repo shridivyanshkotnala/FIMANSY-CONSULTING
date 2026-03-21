@@ -538,7 +538,10 @@ export default function Upload() {
           source_file: fileData.pdfUrl,
         duplicate_check_key: `${invoice.vendor_name}-${invoice.invoice_number}`,
       };
-      const zohoInvoicePayload = documentType === "expense_invoice"
+      const selectedCategory = String(approvedInvoice.document_category || "").toLowerCase();
+      const isExpenseLike = selectedCategory === "expense" || selectedCategory === "asset" || selectedCategory === "liability";
+
+      const zohoInvoicePayload = isExpenseLike
         ? mapToZohoExpense(approvedInvoice)
         : mapToZohoInvoice(approvedInvoice);
 
@@ -557,7 +560,7 @@ export default function Upload() {
 
       toast({
         title: "Success",
-        description: documentType === "expense_invoice"
+        description: isExpenseLike
           ? "Expense pushed to Zoho successfully"
           : "Invoice data extracted and approved successfully",
       });

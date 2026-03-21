@@ -18,6 +18,7 @@ export function mapToZohoInvoice(aiInvoice) {
   const placeOfSupply = stateMap[aiInvoice.place_of_supply] || null;
 
   return {
+    document_category: "revenue",
     invoice_number: aiInvoice.invoice_number,
     date: aiInvoice.date_of_issue,
     due_date: aiInvoice.due_date,
