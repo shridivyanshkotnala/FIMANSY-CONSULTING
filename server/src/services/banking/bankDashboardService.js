@@ -169,6 +169,7 @@ export const getBankDashboard = async ({
 
         const categoryCandidate = pickFirst(
           payload.category_name,
+          payload.transaction_type_formatted,
           payload.transaction_type_name,
           payload.category,
           payload.transaction_category,
@@ -178,10 +179,29 @@ export const getBankDashboard = async ({
           payload.entry_type
         );
 
-        const normalizedCategory =
+        let normalizedCategory =
           typeof categoryCandidate === "string" && !["debit", "credit"].includes(categoryCandidate.toLowerCase())
             ? categoryCandidate
             : null;
+
+        const normalizedTxnType = String(
+          pickFirst(payload.transaction_type, payload.transaction_type_formatted, payload.transaction_category) || ""
+        )
+          .toLowerCase()
+          .replace(/[_-]+/g, " ")
+          .trim();
+
+        // Zoho sometimes sends 'customer payment' on outgoing entries.
+        // For debit-side UX, show business-meaningful categories only.
+        if (t.type === "debit") {
+          if (normalizedTxnType === "vendor payment") {
+            normalizedCategory = "Vendor Payment";
+          } else if (normalizedTxnType === "vendor advance") {
+            normalizedCategory = "Vendor Advance";
+          } else if (normalizedTxnType === "customer payment") {
+            normalizedCategory = "Vendor Advance";
+          }
+        }
 
         t.zohoCategory = normalizedCategory;
 
@@ -197,6 +217,7 @@ export const getBankDashboard = async ({
         t.vendor = pickFirst(
           payload.vendor_name,
           payload.payee_name,
+          payload.payee,
           payload.vendor,
           payload.contact_name
         );
