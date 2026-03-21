@@ -83,6 +83,54 @@ const syncJobSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // Dead-letter support: permanently pause a repeatedly failing job
+    deadLetter: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    deadLetterAt: {
+      type: Date,
+      default: null,
+    },
+
+    deadLetterReason: {
+      type: String,
+      default: null,
+    },
+
+    // Failure metrics (phase-2 observability)
+    totalFailures: {
+      type: Number,
+      default: 0,
+    },
+
+    consecutiveFailures: {
+      type: Number,
+      default: 0,
+    },
+
+    lastFailureAt: {
+      type: Date,
+      default: null,
+    },
+
+    lastFailureStatus: {
+      type: Number,
+      default: null,
+    },
+
+    lastFailureCode: {
+      type: String,
+      default: null,
+    },
+
+    lastSuccessAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

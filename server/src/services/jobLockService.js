@@ -47,19 +47,35 @@ export const releaseJobLock = async (jobId, instanceId) => {
 
 //Retry handler 
 
-export const failJob = async (jobId, instanceId, errorMessage, nextRunAt) => {
+export const failJob = async (jobId, instanceId, errorMessage, nextRunAt, failureMeta = {}) => {
+  const now = new Date();
+  const update = {
+    $set: {
+      status: "failed",
+      lastError: errorMessage,
+      lockedAt: null,
+      lockOwner: null,
+      nextRunAt,
+      lastFailureAt: now,
+      lastFailureStatus: failureMeta.status ?? null,
+      lastFailureCode: failureMeta.code ?? null,
+    },
+    $inc: {
+      retryCount: 1,
+      totalFailures: 1,
+      consecutiveFailures: 1,
+    },
+  };
+
+  if (failureMeta.deadLetter) {
+    update.$set.deadLetter = true;
+    update.$set.deadLetterAt = now;
+    update.$set.deadLetterReason = failureMeta.reason || errorMessage;
+  }
+
   await SyncJob.updateOne(
     { _id: jobId, lockOwner: instanceId },
-    {
-      $set: {
-        status: "failed",
-        lastError: errorMessage,
-        lockedAt: null,
-        lockOwner: null,
-        nextRunAt
-      },
-      $inc: { retryCount: 1 }
-    }
+    update
   );
 };
 
@@ -74,7 +90,9 @@ export const completeJob = async (jobId, instanceId, nextRunAt) => {
         lockedAt: null,
         lockOwner: null,
         retryCount: 0,
-        nextRunAt
+        nextRunAt,
+        consecutiveFailures: 0,
+        lastSuccessAt: new Date(),
       }
     }
   );

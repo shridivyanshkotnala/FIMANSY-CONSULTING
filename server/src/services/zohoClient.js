@@ -46,6 +46,56 @@ const ZOHO_BASE = "https://www.zohoapis.in/books/v3";
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const ZOHO_MAX_RETRIES = Number(process.env.ZOHO_MAX_RETRIES || 5);
+const ZOHO_BASE_BACKOFF_MS = Number(process.env.ZOHO_BASE_BACKOFF_MS || 800);
+const ZOHO_MAX_BACKOFF_MS = Number(process.env.ZOHO_MAX_BACKOFF_MS || 15000);
+const ZOHO_REQUEST_TIMEOUT_MS = Number(process.env.ZOHO_REQUEST_TIMEOUT_MS || 25000);
+
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+const getJitteredBackoff = (attempt) => {
+  const exp = Math.min(ZOHO_MAX_BACKOFF_MS, ZOHO_BASE_BACKOFF_MS * (2 ** Math.max(0, attempt - 1)));
+  const jitter = Math.floor(Math.random() * 400); // 0-399ms
+  return exp + jitter;
+};
+
+const getRetryAfterMs = (res) => {
+  const retryAfter = res.headers.get("retry-after");
+  if (!retryAfter) return null;
+
+  const asSeconds = Number(retryAfter);
+  if (Number.isFinite(asSeconds)) return Math.max(0, asSeconds * 1000);
+
+  const asDate = Date.parse(retryAfter);
+  if (!Number.isNaN(asDate)) {
+    return Math.max(0, asDate - Date.now());
+  }
+
+  return null;
+};
+
+export class ZohoRequestError extends Error {
+  constructor(message, {
+    status = null,
+    retryable = false,
+    retryAfterMs = null,
+    method = null,
+    path = null,
+    attempt = null,
+    details = null,
+  } = {}) {
+    super(message);
+    this.name = "ZohoRequestError";
+    this.status = status;
+    this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs;
+    this.method = method;
+    this.path = path;
+    this.attempt = attempt;
+    this.details = details;
+  }
+}
+
 export class ZohoClient {
   constructor({ accessToken = null, organizationId = null, connection = null }) {
     this.accessToken = accessToken;
@@ -63,58 +113,120 @@ export class ZohoClient {
   }
 
   async request(method, path, { params = {}, body = null, idempotencyKey = null } = {}) {
-    let attempts = 0;
+    let lastError = null;
 
-    while (attempts < 4) {
-      attempts++;
+    for (let attempt = 1; attempt <= ZOHO_MAX_RETRIES; attempt++) {
+      try {
+        await this.ensureAuth();
 
-      await this.ensureAuth();
+        const url = new URL(`${ZOHO_BASE}${path}`);
+        url.searchParams.set("organization_id", this.organizationId);
 
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) url.searchParams.set(k, v);
+        });
 
-      const url = new URL(`${ZOHO_BASE}${path}`);
-      url.searchParams.set("organization_id", this.organizationId);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), ZOHO_REQUEST_TIMEOUT_MS);
 
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null) url.searchParams.set(k, v);
-      });
+        let res;
+        try {
+          res = await fetch(url, {
+            method,
+            headers: {
+              Authorization: `Zoho-oauthtoken ${this.accessToken}`,
+              "Content-Type": "application/json",
+              ...(idempotencyKey && { "X-Idempotency-Key": idempotencyKey }),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
 
-      const res = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Zoho-oauthtoken ${this.accessToken}`,
-          "Content-Type": "application/json",
-          ...(idempotencyKey && { "X-Idempotency-Key": idempotencyKey }),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+        // token revoked while job running
+        if (res.status === 401 && this.connection) {
+          this.connection.tokenExpiry = new Date(0);
+          const err401 = new ZohoRequestError("Zoho unauthorized response", {
+            status: 401,
+            retryable: attempt < ZOHO_MAX_RETRIES,
+            method,
+            path,
+            attempt,
+          });
+          lastError = err401;
 
-      // token revoked while job running
-      if (res.status === 401 && this.connection) {
-        // force refresh next loop
-        this.connection.tokenExpiry = new Date(0);
-        continue;
+          if (attempt < ZOHO_MAX_RETRIES) {
+            await sleep(getJitteredBackoff(attempt));
+            continue;
+          }
+          throw err401;
+        }
+
+        const contentType = res.headers.get("content-type") || "";
+        const payload = contentType.includes("application/json")
+          ? await res.json()
+          : await res.text();
+
+        if (!res.ok) {
+          const retryAfterMs = res.status === 429 ? getRetryAfterMs(res) : null;
+          const retryable = RETRYABLE_STATUS_CODES.has(res.status);
+
+          const err = new ZohoRequestError(
+            (payload && payload.message) || (typeof payload === "string" ? payload : "Zoho API error"),
+            {
+              status: res.status,
+              retryable,
+              retryAfterMs,
+              method,
+              path,
+              attempt,
+              details: payload,
+            }
+          );
+
+          lastError = err;
+
+          if (retryable && attempt < ZOHO_MAX_RETRIES) {
+            await sleep(retryAfterMs ?? getJitteredBackoff(attempt));
+            continue;
+          }
+
+          throw err;
+        }
+
+        return payload;
+      } catch (err) {
+        const isAbort = err?.name === "AbortError";
+        const retryableNetworkError = isAbort || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET" || err?.code === "EAI_AGAIN";
+
+        if (!(err instanceof ZohoRequestError)) {
+          lastError = new ZohoRequestError(err?.message || "Zoho network error", {
+            retryable: retryableNetworkError,
+            method,
+            path,
+            attempt,
+            details: { code: err?.code || null, name: err?.name || null },
+          });
+        } else {
+          lastError = err;
+        }
+
+        if (lastError.retryable && attempt < ZOHO_MAX_RETRIES) {
+          await sleep(lastError.retryAfterMs ?? getJitteredBackoff(attempt));
+          continue;
+        }
+
+        throw lastError;
       }
-
-      // rate limit
-      if (res.status === 429) {
-        await sleep(1500 * attempts);
-        continue;
-      }
-
-      // temporary server failure
-      if (res.status >= 500) {
-        await sleep(1000 * attempts);
-        continue;
-      }
-
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.message || "Zoho API error");
-
-      return data;
     }
 
-    throw new Error("Zoho request failed after retries");
+    throw lastError || new ZohoRequestError("Zoho request failed after retries", {
+      retryable: false,
+      method,
+      path,
+    });
   }
 
   get(path, params) {

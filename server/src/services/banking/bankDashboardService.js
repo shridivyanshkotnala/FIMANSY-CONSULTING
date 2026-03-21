@@ -181,7 +181,7 @@ export const getBankDashboard = async ({
   // UI-FRIENDLY TRANSFORMATION
   // -----------------------------
 
-  const transformedTransactions = transactions.map((t) => ({
+  let transformedTransactions = transactions.map((t) => ({
     _id: t._id,
     transactionDate: t.transactionDate,
     description: t.description,
