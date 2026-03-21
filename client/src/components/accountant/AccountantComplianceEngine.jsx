@@ -276,17 +276,16 @@ export function AccountantComplianceEngine() {
   //         counts for OTHER classifications. This call fetches all orgs to derive counts.
   const { data: allOrgsForCounts } = useGetOrganizationsQuery({
     search:  searchQuery || undefined,
-    sort_by: "overdue",
+    sort_by: "reconciliation_queries",
     limit:   100,
   });
   const _allOrgsData = allOrgsForCounts?.data || [];
   // Replaces: classificationCounts useMemo
   const classificationCounts = {
     all:          allOrgsForCounts?.total ?? _allOrgsData.length,
-    overdue:      _allOrgsData.filter((o) => o.overdue_count > 0).length,
+    reconciliation_queries: _allOrgsData.filter((o) => (o.reconciliation_queries_count || 0) > 0).length,
     upcoming:     _allOrgsData.filter((o) => o.upcoming_7d > 0).length,
     pending_docs: _allOrgsData.filter((o) => o.pending_docs_count > 0).length,
-    no_upcoming:  _allOrgsData.filter((o) => o.upcoming_7d === 0 && o.overdue_count === 0 && o.total_active === 0).length,
   };
 
   // === COMPLIANCE REQUESTS API — All Requests tab ===
@@ -578,10 +577,9 @@ export function AccountantComplianceEngine() {
                 {/* Classification pill buttons */}
                 {[
                   { key: "all", label: "All", icon: Building2, count: classificationCounts.all },
-                  { key: "overdue", label: "Overdue", icon: AlertTriangle, count: classificationCounts.overdue },
+                  { key: "reconciliation_queries", label: "Reconciliation Queries", icon: FileQuestion, count: classificationCounts.reconciliation_queries },
                   { key: "upcoming", label: "Upcoming Dues", icon: Clock, count: classificationCounts.upcoming },
                   { key: "pending_docs", label: "Pending Docs", icon: FileQuestion, count: classificationCounts.pending_docs },
-                  // no_upcoming removed — classification removed per user request
                 ].map((pill) => (
                   <Button
                     key={pill.key}

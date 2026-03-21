@@ -1,6 +1,7 @@
 // services/accountant.service.js
 import { ComplianceTicket } from "../../models/compliance/complianceTicketModel.js";
 import { calculateOrganizationHealth } from "./healthEngine.js";
+import { BankReconQuery } from "../../models/bankReconQueryModel.js";
 
 
 export const fetchDashboardMetrics = async () => {
@@ -261,6 +262,28 @@ export const fetchOrganizationsSummary = async (query) => {
 
   const result = await ComplianceTicket.aggregate(pipeline);
 
+  const orgIds = result.map((org) => org._id);
+  const reconCountsAgg = orgIds.length
+    ? await BankReconQuery.aggregate([
+        {
+          $match: {
+            organizationId: { $in: orgIds },
+            status: true,
+          },
+        },
+        {
+          $group: {
+            _id: "$organizationId",
+            count: { $sum: 1 },
+          },
+        },
+      ])
+    : [];
+
+  const reconCountMap = new Map(
+    reconCountsAgg.map((row) => [String(row._id), row.count])
+  );
+
   // ---- HEALTH ENGINE ----
   const enriched = result.map((org) => {
     const health = calculateOrganizationHealth(org.tickets);
@@ -274,6 +297,7 @@ export const fetchOrganizationsSummary = async (query) => {
       gstin: org.gstin || null,
       total_active: org.total_active,
       overdue_count: org.overdue_count,
+      reconciliation_queries_count: reconCountMap.get(String(org._id)) || 0,
       upcoming_7d: org.upcoming_7d,
       pending_docs_count: org.pending_docs_count,
       filed_count: org.filed_count,
@@ -287,6 +311,9 @@ export const fetchOrganizationsSummary = async (query) => {
 
   // ---- SORTING ----
   switch (sort_by) {
+    case "reconciliation_queries":
+      enriched.sort((a, b) => b.reconciliation_queries_count - a.reconciliation_queries_count);
+      break;
     case "overdue":
       enriched.sort((a, b) => b.overdue_count - a.overdue_count);
       break;
@@ -309,6 +336,16 @@ export const fetchOrganizationsSummary = async (query) => {
       break;
     default:
       enriched.sort((a, b) => b.overdue_count - a.overdue_count);
+  }
+
+  if (classification === "reconciliation_queries") {
+    return {
+      total: enriched.filter((org) => org.reconciliation_queries_count > 0).length,
+      page,
+      limit,
+      total_pages: Math.ceil(enriched.filter((org) => org.reconciliation_queries_count > 0).length / limit),
+      data: enriched.filter((org) => org.reconciliation_queries_count > 0).slice((page - 1) * limit, (page - 1) * limit + limit),
+    };
   }
 
   // ---- PAGINATION ----

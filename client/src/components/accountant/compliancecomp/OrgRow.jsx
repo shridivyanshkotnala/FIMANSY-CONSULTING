@@ -67,14 +67,14 @@ export function OrgRow({ org, onClick }) {
             <div>
               <p
                 className={`text-sm font-bold ${
-                  org.overdue_count > 0
-                    ? "text-destructive"
+                  (org.reconciliation_queries_count || 0) > 0
+                    ? "text-warning"
                     : "text-foreground"
                 }`}
               >
-                {org.overdue_count}
+                {org.reconciliation_queries_count || 0}
               </p>
-              <p className="text-[10px] text-muted-foreground">Overdue</p>
+              <p className="text-[10px] text-muted-foreground">Reconciliation</p>
             </div>
 
             <div>
@@ -113,12 +113,12 @@ export function OrgRow({ org, onClick }) {
             {hc.label}
           </Badge>
 
-          {org.overdue_count > 0 && (
+          {(org.reconciliation_queries_count || 0) > 0 && (
             <Badge
               variant="outline"
-              className="text-destructive border-destructive/20 text-[10px]"
+              className="text-warning border-warning/20 text-[10px]"
             >
-              {org.overdue_count} overdue
+              {org.reconciliation_queries_count} reconciliation
             </Badge>
           )}
         </div>
