@@ -1,9 +1,64 @@
 import { RawZohoBankAccount } from "../models/raw/rawZohoBankAccountModel.js";
 import { RawZohoBankTransaction } from "../models/raw/rawZohoBankTransactionModel.js";
+import { BankTransactionLedger } from "../models/ledger/bankTransactionLedgerModel.js";
 import { ZohoConnection } from "../models/zohoConnectionModel.js";
 import { ZohoClient } from "../services/zohoClient.js";
 import { SyncJob } from "../models/scheduler/syncJobModel.js";
-import { rebuildBankLedgerIncremental } from "../services/banking/rebuildBankLedger.js";
+import { rebuildBankLedger, rebuildBankLedgerIncremental } from "../services/banking/rebuildBankLedger.js";
+
+const EPOCH_CURSOR = "1970-01-01T00:00:00+00:00";
+
+const isValidDate = (value) => {
+  const d = new Date(value);
+  return !Number.isNaN(d.getTime());
+};
+
+const isCursorInFuture = (value) => {
+  if (!isValidDate(value)) return false;
+  const cursorTs = new Date(value).getTime();
+  const nowTs = Date.now();
+  // 5 minute tolerance for clock skew
+  return cursorTs > nowTs + 5 * 60 * 1000;
+};
+
+const normalizeTransactionType = (txn = {}) => {
+  const ZOHO_CREDIT_TYPES = new Set([
+    "credit",
+    "deposit",
+    "refund",
+    "interest",
+    "other_income",
+    "credit_card_refund",
+    "owner_contribution",
+    "owners_contribution",
+    "revenue_adjustment",
+    "opening_balance",
+    "transfer_fund",
+    "customer_payment",
+    "customer payment",
+  ]);
+
+  const rawCandidates = [
+    txn.debit_or_credit,
+    txn.transaction_type,
+    txn.type,
+    txn.transactionType,
+    txn.transaction_type_formatted,
+    txn.transaction_category,
+    txn.entry_type,
+  ]
+    .map((v) => String(v || "").toLowerCase().trim())
+    .filter(Boolean);
+
+  if (rawCandidates.some((v) => v === "credit" || v === "cr")) return "credit";
+  if (rawCandidates.some((v) => v === "debit" || v === "dr")) return "debit";
+  if (rawCandidates.some((v) => ZOHO_CREDIT_TYPES.has(v))) return "credit";
+
+  const amount = Number(txn.amount);
+  if (Number.isFinite(amount) && amount < 0) return "debit";
+
+  return "debit";
+};
 
 export const runBankFeedSync = async (job) => {
   console.log(`[BANK SYNC] Starting for connection ${job.connectionId}`);
@@ -21,7 +76,7 @@ export const runBankFeedSync = async (job) => {
 
   const lastBankAccountSync =
     jobMeta.lastBankAccountSync ||
-    "1970-01-01T00:00:00+00:00";
+    EPOCH_CURSOR;
 
   const lastTransactionSync =
     jobMeta.lastTransactionSync || {};
@@ -89,18 +144,57 @@ export const runBankFeedSync = async (job) => {
 
     const txnCursor =
       lastTransactionSync[accountId] ||
-      "1970-01-01T00:00:00+00:00";
+      EPOCH_CURSOR;
 
-    const {
+    const existingRawCount = await RawZohoBankTransaction.countDocuments({
+      organizationId,
+      zohoBankAccountId: accountId,
+      isDeleted: false,
+    });
+
+    const shouldBootstrap = existingRawCount === 0;
+
+    let effectiveCursor = txnCursor;
+    if (isCursorInFuture(effectiveCursor)) {
+      console.warn(`[BANK SYNC] Future cursor detected for ${accountId}: ${effectiveCursor}. Resetting to epoch.`);
+      effectiveCursor = EPOCH_CURSOR;
+    }
+
+    let queryParams =
+      shouldBootstrap || !effectiveCursor || effectiveCursor === EPOCH_CURSOR
+        ? {}
+        : { last_modified_time: effectiveCursor };
+
+    let {
       records: transactions,
       lastModified: txnLastModified,
     } = await zohoClient.paginate(
       `/bankaccounts/${accountId}/transactions`,
-      txnCursor
-        ? { last_modified_time: txnCursor }
-        : {},
+      queryParams,
       "banktransactions"
     );
+
+    // Fallback: if cursor-based call returned nothing but account also has no local raw,
+    // force one full fetch to recover from stale/invalid cursors.
+    if (!transactions.length && !shouldBootstrap && effectiveCursor !== EPOCH_CURSOR) {
+      const hasAnyLocalRaw = await RawZohoBankTransaction.exists({
+        organizationId,
+        zohoBankAccountId: accountId,
+      });
+
+      if (!hasAnyLocalRaw) {
+        console.warn(`[BANK SYNC] Empty incremental result and no local raw txns for ${accountId}. Retrying full fetch.`);
+        const retry = await zohoClient.paginate(
+          `/bankaccounts/${accountId}/transactions`,
+          {},
+          "banktransactions"
+        );
+
+        transactions = retry.records;
+        txnLastModified = retry.lastModified;
+        queryParams = {};
+      }
+    }
 
     if (!transactions.length) {
       console.log(
@@ -108,33 +202,14 @@ export const runBankFeedSync = async (job) => {
       );
     }
 
-    // Zoho uses semantic type names — these are the known credit-side types
-    const ZOHO_CREDIT_TYPES = new Set([
-      "credit",
-      "deposit",
-      "refund",
-      "interest",
-      "other_income",
-      "credit_card_refund",
-      "owner_contribution",
-      "revenue_adjustment",
-      "opening_balance",
-      "transfer_fund",   // can be either; treat as credit (money arriving)
-    ]);
-
     for (const txn of transactions) {
       const isDeleted = txn.is_deleted === true;
 
-      // Resolve whichever key Zoho uses and normalise to "credit" | "debit"
-      const txnTypeRaw = String(
-        txn.transaction_type ?? txn.type ?? txn.transactionType ?? ""
-      ).toLowerCase().trim();
-
-      const normalizedType = ZOHO_CREDIT_TYPES.has(txnTypeRaw) ? "credit" : "debit";
+      const normalizedType = normalizeTransactionType(txn);
 
       // Debug — remove once confirmed correct in production
       console.log(
-        `[BANK SYNC] txn ${txn.transaction_id} raw_type="${txnTypeRaw}" → normalizedType="${normalizedType}"`
+        `[BANK SYNC] txn ${txn.transaction_id} raw_type="${String(txn.transaction_type ?? txn.debit_or_credit ?? txn.type ?? "").toLowerCase()}" → normalizedType="${normalizedType}"`
       );
 
       await RawZohoBankTransaction.findOneAndUpdate(
@@ -175,6 +250,9 @@ export const runBankFeedSync = async (job) => {
 
     if (txnLastModified) {
       lastTransactionSync[accountId] = txnLastModified;
+    } else if (shouldBootstrap && transactions.length === 0) {
+      // Explicitly keep epoch for accounts with zero transactions so future runs can still bootstrap.
+      lastTransactionSync[accountId] = EPOCH_CURSOR;
     }
   }
 
@@ -208,7 +286,18 @@ export const runBankFeedSync = async (job) => {
         `[BANK SYNC] Bank ledger incrementally rebuilt for org ${organizationId} (${touchedIdsArray.length} txns)`
       );
     } else {
-      console.log(`[BANK SYNC] Ledger rebuild skipped (no changed txns) for org ${organizationId}`);
+      // Recovery path: if local ledger is empty but raw has records, backfill full ledger.
+      const [rawCount, ledgerCount] = await Promise.all([
+        RawZohoBankTransaction.countDocuments({ organizationId, isDeleted: false }),
+        BankTransactionLedger.countDocuments({ organizationId, isDeleted: false }),
+      ]);
+
+      if (rawCount > 0 && ledgerCount === 0) {
+        console.warn(`[BANK SYNC] Ledger empty while raw has ${rawCount} rows. Running full rebuild.`);
+        await rebuildBankLedger(organizationId);
+      } else {
+        console.log(`[BANK SYNC] Ledger rebuild skipped (no changed txns) for org ${organizationId}`);
+      }
     }
   } catch (err) {
     console.error(`[BANK SYNC] Failed to rebuild bank ledger`, err);
