@@ -37,7 +37,7 @@ export function BankTransactionList() {
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
-  const [transactionType, setTransactionType] = useState("all");
+  const [transactionSort, setTransactionSort] = useState("latest");
   const [page, setPage] = useState(1);
 
   const limit = 20;
@@ -45,7 +45,7 @@ export function BankTransactionList() {
   const { data, isLoading } =
     useGetBankDashboardQuery({
       status: status === "all" ? undefined : status,
-      transactionType: transactionType === "all" ? undefined : transactionType,
+      transactionSort,
       search,
       page,
       limit,
@@ -446,19 +446,19 @@ export function BankTransactionList() {
         </div>
 
         <Select
-          value={transactionType}
+          value={transactionSort}
           onValueChange={(value) => {
             setPage(1);
-            setTransactionType(value);
+            setTransactionSort(value);
           }}
         >
           <SelectTrigger className="w-52">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Transactions</SelectItem>
-            <SelectItem value="debit">Debit Transactions</SelectItem>
-            <SelectItem value="credit">Credit Transactions</SelectItem>
+            <SelectItem value="latest">Latest First</SelectItem>
+            <SelectItem value="debit_first">Debit First</SelectItem>
+            <SelectItem value="credit_first">Credit First</SelectItem>
           </SelectContent>
         </Select>
 

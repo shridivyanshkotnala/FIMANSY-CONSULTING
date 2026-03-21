@@ -66,7 +66,7 @@ export const getBankDashboard = async ({
   startDate = null,
   endDate = null,
   reconciliationStatus = null,
-  transactionType = null,
+  transactionSort = "latest",
   search = null,
   page = 1,
   limit = 20,
@@ -97,9 +97,12 @@ export const getBankDashboard = async ({
     match.reconciliationStatus = reconciliationStatus;
   }
 
-  if (transactionType && ["debit", "credit"].includes(String(transactionType).toLowerCase())) {
-    match.type = String(transactionType).toLowerCase();
-  }
+  const sortQuery =
+    transactionSort === "debit_first"
+      ? { type: -1, transactionDate: -1 }
+      : transactionSort === "credit_first"
+      ? { type: 1, transactionDate: -1 }
+      : { transactionDate: -1 };
 
   if (startDate || endDate) {
     match.transactionDate = {};
@@ -124,7 +127,7 @@ export const getBankDashboard = async ({
 
   if (hasSearch) {
     transactions = await BankTransactionLedger.find(match)
-      .sort({ transactionDate: -1 })
+      .sort(sortQuery)
       .lean();
   } else {
     const [summaryAgg, pagedTransactions, count] = await Promise.all([
@@ -156,7 +159,7 @@ export const getBankDashboard = async ({
         }
       ]),
       BankTransactionLedger.find(match)
-        .sort({ transactionDate: -1 })
+        .sort(sortQuery)
         .skip(skip)
         .limit(limit)
         .lean(),
