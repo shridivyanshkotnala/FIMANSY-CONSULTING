@@ -229,13 +229,22 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
     return label.includes("igst") || label.includes("interstate") || label.includes("inter state");
   };
 
+  const isInterstateTaxObject = (obj = {}) => {
+    const specificType = normalizeText(obj.tax_specific_type || obj.tax_type_name || obj.tax_type || "");
+    if (specificType.includes("igst") || specificType.includes("interstate") || specificType.includes("inter state")) {
+      return true;
+    }
+    return isInterstateLabel(obj.tax_name || obj.tax_group_name || "");
+  };
+
   const groupCandidates = taxGroups
     .map((g) => ({
       id: g.tax_group_id,
       name: g.tax_group_name || "",
+      raw: g,
       diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
     }))
-    .filter((x) => (mode === "interstate" ? isInterstateLabel(x.name) : true))
+    .filter((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : true))
     .filter((x) => x.id)
     .sort(byRateAsc);
 
@@ -247,9 +256,10 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
     .map((t) => ({
       id: t.tax_id,
       name: t.tax_name || "",
+      raw: t,
       diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
     }))
-    .filter((x) => (mode === "interstate" ? isInterstateLabel(x.name) : true))
+    .filter((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : true))
     .filter((x) => x.id)
     .sort(byRateAsc);
 
@@ -312,15 +322,41 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
         mode: "interstate",
       });
 
-      const interstatePayload = {
-        ...payload,
-        ...(interstateTaxId ? { tax_id: interstateTaxId } : {}),
-      };
+      const interstatePayload = { ...payload };
+      delete interstatePayload.tax_id;
 
       // Let Zoho infer transaction context from org setup if explicit POS causes mismatch.
       delete interstatePayload.place_of_supply;
 
-      return await zohoClient.post("/expenses", interstatePayload, idempotencyKey);
+      if (interstateTaxId) {
+        interstatePayload.tax_id = interstateTaxId;
+      }
+
+      try {
+        return await zohoClient.post("/expenses", interstatePayload, idempotencyKey);
+      } catch (thirdError) {
+        const thirdMessage = String(thirdError?.message || "").toLowerCase();
+        const stillInterstateIssue =
+          thirdMessage.includes("igst has to be applied") ||
+          thirdMessage.includes("interstate transaction");
+
+        if (!stillInterstateIssue) {
+          throw thirdError;
+        }
+
+        // Last-resort fallback to avoid complete failure for strict org GST mappings.
+        // Expense gets posted; GST can be adjusted in Zoho if needed.
+        const { gst_no, gst_treatment, ...minimalInterstatePayload } = interstatePayload;
+
+        return await zohoClient.post(
+          "/expenses",
+          {
+            ...minimalInterstatePayload,
+            is_inclusive_tax: false,
+          },
+          idempotencyKey
+        );
+      }
     }
 
     if (missingTaxMeta) {
