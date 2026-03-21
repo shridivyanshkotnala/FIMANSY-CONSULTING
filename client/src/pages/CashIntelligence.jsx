@@ -46,7 +46,7 @@ export default function CashIntelligence() {
   return (
     <PillarLayout>
 
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="mx-auto w-full max-w-[1380px] space-y-6 px-4 py-6 md:px-8">
 
         {/* ================= Header ================= */}
         <div className="flex items-center justify-between">
