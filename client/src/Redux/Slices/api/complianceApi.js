@@ -306,6 +306,32 @@ export const complianceApi = baseApi.injectEndpoints({
     }),
 
     // =========================
+    // ORG RECONCILIATION QUERIES
+    // =========================
+    getOrgReconciliationQueries: builder.query({
+      query: (orgId) => ({
+        url: `/accountant/organizations/${orgId}/reconciliation-queries`,
+        method: "GET",
+      }),
+      transformResponse: (response) => response.data || [],
+      providesTags: (result, error, orgId) => [
+        { type: "Organization", id: orgId },
+        { type: "OrgReconciliationQuery", id: orgId },
+      ],
+      keepUnusedDataFor: 30,
+    }),
+
+    resolveOrgReconciliationQuery: builder.mutation({
+      query: ({ orgId, queryId }) => ({
+        url: `/accountant/organizations/${orgId}/reconciliation-queries/${queryId}/resolve`,
+        method: "PATCH",
+      }),
+      invalidatesTags: (result, error, { orgId }) => [
+        { type: "OrgReconciliationQuery", id: orgId },
+      ],
+    }),
+
+    // =========================
     // COMPLIANCE TEMPLATES (for Create Ticket dropdown)
     // =========================
     getComplianceTemplates: builder.query({
@@ -371,6 +397,8 @@ export const {
   useMarkTicketDocumentFinalVerifiedMutation,
   useGetOrgDirectorsQuery,
   useGetOrgCompanyProfileQuery,
+  useGetOrgReconciliationQueriesQuery,
+  useResolveOrgReconciliationQueryMutation,
   useGetComplianceTemplatesQuery,
   useGetAllOrganizationsQuery,
   useCreateManualTicketMutation,

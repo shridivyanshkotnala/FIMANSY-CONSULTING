@@ -94,6 +94,7 @@ export const baseApi = createApi({
     "ComplianceTemplate",
     "TicketDocument",
     "CompanyDocument",
+    "OrgReconciliationQuery",
   ],
   endpoints: () => ({}),
 });

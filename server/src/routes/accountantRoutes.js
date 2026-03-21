@@ -3,6 +3,10 @@ import express from "express";
 import { getDashboardMetrics, getOrganizationsSummary } from "../controllers/accountant/accountantController.js";
 import { getOrganizationSummary } from "../controllers/accountant/accountantOrgDetailController.js";
 import { getOrganizationTickets, getOrganizationCompany } from "../controllers/accountant/accountantOrgDetailController.js";
+import {
+  getOrganizationReconciliationQueries,
+  resolveOrganizationReconciliationQueryController,
+} from "../controllers/accountant/accountantOrgDetailController.js";
 import { getComplianceRequests } from "../controllers/accountant/complianceRequestController.js";
 import { protectRoute } from "../middlewares/authMiddleware.js";
 import { isAdmin } from "../middlewares/isAdminMiddleware.js";
@@ -74,6 +78,20 @@ accountantRoutes.get(
     protectRoute,
     isAdmin,
   getOrganizationCompany
+);
+
+accountantRoutes.get(
+  "/organizations/:orgId/reconciliation-queries",
+  protectRoute,
+  isAdmin,
+  getOrganizationReconciliationQueries
+);
+
+accountantRoutes.patch(
+  "/organizations/:orgId/reconciliation-queries/:queryId/resolve",
+  protectRoute,
+  isAdmin,
+  resolveOrganizationReconciliationQueryController
 );
 
 

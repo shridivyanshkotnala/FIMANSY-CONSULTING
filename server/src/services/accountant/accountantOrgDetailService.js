@@ -3,6 +3,7 @@ import { ComplianceTicket } from "../../models/compliance/complianceTicketModel.
 import { Organization } from "../../models/organizationModel.js";
 import { calculateOrganizationHealth } from "./healthEngine.js";
 import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
+import { BankReconQuery } from "../../models/bankReconQueryModel.js";
 
 
 
@@ -253,4 +254,50 @@ export const fetchOrganizationCompanyProfile = async (orgId) => {
     paid_up_capital: profile.paid_up_capital,
     mca_status: profile.mca_status,
   };
+};
+
+export const fetchOrganizationReconciliationQueries = async (orgId) => {
+  if (!mongoose.Types.ObjectId.isValid(orgId)) {
+    throw new Error("Invalid organization ID");
+  }
+
+  const queries = await BankReconQuery.find({
+    organizationId: orgId,
+    status: true,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return {
+    total: queries.length,
+    data: queries,
+  };
+};
+
+export const resolveOrganizationReconciliationQuery = async ({ orgId, queryId, resolvedBy }) => {
+  if (!mongoose.Types.ObjectId.isValid(orgId)) {
+    throw new Error("Invalid organization ID");
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(queryId)) {
+    throw new Error("Invalid query ID");
+  }
+
+  const updated = await BankReconQuery.findOneAndUpdate(
+    {
+      _id: queryId,
+      organizationId: orgId,
+      status: true,
+    },
+    {
+      $set: {
+        status: false,
+        resolvedAt: new Date(),
+        resolvedBy: resolvedBy || null,
+      },
+    },
+    { returnDocument: "after" }
+  ).lean();
+
+  return updated;
 };

@@ -49,6 +49,7 @@ import {
   ArrowLeft,
   Plus,
   FolderOpen,
+  MessageSquare,
 } from "lucide-react";
 import { startOfDay } from "date-fns";
 // differenceInDays, isBefore removed — overdue marking now done server-side
@@ -60,6 +61,7 @@ import { OrgRow } from "./compliancecomp/OrgRow";
 import { TicketRow } from "./compliancecomp/TicketRow";
 import { OrgCompanyInfoTab } from "./compliancecomp/OrgCompanyInfoTab";
 import { OrgCompanyDocumentsTab } from "./compliancecomp/OrgCompanyDocumentsTab";
+import { OrgReconciliationQueriesTab } from "./compliancecomp/OrgReconciliationQueriesTab";
 import { EmptyState } from "./compliancecomp/EmptyState";
 import { CreateTicketModal } from "./compliancecomp/CreateTicketModal";
 
@@ -445,7 +447,7 @@ export function AccountantComplianceEngine() {
               </div>
 
               <Tabs defaultValue="ongoing" className="space-y-3">
-                <TabsList className="grid w-full grid-cols-4 text-xs">
+                <TabsList className="grid w-full grid-cols-5 text-xs">
                   <TabsTrigger value="ongoing">
                     <Timer className="h-3 w-3 mr-1" />
                     Ongoing ({selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).length})
@@ -461,6 +463,10 @@ export function AccountantComplianceEngine() {
                   <TabsTrigger value="company_docs">
                     <FolderOpen className="h-3 w-3 mr-1" />
                     Company Docs
+                  </TabsTrigger>
+                  <TabsTrigger value="reconciliation_queries">
+                    <MessageSquare className="h-3 w-3 mr-1" />
+                    Reconciliation Queries
                   </TabsTrigger>
                 </TabsList>
 
@@ -558,6 +564,10 @@ export function AccountantComplianceEngine() {
 
                 <TabsContent value="company_docs">
                   <OrgCompanyDocumentsTab orgId={selectedOrgId} />
+                </TabsContent>
+
+                <TabsContent value="reconciliation_queries">
+                  <OrgReconciliationQueriesTab orgId={selectedOrgId} />
                 </TabsContent>
               </Tabs>
             </div>

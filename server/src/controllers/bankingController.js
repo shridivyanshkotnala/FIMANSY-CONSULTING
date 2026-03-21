@@ -253,6 +253,32 @@ export const reportTransactionIssueController = async (req, res, next) => {
       });
     }
 
+    const runningAgg = await BankTransactionLedger.aggregate([
+      {
+        $match: {
+          organizationId: new mongoose.Types.ObjectId(organizationId),
+          isDeleted: false,
+          transactionDate: { $lte: transaction.transactionDate },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          runningBalance: {
+            $sum: {
+              $cond: [
+                { $eq: ["$type", "credit"] },
+                "$amount",
+                { $multiply: ["$amount", -1] },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const runningBalance = runningAgg[0]?.runningBalance ?? null;
+
     const queryDoc = await BankReconQuery.create({
       organizationId,
       transactionId: transaction._id,
@@ -264,6 +290,7 @@ export const reportTransactionIssueController = async (req, res, next) => {
         description: transaction.description,
         referenceNumber: transaction.referenceNumber,
         amount: transaction.amount,
+        runningBalance,
         type: transaction.type,
         reconciliationStatus: transaction.reconciliationStatus,
         category: transaction.category,

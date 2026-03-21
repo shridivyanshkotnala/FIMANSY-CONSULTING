@@ -2,6 +2,8 @@ import {
   fetchOrganizationSummary,
   fetchOrganizationTickets,
   fetchOrganizationCompanyProfile,
+  fetchOrganizationReconciliationQueries,
+  resolveOrganizationReconciliationQuery,
 } from "../../services/accountant/accountantOrgDetailService.js";
 import { asynchandler } from "../../utils/asynchandler.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -64,3 +66,32 @@ export const getOrgDirectors = asynchandler(async (req, res) => {
         data: directors,
     });
 })
+
+
+  export const getOrganizationReconciliationQueries = asynchandler(async (req, res) => {
+    const { orgId } = req.params;
+
+    const queries = await fetchOrganizationReconciliationQueries(orgId);
+
+    return res.status(200).json(queries);
+  });
+
+
+  export const resolveOrganizationReconciliationQueryController = asynchandler(async (req, res) => {
+    const { orgId, queryId } = req.params;
+
+    const updated = await resolveOrganizationReconciliationQuery({
+      orgId,
+      queryId,
+      resolvedBy: req.user?._id || null,
+    });
+
+    if (!updated) {
+      throw new ApiError(404, "Reconciliation query not found or already resolved");
+    }
+
+    return res.status(200).json({
+      message: "Reconciliation query resolved",
+      data: updated,
+    });
+  });
