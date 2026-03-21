@@ -14,7 +14,6 @@ export const runInvoiceSync = async (job) => {
   const zoho = new ZohoClient({ connection });
 
   const cursorBefore = job.cursor;
-  const startedAt = Date.now();
 
   console.log(`[SYNC] Starting invoice sync from cursor ${cursorBefore}`);
 
@@ -25,12 +24,13 @@ export const runInvoiceSync = async (job) => {
   //   "invoices"
   // );
 
-  const isValidCursor =
-    typeof job.cursor === "string" &&
-    !job.cursor.startsWith("1970-01-01") &&
-    !Number.isNaN(Date.parse(job.cursor));
+  const isFirstSync =
+    !job.cursor ||
+    job.cursor === "1970-01-01T00:00:00+00:00";
 
-  const params = isValidCursor ? { last_modified_time: job.cursor } : {};
+  const params = isFirstSync
+    ? {}
+    : { last_modified_time: job.cursor };
 
   const { records, lastModified } = await zoho.paginate(
     "/invoices",
@@ -64,8 +64,6 @@ export const runInvoiceSync = async (job) => {
   } else {
     console.log("[SYNC] no new updates");
   }
-
-  console.log(`[SYNC] invoice sync finished in ${Date.now() - startedAt}ms`);
 
   // Rebuild the receivable ledger for this organization so balances reflect new invoices
   try {

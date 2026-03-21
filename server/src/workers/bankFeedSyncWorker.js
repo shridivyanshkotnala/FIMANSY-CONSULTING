@@ -7,7 +7,6 @@ import { rebuildBankLedger } from "../services/banking/rebuildBankLedger.js";
 
 export const runBankFeedSync = async (job) => {
   console.log(`[BANK SYNC] Starting for connection ${job.connectionId}`);
-  const startedAt = Date.now();
 
   const connection = await ZohoConnection.findById(job.connectionId);
   if (!connection) throw new Error("Zoho connection not found");
@@ -20,14 +19,9 @@ export const runBankFeedSync = async (job) => {
   // ----------------------------
   const jobMeta = job.meta || {};
 
-  const normalizeCursor = (value) => {
-    if (!value) return null;
-    if (typeof value !== "string") return null;
-    if (value.startsWith("1970-01-01")) return null;
-    return Number.isNaN(Date.parse(value)) ? null : value;
-  };
-
-  const lastBankAccountSync = normalizeCursor(jobMeta.lastBankAccountSync);
+  const lastBankAccountSync =
+    jobMeta.lastBankAccountSync ||
+    "1970-01-01T00:00:00+00:00";
 
   const lastTransactionSync =
     jobMeta.lastTransactionSync || {};
@@ -91,49 +85,25 @@ export const runBankFeedSync = async (job) => {
   for (const account of activeAccounts) {
     const accountId = account.zohoBankAccountId;
 
-    const txnCursor = normalizeCursor(lastTransactionSync[accountId]);
+    const txnCursor =
+      lastTransactionSync[accountId] ||
+      "1970-01-01T00:00:00+00:00";
 
-    const existingTxnCount = await RawZohoBankTransaction.countDocuments({
-      organizationId,
-      zohoBankAccountId: accountId,
-      isDeleted: false,
-    });
-
-    const shouldBootstrapFullFetch = existingTxnCount === 0;
-
-    let {
+    const {
       records: transactions,
       lastModified: txnLastModified,
     } = await zohoClient.paginate(
       `/bankaccounts/${accountId}/transactions`,
-      shouldBootstrapFullFetch
-        ? {}
-        : (txnCursor ? { last_modified_time: txnCursor } : {}),
+      txnCursor
+        ? { last_modified_time: txnCursor }
+        : {},
       "banktransactions"
     );
 
-    // Recovery path: if cursor exists but returns no rows, force one full pull.
-    if (!transactions.length && txnCursor && !shouldBootstrapFullFetch) {
-      const fullFetch = await zohoClient.paginate(
-        `/bankaccounts/${accountId}/transactions`,
-        {},
-        "banktransactions"
-      );
-
-      transactions = fullFetch.records;
-      txnLastModified = fullFetch.lastModified;
-
-      if (transactions.length) {
-        console.log(`[BANK SYNC] Cursor fallback recovered ${transactions.length} transactions for ${accountId}`);
-      }
-    }
-
     if (!transactions.length) {
       console.log(
-        `[BANK SYNC] No transactions for ${accountId} (cursor=${txnCursor || "none"}, local_count=${existingTxnCount})`
+        `[BANK SYNC] No new transactions for ${accountId}`
       );
-    } else {
-      console.log(`[BANK SYNC] Fetched ${transactions.length} transactions for ${accountId}`);
     }
 
     // Zoho uses semantic type names — these are the known credit-side types
@@ -159,6 +129,11 @@ export const runBankFeedSync = async (job) => {
       ).toLowerCase().trim();
 
       const normalizedType = ZOHO_CREDIT_TYPES.has(txnTypeRaw) ? "credit" : "debit";
+
+      // Debug — remove once confirmed correct in production
+      console.log(
+        `[BANK SYNC] txn ${txn.transaction_id} raw_type="${txnTypeRaw}" → normalizedType="${normalizedType}"`
+      );
 
       await RawZohoBankTransaction.findOneAndUpdate(
         {
@@ -209,7 +184,7 @@ export const runBankFeedSync = async (job) => {
       $set: {
         meta: {
           lastBankAccountSync:
-            accountLastModified || lastBankAccountSync || "1970-01-01T00:00:00+00:00",
+            accountLastModified || lastBankAccountSync,
           lastTransactionSync,
         },
       },
@@ -228,6 +203,6 @@ export const runBankFeedSync = async (job) => {
   }
 
   console.log(
-    `[BANK SYNC] Completed successfully for org ${organizationId} in ${Date.now() - startedAt}ms`
+    `[BANK SYNC] Completed successfully for org ${organizationId}`
   );
 };

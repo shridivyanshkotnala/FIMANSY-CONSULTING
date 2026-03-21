@@ -3,6 +3,7 @@ import { runPaymentSync } from "./paymentSyncWorker.js";
 import { runCreditNoteSync } from "./creditSyncWorker.js";
 import { runDSOMetricsWorker } from "./dsoMetricsWorker.js";
 import { runBankFeedSync } from "./bankFeedSyncWorker.js";
+import { runVendorPaymentSync } from "./vendorPaymentSyncWorker.js";
 
 export const runJobWorker = async (job) => {
   console.log(`[WORKER] Starting ${job.jobType} for connection ${job.connectionId}`);
@@ -30,8 +31,7 @@ export const runJobWorker = async (job) => {
       break;
 
     case "sync_vendor_payments":
-      // Temporarily blocked by product decision until vendor payment flow is stabilized.
-      console.warn(`[WORKER] Skipping ${job.jobType} (temporarily disabled)`);
+      await runVendorPaymentSync(job);
       break;
 
     default:

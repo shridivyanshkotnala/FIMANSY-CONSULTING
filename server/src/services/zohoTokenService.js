@@ -12,23 +12,9 @@ export const getValidZohoToken = async (connection) => {
   url.searchParams.set("refresh_token", connection.refreshToken);
 
   const res = await fetch(url, { method: "POST" });
-  const raw = await res.text();
+  const data = await res.json();
 
-  let data = null;
-  try {
-    data = raw ? JSON.parse(raw) : null;
-  } catch {
-    data = null;
-  }
-
-  if (!res.ok) {
-    const message = data?.error || data?.message || raw || "Zoho refresh failed";
-    throw new Error(`Zoho refresh failed (${res.status}): ${String(message).slice(0, 300)}`);
-  }
-
-  if (!data?.access_token || !data?.expires_in) {
-    throw new Error("Zoho refresh response missing token fields");
-  }
+  if (!res.ok) throw new Error("Zoho refresh failed");
 
   connection.accessToken = data.access_token;
   connection.tokenExpiry = new Date(Date.now() + data.expires_in * 1000);
