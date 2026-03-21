@@ -105,7 +105,7 @@ export default function Documents() {
                 <Card
                   key={docType.id}
                   className="cursor-pointer hover:shadow-lg transition-all hover:border-primary/50 group border-2"
-                  onClick={() => navigate(`/upload?type=${docType.id}`)}
+                  onClick={() => navigate(docType.id === "sales_invoice" ? "/sales-invoice/new" : `/upload?type=${docType.id}`)}
                 >
                   <CardHeader className="pb-3">
                     <div className="flex items-center gap-3">
@@ -130,7 +130,7 @@ export default function Documents() {
                       className="mt-4 w-full group-hover:bg-primary group-hover:text-primary-foreground transition-all"
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/upload?type=${docType.id}`);
+                        navigate(docType.id === "sales_invoice" ? "/sales-invoice/new" : `/upload?type=${docType.id}`);
                       }}
                     >
                       Upload

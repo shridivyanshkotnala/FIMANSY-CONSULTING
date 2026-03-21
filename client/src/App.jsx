@@ -12,6 +12,7 @@ import CashIntelligence from "./pages/CashIntelligence";
 import Inventory from "./pages/Inventory";
 import Upload from "./pages/Upload";
 import Documents from "./pages/Documents";
+import SalesInvoiceCreate from "./pages/SalesInvoiceCreate";
 import Banking from "./pages/Banking";
 import Compliance from "./pages/Compliance";
 import Payroll from "./pages/Payroll";
@@ -131,6 +132,15 @@ const App = () => {
               element={
                 <AuthGuard requireOrganization>
                   <Documents />
+                </AuthGuard>
+              }
+            />
+
+            <Route
+              path="/sales-invoice/new"
+              element={
+                <AuthGuard requireOrganization>
+                  <SalesInvoiceCreate />
                 </AuthGuard>
               }
             />

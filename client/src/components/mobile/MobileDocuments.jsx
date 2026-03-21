@@ -96,7 +96,7 @@ export function MobileDocuments() {
     // TODO (Redux later):
     // dispatch(startUploadFlow({ type }))
 
-    navigate(`/upload?type=${type}`);
+    navigate(type === "sales_invoice" ? "/sales-invoice/new" : `/upload?type=${type}`);
   };
 
   return (
