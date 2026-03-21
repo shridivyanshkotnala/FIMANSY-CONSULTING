@@ -166,6 +166,36 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     "special:non-gst-supply": "Non-GST Supply",
   };
 
+  const presetTaxToName = {
+    "preset:GST0": "GST0",
+    "preset:GST5": "GST5",
+    "preset:GST12": "GST12",
+    "preset:GST18": "GST18",
+    "preset:GST28": "GST28",
+    "preset:GST40": "GST40",
+  };
+
+  let zohoTaxesCache = null;
+  const resolvePresetTaxId = async (presetId) => {
+    if (!presetTaxToName[presetId]) return presetId;
+
+    if (!zohoTaxesCache) {
+      zohoTaxesCache = await req.zoho.get("/settings/taxes", { page: 1, per_page: 200 });
+    }
+
+    const lookupName = String(presetTaxToName[presetId] || "").toLowerCase();
+    const groups = zohoTaxesCache?.tax_groups || [];
+    const taxes = zohoTaxesCache?.taxes || [];
+
+    const groupMatch = groups.find((g) => String(g.tax_group_name || "").toLowerCase() === lookupName);
+    if (groupMatch?.tax_group_id) return groupMatch.tax_group_id;
+
+    const taxMatch = taxes.find((t) => String(t.tax_name || "").toLowerCase() === lookupName);
+    if (taxMatch?.tax_id) return taxMatch.tax_id;
+
+    throw new ApiError(400, `${presetTaxToName[presetId]} is not configured in Zoho taxes. Please create it in Zoho first.`);
+  };
+
   const items = [];
   for (const row of lineItems) {
     const description = String(row?.description || "").trim();
@@ -180,6 +210,7 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     if (!taxId) throw new ApiError(400, "Each line item requires tax selection");
 
     const isSpecialTax = Object.prototype.hasOwnProperty.call(specialTaxLabels, taxId);
+    const resolvedTaxId = isSpecialTax ? taxId : await resolvePresetTaxId(taxId);
 
     const itemId = await getOrCreateZohoItem(req.zoho, {
       name: description,
@@ -192,7 +223,7 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
       description: isSpecialTax ? `${description} (${specialTaxLabels[taxId]})` : description,
       quantity,
       rate,
-      ...(isSpecialTax ? {} : { tax_id: taxId }),
+      ...(isSpecialTax ? {} : { tax_id: resolvedTaxId }),
       ...(discount != null && !Number.isNaN(discount) ? { discount } : {}),
     });
   }

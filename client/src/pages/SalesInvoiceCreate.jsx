@@ -71,6 +71,15 @@ const SPECIAL_TAX_OPTIONS = [
   { id: "special:non-gst-supply", label: "Non-GST Supply", percentage: 0, type: "special" },
 ];
 
+const DEFAULT_GST_GROUP_OPTIONS = [
+  { id: "preset:GST0", label: "GST0 [0%]", percentage: 0, type: "tax_group" },
+  { id: "preset:GST5", label: "GST5 [5%]", percentage: 5, type: "tax_group" },
+  { id: "preset:GST12", label: "GST12 [12%]", percentage: 12, type: "tax_group" },
+  { id: "preset:GST18", label: "GST18 [18%]", percentage: 18, type: "tax_group" },
+  { id: "preset:GST28", label: "GST28 [28%]", percentage: 28, type: "tax_group" },
+  { id: "preset:GST40", label: "GST40 [40%]", percentage: 40, type: "tax_group" },
+];
+
 const AddressFields = ({ title, value, onChange }) => (
   <div className="space-y-3 rounded-md border p-3">
     <p className="font-medium">{title}</p>
@@ -121,7 +130,7 @@ export default function SalesInvoiceCreate() {
     }));
 
     const dedup = new Map();
-    [...SPECIAL_TAX_OPTIONS, ...apiTaxes].forEach((option) => {
+    [...SPECIAL_TAX_OPTIONS, ...DEFAULT_GST_GROUP_OPTIONS, ...apiTaxes].forEach((option) => {
       if (!dedup.has(option.id)) dedup.set(option.id, option);
     });
 
