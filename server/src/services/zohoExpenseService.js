@@ -192,7 +192,8 @@ async function resolvePaidThroughAccountId(zohoClient, paymentMode) {
   return chosen?.account_id || null;
 }
 
-async function resolveExpenseTaxId(zohoClient, expenseData) {
+async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
+  const mode = options?.mode || "auto"; // auto | interstate
   const taxableAmount = Number(expenseData.taxable_amount || 0);
   const totalGst = Number(expenseData.total_gst || 0);
 
@@ -223,11 +224,18 @@ async function resolveExpenseTaxId(zohoClient, expenseData) {
 
   const byRateAsc = (a, b) => a.diff - b.diff;
 
+  const isInterstateLabel = (value = "") => {
+    const label = normalizeText(value);
+    return label.includes("igst") || label.includes("interstate") || label.includes("inter state");
+  };
+
   const groupCandidates = taxGroups
     .map((g) => ({
       id: g.tax_group_id,
+      name: g.tax_group_name || "",
       diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
     }))
+    .filter((x) => (mode === "interstate" ? isInterstateLabel(x.name) : true))
     .filter((x) => x.id)
     .sort(byRateAsc);
 
@@ -238,8 +246,10 @@ async function resolveExpenseTaxId(zohoClient, expenseData) {
   const taxCandidates = taxes
     .map((t) => ({
       id: t.tax_id,
+      name: t.tax_name || "",
       diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
     }))
+    .filter((x) => (mode === "interstate" ? isInterstateLabel(x.name) : true))
     .filter((x) => x.id)
     .sort(byRateAsc);
 
@@ -285,13 +295,32 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
   } catch (error) {
     const message = String(error?.message || "").toLowerCase();
     const invalidPos = message.includes("invalid element place_of_supply");
+    const interstateTaxError =
+      message.includes("igst has to be applied") ||
+      message.includes("interstate transaction");
     const missingTaxMeta =
       message.includes("specify either a tax") ||
       message.includes("tax exemption") ||
       message.includes("reverse charge");
 
-    if (!invalidPos && !missingTaxMeta) {
+    if (!invalidPos && !missingTaxMeta && !interstateTaxError) {
       throw error;
+    }
+
+    if (interstateTaxError) {
+      const interstateTaxId = await resolveExpenseTaxId(zohoClient, expenseData, {
+        mode: "interstate",
+      });
+
+      const interstatePayload = {
+        ...payload,
+        ...(interstateTaxId ? { tax_id: interstateTaxId } : {}),
+      };
+
+      // Let Zoho infer transaction context from org setup if explicit POS causes mismatch.
+      delete interstatePayload.place_of_supply;
+
+      return await zohoClient.post("/expenses", interstatePayload, idempotencyKey);
     }
 
     if (missingTaxMeta) {
