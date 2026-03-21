@@ -21,6 +21,7 @@ export function PulseTile({
   icon: Icon,
   value,
   status,
+  loading = false,
   subtitle,
   details = [],
   actionLabel,
@@ -76,21 +77,31 @@ export function PulseTile({
       </div>
 
       <div className="mb-5">
-        <p className="text-2xl md:text-[2rem] font-semibold tracking-tight">{value}</p>
+        {loading ? (
+          <div className="h-10 w-28 rounded-md bg-muted/60 animate-pulse" />
+        ) : (
+          <p className="text-2xl md:text-[2rem] font-semibold tracking-tight">{value}</p>
+        )}
         {subtitle && (
           <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{subtitle}</p>
         )}
 
         {details.length > 0 && (
-          <div className="mt-4">
+          <div className="mt-4 rounded-xl border border-border/60 bg-muted/10 p-2.5">
             <div className="grid grid-cols-1 gap-2">
               {details.map((detail) => (
                 <div
                   key={detail.label}
-                  className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2"
+                  className="rounded-lg border border-border/40 bg-background/40 px-3 py-2.5"
                 >
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{detail.label}</p>
-                  <p className="text-base font-semibold text-foreground mt-0.5 whitespace-nowrap">{detail.value}</p>
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <p className="text-muted-foreground leading-relaxed">{detail.label}</p>
+                    {loading ? (
+                      <span className="h-5 w-14 rounded bg-muted/60 animate-pulse" />
+                    ) : (
+                      <p className="text-base font-semibold text-foreground whitespace-nowrap">{detail.value}</p>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

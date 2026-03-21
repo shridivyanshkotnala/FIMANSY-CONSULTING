@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PillarLayout } from "@/components/layout/PillarLayout";
 import { PulseTile } from "@/components/cockpit/PulseTile";
 import { BookConsultantModal } from "@/components/command-center/BookConsultantModal";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompliance } from "@/hooks/useCompliance";
+import { useGetBankDashboardQuery } from "@/Redux/Slices/api/bankingApi";
+import { useGetAgingBucketsQuery } from "@/Redux/Slices/api/cashIntelligenceApi";
 import { MobileCommandCenter } from "@/components/mobile/MobileCommandCenter";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -22,53 +25,33 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { format } from "date-fns";
-
-/*
-  Cockpit (Command Centre Dashboard)
-
-  Current version: Frontend-only mock data
-  Backend removed intentionally.
-
-  Later:
-  Replace mock data with Redux query -> fetchCockpitData()
-*/
+import { endOfMonth, format, isBefore, isWithinInterval, startOfDay, startOfMonth } from "date-fns";
 
 export default function Cockpit() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const { organization } = useAuth();
 
-  const [mockData] = useState({
-    cashBalance: 245000,
-    cashStatus: "green",
-    lockedCash: 245000,
-    overdueInvoices46Plus: 2,
-    creditAmount: 310000,
-    debitAmount: 198000,
-    creditCount: 18,
-    debitCount: 11,
-    reconciledStatus: "amber",
-    complianceDue: 4,
-    complianceStatus: "red",
-    payrollStatus: "amber",
-    payrollNetAmount: 124000,
-    payrollDueInDays: 3,
-    employeesPayable: 14,
-    nextDueDate: new Date().toISOString(),
-    complianceItems: [
-      { id: "cmp-1", dueDate: "2026-01-20", status: "pending" },
-      { id: "cmp-2", dueDate: "2026-03-12", status: "pending" },
-      { id: "cmp-3", dueDate: "2026-03-28", status: "pending" },
-      { id: "cmp-4", dueDate: "2026-02-07", status: "pending" },
-      { id: "cmp-5", dueDate: "2026-02-18", status: "filed" },
-    ],
-    loading: false,
+  const [bookingModalOpen, setBookingModalOpen] = useState(false);
+
+  const { obligations = [], currentDate, loading: complianceLoading } = useCompliance();
+
+  const { data: bankDashboardData, isFetching: bankingLoading } = useGetBankDashboardQuery(
+    {
+      transactionSort: "latest",
+      page: 1,
+      limit: 1,
+    },
+    {
+      pollingInterval: 20000,
+      refetchOnMountOrArgChange: true,
+    }
+  );
+
+  const { data: agingRaw, isFetching: cashLoading } = useGetAgingBucketsQuery(undefined, {
+    refetchOnMountOrArgChange: true,
   });
 
-  const [bookingModalOpen, setBookingModalOpen] = useState(false);
-  // const { data: agingData } = useGetAgingQuery();
-  const agingData = null; // Placeholder until API integration
   if (isMobile) return <MobileCommandCenter />;
 
   const formatCurrency = (amount) => {
@@ -124,26 +107,74 @@ export default function Cockpit() {
     };
   };
 
-  const now = new Date();
+  const now = new Date(currentDate || new Date());
   const fyLabel = getFinancialYear(now);
   const quarter = getCurrentQuarter(now);
   const organizationName = organization?.organization_name || organization?.name || "Your Organization";
-  const netCashDelta = mockData.creditAmount - mockData.debitAmount;
 
-  const compliancePending = mockData.complianceItems.filter((item) => item.status === "pending");
-  const overdueCompliances = compliancePending.filter((item) => new Date(item.dueDate) < now).length;
-  const pendingThisMonth = compliancePending.filter((item) => {
-    const due = new Date(item.dueDate);
-    return due.getFullYear() === now.getFullYear() && due.getMonth() === now.getMonth();
-  }).length;
-  const pendingThisQuarter = compliancePending.filter((item) => {
-    const due = new Date(item.dueDate);
-    return due >= quarter.start && due <= quarter.end;
-  }).length;
+  const bankingSummary = bankDashboardData?.data?.summary || {};
+  const creditAmount = Number(bankingSummary.totalCredits || 0);
+  const debitAmount = Number(bankingSummary.totalDebits || 0);
+  const unreconciledCount = Number(bankingSummary.unreconciledCount || 0);
+  const netCashDelta = creditAmount - debitAmount;
+  const bankingStatus = netCashDelta < 0 ? "red" : unreconciledCount > 0 ? "amber" : "green";
+
+  const bucketData = agingRaw?.data ?? agingRaw ?? {};
+  const sumBucketAmount = (arr) =>
+    Array.isArray(arr)
+      ? arr.reduce((total, item) => total + Number(item?.balanceAmount || 0), 0)
+      : 0;
+
+  const lockedCashAmount =
+    sumBucketAmount(bucketData.bucket_0_30) +
+    sumBucketAmount(bucketData.bucket_30_45) +
+    sumBucketAmount(bucketData.bucket_46_plus);
+
+  const overdueInvoices46Plus = Array.isArray(bucketData.bucket_46_plus)
+    ? bucketData.bucket_46_plus.length
+    : 0;
+
+  const atRiskInvoices =
+    (Array.isArray(bucketData.bucket_30_45) ? bucketData.bucket_30_45.length : 0) + overdueInvoices46Plus;
+
+  const cashStatus = overdueInvoices46Plus > 0 ? "red" : atRiskInvoices > 0 ? "amber" : "green";
+
+  const pendingStatuses = new Set(["filed", "approved", "ignored", "not_applicable"]);
+  const today = startOfDay(now);
+
+  const complianceCounts = useMemo(() => {
+    const pending = obligations.filter((ob) => !pendingStatuses.has(ob?.status));
+
+    const overdue = pending.filter((ob) => {
+      const dueDate = new Date(ob?.due_date);
+      return !Number.isNaN(dueDate.getTime()) && isBefore(dueDate, today);
+    }).length;
+
+    const monthRange = { start: startOfMonth(today), end: endOfMonth(today) };
+    const quarterRange = { start: quarter.start, end: quarter.end };
+
+    const pendingThisMonth = pending.filter((ob) => {
+      const dueDate = new Date(ob?.due_date);
+      return !Number.isNaN(dueDate.getTime()) && isWithinInterval(dueDate, monthRange);
+    }).length;
+
+    const pendingThisQuarter = pending.filter((ob) => {
+      const dueDate = new Date(ob?.due_date);
+      return !Number.isNaN(dueDate.getTime()) && isWithinInterval(dueDate, quarterRange);
+    }).length;
+
+    return {
+      overdue,
+      pendingThisMonth,
+      pendingThisQuarter,
+    };
+  }, [obligations, today, quarter.start, quarter.end]);
+
+  const complianceStatus = complianceCounts.overdue > 0 ? "red" : complianceCounts.pendingThisQuarter > 0 ? "amber" : "green";
 
   return (
     <PillarLayout>
-      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-8">
+      <div className="mx-auto w-full max-w-[1380px] space-y-8 px-4 py-6 md:px-8">
 
         {/* Header */}
         <div className="flex items-start justify-between flex-wrap gap-4">
@@ -218,39 +249,42 @@ export default function Cockpit() {
             id="cashflow"
             title="Cash Flow"
             icon={TrendingUp}
-            value={formatCurrency(mockData.lockedCash)}
-            status={agingData?.health?.status || mockData.cashStatus}
+            value={formatCurrency(lockedCashAmount)}
+            status={cashStatus}
             subtitle="Locked cash from overdue receivables"
             details={[
-              { label: "46+ days invoice alerts", value: `${mockData.overdueInvoices46Plus} invoices` },
-              { label: "Immediate action needed", value: mockData.overdueInvoices46Plus > 0 ? "Yes" : "No" },
+              { label: "46+ days invoice alerts", value: `${overdueInvoices46Plus} invoices` },
+              { label: "Immediate action needed", value: overdueInvoices46Plus > 0 ? "Yes" : "No" },
             ]}
             actionLabel="View Cash Flow"
             onDrillDown={() => navigate("/cash-intelligence")}
+            loading={cashLoading}
           />
 
           <PulseTile id="banking" title="Banking" icon={CreditCard}
             value={formatCurrency(netCashDelta)}
-            status={mockData.reconciledStatus}
+            status={bankingStatus}
             subtitle="Net cash (credits - debits)"
             details={[
-              { label: "Total credits", value: `${formatCurrency(mockData.creditAmount)} (${mockData.creditCount})` },
-              { label: "Total debits", value: `${formatCurrency(mockData.debitAmount)} (${mockData.debitCount})` },
+              { label: "Total credits", value: formatCurrency(creditAmount) },
+              { label: "Total debits", value: formatCurrency(debitAmount) },
             ]}
             actionLabel="Reconcile Now"
             onDrillDown={() => navigate("/banking")}
+            loading={bankingLoading}
           />
 
           <PulseTile id="compliance" title="Compliance" icon={Shield}
-            value={overdueCompliances}
-            status={mockData.complianceStatus}
+            value={complianceCounts.overdue}
+            status={complianceStatus}
             subtitle="Overdue compliances pending till date"
             details={[
-              { label: "Pending this month", value: pendingThisMonth },
-              { label: `Pending in ${quarter.label}`, value: pendingThisQuarter },
+              { label: "Pending this month", value: complianceCounts.pendingThisMonth },
+              { label: `Pending in ${quarter.label}`, value: complianceCounts.pendingThisQuarter },
             ]}
             actionLabel="View Filings"
             onDrillDown={() => navigate("/compliance")}
+            loading={complianceLoading}
           />
 
           <PulseTile id="payroll" title="Payroll" icon={Wallet}
