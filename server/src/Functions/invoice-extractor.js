@@ -1,5 +1,6 @@
 import axios from "axios";
 import Groq from "groq-sdk";
+import pdf from "pdf-parse/lib/pdf-parse.js";
 import { ApiError } from "../utils/ApiError.js";
 
 /* =========================
@@ -64,15 +65,26 @@ async function downloadFile(url) {
       maxContentLength: 12 * 1024 * 1024, // 12MB
     });
 
-    const contentType = response.headers["content-type"] || "";
+    const rawContentType = String(response.headers["content-type"] || "").toLowerCase();
+    const contentType = rawContentType.split(";")[0].trim();
+    const urlPath = String(url || "").toLowerCase();
 
-    if (!contentType.includes("pdf") && !contentType.includes("image")) {
+    let normalizedMime = contentType;
+
+    if (!normalizedMime || normalizedMime === "application/octet-stream") {
+      if (urlPath.includes(".pdf")) normalizedMime = "application/pdf";
+      else if (urlPath.includes(".png")) normalizedMime = "image/png";
+      else if (urlPath.includes(".jpg") || urlPath.includes(".jpeg")) normalizedMime = "image/jpeg";
+      else if (urlPath.includes(".webp")) normalizedMime = "image/webp";
+    }
+
+    if (!normalizedMime.includes("pdf") && !normalizedMime.includes("image")) {
       throw new ApiError(400, "Unsupported file type");
     }
 
     return {
       buffer: Buffer.from(response.data),
-      mime: contentType.includes("pdf") ? "application/pdf" : contentType
+      mime: normalizedMime.includes("pdf") ? "application/pdf" : normalizedMime
     };
 
   } catch {
@@ -80,43 +92,91 @@ async function downloadFile(url) {
   }
 }
 
+async function extractTextFromPdf(buffer) {
+  try {
+    const parsed = await pdf(buffer);
+    const text = String(parsed?.text || "").replace(/\s+/g, " ").trim();
+    return text;
+  } catch {
+    return "";
+  }
+}
+
 
 /* =========================
    CALL GROQ
 ========================= */
-async function callGroq(buffer, mimeType) {
+async function callGroq({ buffer, mimeType }) {
   try {
-    const base64 = buffer.toString("base64");
-    const dataUrl = `data:${mimeType};base64,${base64}`;
-
     const groq = getGroqClient();
-    const candidateModels = [
-      "meta-llama/llama-4-scout-17b-16e-instruct",
-      "meta-llama/llama-4-maverick-17b-128e-instruct"
-    ];
+
+    const isPdf = mimeType.includes("pdf");
+    const candidateModels = isPdf
+      ? ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+      : [
+          "meta-llama/llama-4-scout-17b-16e-instruct",
+          "meta-llama/llama-4-maverick-17b-128e-instruct"
+        ];
     let lastModelError = null;
+
+    let pdfText = "";
+    if (isPdf) {
+      pdfText = await extractTextFromPdf(buffer);
+      if (!pdfText || pdfText.length < 50) {
+        throw new ApiError(
+          400,
+          "Could not read text from PDF. Please upload a clear image invoice (JPG/PNG/WEBP) or a text-based PDF."
+        );
+      }
+    }
+
+    const imageMime = String(mimeType || "").toLowerCase().replace("image/jpg", "image/jpeg").split(";")[0].trim();
+
+    if (!isPdf && !["image/jpeg", "image/png", "image/webp"].includes(imageMime)) {
+      throw new ApiError(400, "Unsupported image format. Please upload JPG, PNG, or WEBP.");
+    }
+
+    if (!isPdf && buffer.length > 3.8 * 1024 * 1024) {
+      throw new ApiError(400, "Image is too large for Groq vision input. Please upload an image under 4MB.");
+    }
+
+    const dataUrl = !isPdf ? `data:${imageMime};base64,${buffer.toString("base64")}` : null;
 
     for (const candidateModel of candidateModels) {
       try {
-        const response = await groq.chat.completions.create({
-          model: candidateModel,
-          max_tokens: 2048,
-          temperature: 0.1,
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: extractionPrompt },
+        const response = isPdf
+          ? await groq.chat.completions.create({
+              model: candidateModel,
+              max_tokens: 2048,
+              temperature: 0.1,
+              response_format: { type: "json_object" },
+              messages: [
                 {
-                  type: "image_url",
-                  image_url: {
-                    url: dataUrl,
-                  },
+                  role: "user",
+                  content: `${extractionPrompt}\n\nPDF extracted text:\n${pdfText.slice(0, 28000)}`,
                 },
               ],
-            },
-          ],
-        });
+            })
+          : await groq.chat.completions.create({
+              model: candidateModel,
+              max_tokens: 2048,
+              temperature: 0.1,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: extractionPrompt },
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: dataUrl,
+                      },
+                    },
+                  ],
+                },
+              ],
+            });
 
         const text = String(response?.choices?.[0]?.message?.content || "").trim();
 
@@ -155,6 +215,10 @@ async function callGroq(buffer, mimeType) {
     
     if (status === 404 || /404|not found/i.test(message)) {
       throw new ApiError(500, "Groq model not available for this API key. Try another Groq model.");
+    }
+
+    if (status === 400 || /invalid image data|image_url|unsupported image/i.test(message)) {
+      throw new ApiError(400, "Invalid or unsupported image data for Groq. Please upload a valid JPG/PNG/WEBP, or a text-based PDF.");
     }
     
     if (status === 429 || /quota|limit|rate/i.test(message) || errorType === "rate_limit_error") {
@@ -199,7 +263,7 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
   const { buffer, mime } = await downloadFile(fileUrl);
 
   // 2️⃣ Send to Groq
-  const aiContent = await callGroq(buffer, mime);
+  const aiContent = await callGroq({ buffer, mimeType: mime });
 
   // 3️⃣ Parse AI JSON
   const extractedData = parseAIJSON(aiContent);
