@@ -7,7 +7,6 @@ import { initializeSyncJobs } from "./syncJobInitializer.js";
 
 const DEFAULT_LOOP_INTERVAL = Number(process.env.SCHEDULER_LOOP_INTERVAL_MS || 60 * 1000);
 const BANK_LOOP_INTERVAL = Number(process.env.SCHEDULER_BANK_LOOP_INTERVAL_MS || 30 * 1000);
-const SCHEDULER_MAX_RETRIES_BEFORE_DEAD_LETTER = Number(process.env.SCHEDULER_MAX_RETRIES_BEFORE_DEAD_LETTER || 8);
 
 const DEFAULT_JOB_FREQUENCY = Number(process.env.SCHEDULER_JOB_FREQUENCY_MS || 5 * 60 * 1000);
 const BANK_JOB_FREQUENCY = Number(process.env.SCHEDULER_BANK_JOB_FREQUENCY_MS || 2 * 60 * 1000);
@@ -29,19 +28,6 @@ function getBackoffDelay(retryCount) {
   return 60 * 60 * 1000;                         // 60 min max
 }
 
-function getAdaptiveRetryDelay(job, err) {
-  if (err?.retryAfterMs && Number.isFinite(err.retryAfterMs)) {
-    return Math.max(1000, err.retryAfterMs);
-  }
-
-  // Conservative backoff for Zoho throttling
-  if (err?.status === 429) {
-    return Math.max(2 * 60 * 1000, getBackoffDelay(job.retryCount + 1));
-  }
-
-  return getBackoffDelay(job.retryCount + 1);
-}
-
 const getJobFrequency = (jobType) => {
   if (jobType === "sync_bank_feeds") return BANK_JOB_FREQUENCY;
   return DEFAULT_JOB_FREQUENCY;
@@ -57,7 +43,6 @@ const runSchedulerLoop = async ({ laneName, loopInterval, includeJobTypes = null
 
       const query = {
         nextRunAt: { $lte: now },
-        deadLetter: { $ne: true },
         $or: [
           { status: { $ne: "running" } },
           { lockedAt: { $lt: lockExpiry } }
@@ -94,31 +79,13 @@ const runSchedulerLoop = async ({ laneName, loopInterval, includeJobTypes = null
 
           console.log(`[SCHEDULER:${laneName}] Completed ${job.jobType}`);
         } catch (err) {
-          const retryDelay = getAdaptiveRetryDelay(job, err);
+          const retryDelay = getBackoffDelay(job.retryCount + 1);
           const nextRunAt = new Date(Date.now() + retryDelay);
-          const shouldDeadLetter = (job.retryCount + 1) >= SCHEDULER_MAX_RETRIES_BEFORE_DEAD_LETTER;
 
           console.error(`[SCHEDULER:${laneName}] REAL WORKER ERROR:`, err);
-          await failJob(
-            job._id,
-            INSTANCE_ID,
-            err.stack || err.message,
-            nextRunAt,
-            {
-              status: err?.status ?? null,
-              code: err?.code ?? null,
-              deadLetter: shouldDeadLetter,
-              reason: shouldDeadLetter
-                ? `Exceeded retry threshold (${SCHEDULER_MAX_RETRIES_BEFORE_DEAD_LETTER})`
-                : null,
-            }
-          );
+          await failJob(job._id, INSTANCE_ID, err.stack || err.message, nextRunAt);
 
-          if (shouldDeadLetter) {
-            console.error(`[SCHEDULER:${laneName}] Job ${job.jobType} moved to dead-letter after ${job.retryCount + 1} failures`);
-          } else {
-            console.log(`[SCHEDULER:${laneName}] Failed ${job.jobType} → retry in ${retryDelay / 60000} min`);
-          }
+          console.log(`[SCHEDULER:${laneName}] Failed ${job.jobType} → retry in ${retryDelay / 60000} min`);
         }
       }
 
