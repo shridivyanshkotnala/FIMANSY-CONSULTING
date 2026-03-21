@@ -569,9 +569,14 @@ export default function Upload() {
 
     } catch (error) {
       console.error("Confirm error:", error);
+      const apiMessage =
+        error?.data?.message ||
+        error?.error ||
+        error?.message ||
+        "Failed to push invoice/expense to Zoho";
       toast({
         title: "Error",
-        description: error.message,
+        description: apiMessage,
         variant: "destructive",
       });
     } finally {

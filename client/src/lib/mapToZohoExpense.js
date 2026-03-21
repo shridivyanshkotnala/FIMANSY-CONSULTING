@@ -41,8 +41,17 @@ export function mapToZohoExpense(aiInvoice) {
   };
 
   const normalizeState = (value = "") => String(value).toLowerCase().replace(/[^a-z]/g, "");
-  const normalizedState = normalizeState(aiInvoice.place_of_supply);
-  const placeOfSupplyCode = stateMap[normalizedState] || aiInvoice.place_of_supply || undefined;
+  const rawPos = String(aiInvoice.place_of_supply || "").trim();
+  const normalizedState = normalizeState(rawPos);
+  const codeMatch = rawPos.match(/^([A-Za-z]{2})$/);
+  const gstCodeWithStateMatch = rawPos.match(/^\d{1,2}\s*[- ]\s*([A-Za-z]{2})$/);
+
+  const placeOfSupplyCode =
+    (codeMatch ? codeMatch[1].toUpperCase() : null) ||
+    (gstCodeWithStateMatch ? gstCodeWithStateMatch[1].toUpperCase() : null) ||
+    stateMap[normalizedState] ||
+    rawPos ||
+    undefined;
 
   return {
     document_category: category,
