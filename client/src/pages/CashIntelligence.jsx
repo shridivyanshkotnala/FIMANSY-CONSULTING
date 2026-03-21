@@ -4,7 +4,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 
 import { LockedCashPanel } from "@/components/cash-intelligence/LockedCashPanel";
-import { GapIndicatorPanel } from "@/components/cash-intelligence/GapIndicatorPanel";
 import { AgingAlertsPanel } from "@/components/cash-intelligence/AgingAlertsPanel";
 import { DSOTracker } from "@/components/cash-intelligence/DSOTracker";
 
@@ -90,19 +89,8 @@ export default function CashIntelligence() {
            Example later:
            <LockedCashPanel data={useSelector(selectLockedCash)} />
         ========================================================== */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+        <div className="grid gap-4 grid-cols-1">
           <LockedCashPanel />
-          <GapIndicatorPanel
-            gapData={data?.gapIndicator ? {
-              status: data.gapIndicator.status || "neutral",
-              operatingCycle: data.gapIndicator.operatingCycle || 0,
-              creditCycle: data.gapIndicator.creditCycle || 0,
-              netGap: data.gapIndicator.netGap || 0,
-              lockedCash: data.lockedCash?.total || 0,
-              availableCash: data.bankPosition?.available || 0,
-            } : null}
-            loading={isLoading}
-          />
         </div>
 
 

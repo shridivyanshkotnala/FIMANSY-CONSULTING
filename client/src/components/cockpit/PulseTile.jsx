@@ -22,6 +22,7 @@ export function PulseTile({
   value,
   status,
   subtitle,
+  details = [],
   actionLabel,
   onDrillDown
 }) {
@@ -62,6 +63,17 @@ export function PulseTile({
         <p className="text-3xl font-bold tracking-tight">{value}</p>
         {subtitle && (
           <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+        )}
+
+        {details.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {details.map((detail) => (
+              <div key={detail.label} className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{detail.label}</span>
+                <span className="font-medium text-foreground">{detail.value}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
