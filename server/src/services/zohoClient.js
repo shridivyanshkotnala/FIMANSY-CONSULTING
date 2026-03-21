@@ -197,7 +197,7 @@ export class ZohoClient {
         }
       }
 
-      const data = await this.get(path, { ...safeParams, page });
+      const data = await this.get(path, { per_page: 200, ...safeParams, page });
 
       const records = data[arrayKey] || [];
       if (!records.length) break;

@@ -22,24 +22,42 @@ const isCursorInFuture = (value) => {
 };
 
 const normalizeTransactionType = (txn = {}) => {
-  const ZOHO_CREDIT_TYPES = new Set([
+  const ZOHO_INFLOW_TYPES = new Set([
     "credit",
     "deposit",
     "refund",
     "interest",
+    "interest_income",
     "other_income",
     "credit_card_refund",
     "owner_contribution",
     "owners_contribution",
     "revenue_adjustment",
     "opening_balance",
-    "transfer_fund",
     "customer_payment",
     "customer payment",
   ]);
 
+  const ZOHO_OUTFLOW_TYPES = new Set([
+    "debit",
+    "expense",
+    "vendor_payment",
+    "vendor payment",
+    "vendor_advance",
+    "vendor advance",
+    "card_payment",
+    "card payment",
+    "bank_charges",
+    "bank charges",
+    "owner_drawings",
+    "owner drawings",
+    "tax_payment",
+    "tax payment",
+    "cash_withdrawal",
+    "cash withdrawal",
+  ]);
+
   const rawCandidates = [
-    txn.debit_or_credit,
     txn.transaction_type,
     txn.type,
     txn.transactionType,
@@ -50,9 +68,17 @@ const normalizeTransactionType = (txn = {}) => {
     .map((v) => String(v || "").toLowerCase().trim())
     .filter(Boolean);
 
+  const semanticType = rawCandidates[0] || "";
+  if (semanticType && ZOHO_INFLOW_TYPES.has(semanticType)) return "credit";
+  if (semanticType && ZOHO_OUTFLOW_TYPES.has(semanticType)) return "debit";
+
   if (rawCandidates.some((v) => v === "credit" || v === "cr")) return "credit";
   if (rawCandidates.some((v) => v === "debit" || v === "dr")) return "debit";
-  if (rawCandidates.some((v) => ZOHO_CREDIT_TYPES.has(v))) return "credit";
+
+  // transfer_fund is direction-sensitive → use Zoho debit_or_credit hint
+  const debitOrCredit = String(txn.debit_or_credit || "").toLowerCase().trim();
+  if (debitOrCredit === "credit") return "credit";
+  if (debitOrCredit === "debit") return "debit";
 
   const amount = Number(txn.amount);
   if (Number.isFinite(amount) && amount < 0) return "debit";
@@ -82,6 +108,7 @@ export const runBankFeedSync = async (job) => {
     jobMeta.lastTransactionSync || {};
 
   const touchedTransactionIds = new Set();
+  let totalFetchedTransactions = 0;
 
   // ---------------------------------------
   // STEP 1: FETCH BANK ACCOUNTS (INCREMENTAL)
@@ -196,11 +223,7 @@ export const runBankFeedSync = async (job) => {
       }
     }
 
-    if (!transactions.length) {
-      console.log(
-        `[BANK SYNC] No new transactions for ${accountId}`
-      );
-    }
+    totalFetchedTransactions += transactions.length;
 
     for (const txn of transactions) {
       const isDeleted = txn.is_deleted === true;
@@ -254,6 +277,12 @@ export const runBankFeedSync = async (job) => {
       // Explicitly keep epoch for accounts with zero transactions so future runs can still bootstrap.
       lastTransactionSync[accountId] = EPOCH_CURSOR;
     }
+  }
+
+  if (totalFetchedTransactions === 0) {
+    console.log(`[BANK SYNC] No transactions returned from Zoho across all active bank accounts for org ${organizationId}`);
+  } else {
+    console.log(`[BANK SYNC] Fetched ${totalFetchedTransactions} transaction row(s) across ${activeAccounts.length} active account(s)`);
   }
 
   // ---------------------------------------
