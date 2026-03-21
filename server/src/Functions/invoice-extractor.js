@@ -149,7 +149,6 @@ async function callGroq({ buffer, mimeType }) {
               model: candidateModel,
               max_tokens: 2048,
               temperature: 0.1,
-              response_format: { type: "json_object" },
               messages: [
                 {
                   role: "user",
@@ -161,7 +160,6 @@ async function callGroq({ buffer, mimeType }) {
               model: candidateModel,
               max_tokens: 2048,
               temperature: 0.1,
-              response_format: { type: "json_object" },
               messages: [
                 {
                   role: "user",
@@ -217,7 +215,11 @@ async function callGroq({ buffer, mimeType }) {
       throw new ApiError(500, "Groq model not available for this API key. Try another Groq model.");
     }
 
-    if (status === 400 || /invalid image data|image_url|unsupported image/i.test(message)) {
+    if (/failed to generate json|json_validate_failed|failed_generation/i.test(message)) {
+      throw new ApiError(502, "Groq returned non-JSON output. Please retry the request.");
+    }
+
+    if (/invalid image data|image_url|unsupported image/i.test(message)) {
       throw new ApiError(400, "Invalid or unsupported image data for Groq. Please upload a valid JPG/PNG/WEBP, or a text-based PDF.");
     }
     
