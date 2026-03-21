@@ -61,6 +61,7 @@ import { OrgRow } from "./compliancecomp/OrgRow";
 import { TicketRow } from "./compliancecomp/TicketRow";
 import { OrgCompanyInfoTab } from "./compliancecomp/OrgCompanyInfoTab";
 import { OrgCompanyDocumentsTab } from "./compliancecomp/OrgCompanyDocumentsTab";
+import { OrgBankStatementsTab } from "./compliancecomp/OrgBankStatementsTab";
 import { OrgReconciliationQueriesTab } from "./compliancecomp/OrgReconciliationQueriesTab";
 import { EmptyState } from "./compliancecomp/EmptyState";
 import { CreateTicketModal } from "./compliancecomp/CreateTicketModal";
@@ -446,7 +447,7 @@ export function AccountantComplianceEngine() {
               </div>
 
               <Tabs defaultValue="ongoing" className="space-y-3">
-                <TabsList className="grid w-full grid-cols-5 text-xs">
+                <TabsList className="grid w-full grid-cols-6 text-xs">
                   <TabsTrigger value="ongoing">
                     <Timer className="h-3 w-3 mr-1" />
                     Ongoing ({selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).length})
@@ -462,6 +463,10 @@ export function AccountantComplianceEngine() {
                   <TabsTrigger value="company_docs">
                     <FolderOpen className="h-3 w-3 mr-1" />
                     Company Docs
+                  </TabsTrigger>
+                  <TabsTrigger value="bank_statements">
+                    <FileText className="h-3 w-3 mr-1" />
+                    Bank Statements
                   </TabsTrigger>
                   <TabsTrigger value="reconciliation_queries">
                     <MessageSquare className="h-3 w-3 mr-1" />
@@ -563,6 +568,10 @@ export function AccountantComplianceEngine() {
 
                 <TabsContent value="company_docs">
                   <OrgCompanyDocumentsTab orgId={selectedOrgId} />
+                </TabsContent>
+
+                <TabsContent value="bank_statements">
+                  <OrgBankStatementsTab orgId={selectedOrgId} />
                 </TabsContent>
 
                 <TabsContent value="reconciliation_queries">

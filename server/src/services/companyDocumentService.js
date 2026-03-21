@@ -6,7 +6,7 @@ import { r2 } from "./r2Client.js";
 import { CompanyDocument } from "../models/companyDocumentModel.js";
 
 const ALLOWED_CONTENT_TYPES = new Set(["application/pdf", "application/octet-stream"]);
-const ALLOWED_DOCUMENT_TYPES = new Set(["loan", "equity", "other"]);
+const ALLOWED_DOCUMENT_TYPES = new Set(["loan", "equity", "other", "bank_statement"]);
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_R2_BUCKET = "fimansy-documents";
 

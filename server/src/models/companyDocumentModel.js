@@ -10,7 +10,7 @@ const companyDocumentSchema = new mongoose.Schema(
     },
     document_type: {
       type: String,
-      enum: ["loan", "equity", "other"],
+      enum: ["loan", "equity", "other", "bank_statement"],
       required: true,
       index: true,
     },

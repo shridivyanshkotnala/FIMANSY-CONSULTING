@@ -34,6 +34,7 @@ export const companyDocumentsApi = baseApi.injectEndpoints({
         { type: "CompanyDocument", id: "CLIENT-loan" },
         { type: "CompanyDocument", id: "CLIENT-equity" },
         { type: "CompanyDocument", id: "CLIENT-other" },
+        { type: "CompanyDocument", id: "CLIENT-bank_statement" },
       ],
     }),
 
@@ -69,6 +70,7 @@ export const companyDocumentsApi = baseApi.injectEndpoints({
         { type: "CompanyDocument", id: `ACCOUNTANT-${orgId}-loan` },
         { type: "CompanyDocument", id: `ACCOUNTANT-${orgId}-equity` },
         { type: "CompanyDocument", id: `ACCOUNTANT-${orgId}-other` },
+        { type: "CompanyDocument", id: `ACCOUNTANT-${orgId}-bank_statement` },
       ],
     }),
   }),

@@ -25,7 +25,7 @@ import {
   useInitCompanyDocumentUploadMutation,
 } from "@/Redux/Slices/api/companyDocumentsApi";
 
-const COMPANY_DOCUMENT_TYPES = ["loan", "equity", "other"];
+const COMPANY_DOCUMENT_TYPES = ["loan", "equity", "other", "bank_statement"];
 
 const formatFileSize = (bytes) => {
   const size = Number(bytes || 0);
@@ -686,6 +686,7 @@ export default function Upload() {
    * @returns {string} Route path for results page
    */
   const getResultsRoute = () => {
+    if (isCompanyDocumentType) return '/documents';
     if (documentType === 'bank_statement') return '/bank-transactions';
     if (documentType === 'sales_invoice' || documentType === 'expense_invoice') return '/invoices';
     return '/documents';
@@ -750,7 +751,7 @@ export default function Upload() {
     // Show success status with extracted data summary
     if (uploadedFile.status === 'success') {
       // For bank statements: show bank name and transaction count
-      if (documentType === 'bank_statement') {
+      if (documentType === 'bank_statement' && uploadedFile.bankMetadata && uploadedFile.transactionCount != null) {
         return (
           <span className="text-success flex items-center gap-1">
             <CheckCircle2 className="h-3 w-3" />
