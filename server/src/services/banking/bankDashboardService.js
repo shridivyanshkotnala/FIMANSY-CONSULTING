@@ -186,12 +186,12 @@ export const getBankDashboard = async ({
         t.zohoCategory = normalizedCategory;
 
         t.expenseAccount = pickFirst(
+          payload.offset_account_name,
+          payload.offset_account,
           payload.expense_account_name,
           payload.expense_account,
           payload.expense_account_id,
-          payload.account_name,
-          payload.account,
-          payload.account_id
+          payload.rule_details?.offset_account_name
         );
 
         t.vendor = pickFirst(

@@ -127,7 +127,13 @@ export function BankTransactionList() {
     const tag = getCategoryLabel(t, desc);
     const normalizedTag = normalizeCategory(tag);
 
-    const expenseAccount = t.expenseAccount || t.expenseAccountName || t.account || t.expense_account;
+    const expenseAccount =
+      t.expenseAccount ||
+      t.expenseAccountName ||
+      t.offsetAccount ||
+      t.offset_account_name ||
+      t.expense_account_name ||
+      t.expense_account;
     const vendor = t.vendor || t.vendorName || t.payee || t.supplier;
     const customer = t.customer || t.customerName || t.customer_name;
     const fromAccount = t.fromAccount || t.from_account || null;
