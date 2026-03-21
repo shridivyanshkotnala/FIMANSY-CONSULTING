@@ -1,17 +1,17 @@
 import axios from "axios";
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 import { ApiError } from "../utils/ApiError.js";
 
 /* =========================
-   CLAUDE INIT
+   GROQ INIT
 ========================= */
-const getAnthropicClient = () => {
-  const key = String(process.env.ANTHROPIC_API_KEY || "").trim();
+const getGroqClient = () => {
+  const key = String(process.env.GROQ_API_KEY || "").trim();
   if (!key) {
-    throw new ApiError(500, "ANTHROPIC_API_KEY is not configured");
+    throw new ApiError(500, "GROQ_API_KEY is not configured");
   }
 
-  return new Anthropic({ apiKey: key });
+  return new Groq({ apiKey: key });
 };
 
 
@@ -82,37 +82,23 @@ async function downloadFile(url) {
 
 
 /* =========================
-   CALL CLAUDE
+   CALL GROQ
 ========================= */
-async function callClaude(buffer, mimeType) {
+async function callGroq(buffer, mimeType) {
   try {
     const base64 = buffer.toString("base64");
+    const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    const anthropic = getAnthropicClient();
-    const candidateModels = ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"];
+    const groq = getGroqClient();
+    const candidateModels = [
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+      "meta-llama/llama-4-maverick-17b-128e-instruct"
+    ];
     let lastModelError = null;
 
     for (const candidateModel of candidateModels) {
       try {
-        const filePart = mimeType.includes("pdf")
-          ? {
-              type: "document",
-              source: {
-                type: "base64",
-                media_type: "application/pdf",
-                data: base64,
-              },
-            }
-          : {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mimeType,
-                data: base64,
-              },
-            };
-
-        const response = await anthropic.messages.create({
+        const response = await groq.chat.completions.create({
           model: candidateModel,
           max_tokens: 2048,
           temperature: 0.1,
@@ -121,17 +107,18 @@ async function callClaude(buffer, mimeType) {
               role: "user",
               content: [
                 { type: "text", text: extractionPrompt },
-                filePart,
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: dataUrl,
+                  },
+                },
               ],
             },
           ],
         });
 
-        const text = (response.content || [])
-          .filter((part) => part?.type === "text")
-          .map((part) => part?.text || "")
-          .join("\n")
-          .trim();
+        const text = String(response?.choices?.[0]?.message?.content || "").trim();
 
         if (!text) throw new Error("Empty AI response");
         return text;
@@ -149,25 +136,25 @@ async function callClaude(buffer, mimeType) {
       }
     }
 
-    throw lastModelError || new Error("No compatible Claude model available");
+    throw lastModelError || new Error("No compatible Groq model available");
     
   } catch (error) {
     const message = String(error?.message || "");
     const status = error?.status || error?.statusCode;
     const errorType = String(error?.error?.type || "").toLowerCase();
 
-    console.error("❌ Claude API Error:", message);
+    console.error("❌ Groq API Error:", message);
 
     if (
       status === 401 ||
-      /API key|ANTHROPIC_API_KEY|authentication|unauthorized|permission denied/i.test(message) ||
+      /API key|GROQ_API_KEY|authentication|unauthorized|permission denied/i.test(message) ||
       errorType === "authentication_error"
     ) {
-      throw new ApiError(500, "Invalid or missing Anthropic API key. Please check ANTHROPIC_API_KEY in your .env file");
+      throw new ApiError(500, "Invalid or missing Groq API key. Please check GROQ_API_KEY in your .env file");
     }
     
     if (status === 404 || /404|not found/i.test(message)) {
-      throw new ApiError(500, "Claude model not available for this API key. Try another Claude model.");
+      throw new ApiError(500, "Groq model not available for this API key. Try another Groq model.");
     }
     
     if (status === 429 || /quota|limit|rate/i.test(message) || errorType === "rate_limit_error") {
@@ -211,8 +198,8 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
   // 1️⃣ Download from Supabase (same logic works)
   const { buffer, mime } = await downloadFile(fileUrl);
 
-  // 2️⃣ Send to Claude
-  const aiContent = await callClaude(buffer, mime);
+  // 2️⃣ Send to Groq
+  const aiContent = await callGroq(buffer, mime);
 
   // 3️⃣ Parse AI JSON
   const extractedData = parseAIJSON(aiContent);
