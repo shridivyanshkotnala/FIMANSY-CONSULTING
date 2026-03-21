@@ -192,9 +192,62 @@ async function resolvePaidThroughAccountId(zohoClient, paymentMode) {
   return chosen?.account_id || null;
 }
 
+async function resolveExpenseTaxId(zohoClient, expenseData) {
+  const taxableAmount = Number(expenseData.taxable_amount || 0);
+  const totalGst = Number(expenseData.total_gst || 0);
+
+  if (!(taxableAmount > 0) || !(totalGst > 0)) {
+    return null;
+  }
+
+  const effectiveRate = (totalGst / taxableAmount) * 100;
+  if (!Number.isFinite(effectiveRate) || effectiveRate <= 0) {
+    return null;
+  }
+
+  const desiredRate = Number(effectiveRate.toFixed(2));
+
+  const taxData = await zohoClient.get("/settings/taxes", {
+    page: 1,
+    per_page: 200,
+  });
+
+  const taxGroups = taxData?.tax_groups || [];
+  const taxes = taxData?.taxes || [];
+
+  const byRateAsc = (a, b) => a.diff - b.diff;
+
+  const groupCandidates = taxGroups
+    .map((g) => ({
+      id: g.tax_group_id,
+      diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
+    }))
+    .filter((x) => x.id)
+    .sort(byRateAsc);
+
+  if (groupCandidates[0]?.diff <= 0.05) {
+    return groupCandidates[0].id;
+  }
+
+  const taxCandidates = taxes
+    .map((t) => ({
+      id: t.tax_id,
+      diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
+    }))
+    .filter((x) => x.id)
+    .sort(byRateAsc);
+
+  if (taxCandidates[0]?.diff <= 0.05) {
+    return taxCandidates[0].id;
+  }
+
+  return groupCandidates[0]?.id || taxCandidates[0]?.id || null;
+}
+
 export async function pushExpenseToZoho(zohoClient, expenseData) {
   const accountId = await resolveExpenseAccountId(zohoClient, expenseData.expense_account);
   const paidThroughAccountId = await resolvePaidThroughAccountId(zohoClient, expenseData.payment_mode);
+  const taxId = await resolveExpenseTaxId(zohoClient, expenseData);
 
   const amount = Number(expenseData.total_with_gst || expenseData.taxable_amount || 0);
   if (!(amount > 0)) {
@@ -213,6 +266,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
       `${expenseData.vendor_name || "Vendor"} - ${expenseData.invoice_number || "Expense"}`,
     reference_number: expenseData.invoice_number || undefined,
     is_inclusive_tax: true,
+    ...(taxId ? { tax_id: taxId } : {}),
     ...(paidThroughAccountId ? { paid_through_account_id: paidThroughAccountId } : {}),
     ...(gstNo ? { gst_no: gstNo, gst_treatment: "business_gst" } : {}),
     ...(placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
@@ -225,9 +279,34 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
   } catch (error) {
     const message = String(error?.message || "").toLowerCase();
     const invalidPos = message.includes("invalid element place_of_supply");
+    const missingTaxMeta =
+      message.includes("specify either a tax") ||
+      message.includes("tax exemption") ||
+      message.includes("reverse charge");
 
-    if (!invalidPos) {
+    if (!invalidPos && !missingTaxMeta) {
       throw error;
+    }
+
+    if (missingTaxMeta) {
+      // Fallback: when this Zoho org enforces special tax metadata rules,
+      // retry with a minimal non-GST payload so expense creation can proceed.
+      const {
+        gst_no,
+        gst_treatment,
+        tax_id,
+        place_of_supply,
+        ...minimalPayload
+      } = payload;
+
+      return await zohoClient.post(
+        "/expenses",
+        {
+          ...minimalPayload,
+          is_inclusive_tax: false,
+        },
+        idempotencyKey
+      );
     }
 
     // Fallback 1: try numeric GST state code if available (e.g., 27).
