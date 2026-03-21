@@ -80,6 +80,12 @@ const bankTransactionLedgerSchema = new mongoose.Schema(
       index: true,
     },
 
+    acceptedByClient: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
     lastSyncedAt: {
       type: Date,
       default: Date.now,

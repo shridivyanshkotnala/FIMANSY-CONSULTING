@@ -48,6 +48,7 @@ import { SyncJob } from "../models/scheduler/syncJobModel.js";
 import { RawZohoVendorPayment } from "../models/raw/rawZohoVendorPaymentModel.js";
 import { ZohoClient } from "../services/zohoClient.js";
 import { VendorPaymentLedger } from "../models/ledger/vendorPaymentLedgerModel.js";
+import { BankReconQuery } from "../models/bankReconQueryModel.js";
 
 export const getBankDashboardController = async (req, res, next) => {
   try {
@@ -161,6 +162,171 @@ export const updateTransactionCategoryController = async (req, res, next) => {
       data: updated,
     });
 
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const acceptTransactionController = async (req, res, next) => {
+  try {
+    const organizationId = req.headers["x-organization-id"];
+    const { id } = req.params;
+
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: "Organization ID missing",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid transaction ID",
+      });
+    }
+
+    const updated = await BankTransactionLedger.findOneAndUpdate(
+      {
+        _id: id,
+        organizationId,
+      },
+      {
+        $set: { acceptedByClient: true },
+      },
+      { returnDocument: "after" }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const reportTransactionIssueController = async (req, res, next) => {
+  try {
+    const organizationId = req.headers["x-organization-id"];
+    const { id } = req.params;
+    const { message } = req.body;
+
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: "Organization ID missing",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid transaction ID",
+      });
+    }
+
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Issue message is required",
+      });
+    }
+
+    const transaction = await BankTransactionLedger.findOne({
+      _id: id,
+      organizationId,
+      isDeleted: false,
+    }).lean();
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found",
+      });
+    }
+
+    const queryDoc = await BankReconQuery.create({
+      organizationId,
+      transactionId: transaction._id,
+      queryMessage: String(message).trim(),
+      transactionDetails: {
+        transactionId: transaction._id,
+        zohoTransactionId: transaction.zohoTransactionId,
+        transactionDate: transaction.transactionDate,
+        description: transaction.description,
+        referenceNumber: transaction.referenceNumber,
+        amount: transaction.amount,
+        type: transaction.type,
+        reconciliationStatus: transaction.reconciliationStatus,
+        category: transaction.category,
+      },
+      status: true,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Issue reported successfully",
+      data: queryDoc,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resolveBankReconQueryController = async (req, res, next) => {
+  try {
+    const organizationId = req.headers["x-organization-id"];
+    const { queryId } = req.params;
+
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: "Organization ID missing",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(queryId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid query ID",
+      });
+    }
+
+    const updated = await BankReconQuery.findOneAndUpdate(
+      {
+        _id: queryId,
+        organizationId,
+      },
+      {
+        $set: {
+          status: false,
+          resolvedAt: new Date(),
+          resolvedBy: req.user?._id || null,
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Bank reconciliation query not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Query resolved",
+      data: updated,
+    });
   } catch (error) {
     next(error);
   }

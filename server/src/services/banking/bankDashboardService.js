@@ -1,5 +1,6 @@
 import { BankTransactionLedger } from "../../models/ledger/bankTransactionLedgerModel.js";
 import { RawZohoBankTransaction } from "../../models/raw/rawZohoBankTransactionModel.js";
+import { BankReconQuery } from "../../models/bankReconQueryModel.js";
 import mongoose from "mongoose";
 
 const pickFirst = (...values) => {
@@ -147,8 +148,30 @@ export const getBankDashboard = async ({
     type: t.type,
     reconciliationStatus: t.reconciliationStatus,
     category: t.category || null,
+    acceptedByClient: Boolean(t.acceptedByClient),
+    hasPendingBankReconQuery: false,
     zohoTransactionId: t.zohoTransactionId || null,
   }));
+
+  const transactionObjectIds = transformedTransactions.map((t) => t._id);
+
+  if (transactionObjectIds.length > 0) {
+    const pendingQueryRows = await BankReconQuery.find({
+      organizationId: new mongoose.Types.ObjectId(organizationId),
+      transactionId: { $in: transactionObjectIds },
+      status: true,
+    })
+      .select({ transactionId: 1 })
+      .lean();
+
+    const pendingTxnIds = new Set(
+      pendingQueryRows.map((q) => String(q.transactionId))
+    );
+
+    for (const t of transformedTransactions) {
+      t.hasPendingBankReconQuery = pendingTxnIds.has(String(t._id));
+    }
+  }
 
   // Enrich with raw Zoho payload fields when available (expense account, vendor, customer, original description)
   try {

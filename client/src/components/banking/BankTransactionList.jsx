@@ -1,13 +1,23 @@
 import { useState } from "react";
 import {
   useGetBankDashboardQuery,
-  useUpdateTransactionCategoryMutation,
+  useAcceptTransactionMutation,
+  useReportTransactionIssueMutation,
 } from "@/Redux/Slices/api/bankingApi";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from "@/components/ui/table";
@@ -23,35 +33,6 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
-const CREDIT_CATEGORY_OPTIONS = [
-  { value: "customer_payment", label: "Customer Payment" },
-  { value: "customer_advance", label: "Customer Advance" },
-  { value: "transfer_from_another_account", label: "Transfer From Another Account" },
-  { value: "deposit_from_another_account", label: "Deposit From Another Account" },
-  { value: "interest_income", label: "Interest Income" },
-  { value: "other_income", label: "Other Income" },
-  { value: "expense_refund", label: "Expense Refund" },
-  { value: "owners_contribution", label: "Owner's Contribution" },
-  { value: "vendor_credit_refund", label: "Vendor Credit Refund" },
-  { value: "other", label: "Other" },
-];
-
-const DEBIT_CATEGORY_OPTIONS = [
-  { value: "rent", label: "Rent" },
-  { value: "salary", label: "Salary" },
-  { value: "payment", label: "Vendor Payment" },
-  { value: "transfer_to_another_account", label: "Transfer To Another Account" },
-  { value: "owner_drawings", label: "Owner Drawings" },
-  { value: "capital_stock", label: "Capital Stock" },
-  { value: "dividends_paid", label: "Dividends Paid" },
-  { value: "drawings", label: "Drawings" },
-  { value: "labor", label: "Labor" },
-  { value: "job_costing", label: "Job Costing" },
-  { value: "materials", label: "Materials" },
-  { value: "lodging", label: "Lodging" },
-  { value: "other", label: "Other" },
-];
-
 export function BankTransactionList() {
 
   const [search, setSearch] = useState("");
@@ -66,6 +47,8 @@ export function BankTransactionList() {
       search,
       page,
       limit,
+    }, {
+      pollingInterval: 20000,
     });
 
 
@@ -355,13 +338,48 @@ export function BankTransactionList() {
     return res.reverse();
   })();
 
-  const [updateCategory] = useUpdateTransactionCategoryMutation();
+  const [acceptTransaction] = useAcceptTransactionMutation();
+  const [reportTransactionIssue] = useReportTransactionIssueMutation();
 
-  const handleCategoryChange = async (id, category) => {
+  const [processingTxnId, setProcessingTxnId] = useState(null);
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [selectedIssueTxnId, setSelectedIssueTxnId] = useState(null);
+  const [issueMessage, setIssueMessage] = useState("");
+
+  const handleAccept = async (id) => {
     try {
-      await updateCategory({ id, category }).unwrap();
+      setProcessingTxnId(id);
+      await acceptTransaction({ id }).unwrap();
     } catch (err) {
-      console.error("Category update failed", err);
+      console.error("Accept transaction failed", err);
+    } finally {
+      setProcessingTxnId(null);
+    }
+  };
+
+  const openIssueDialog = (id) => {
+    setSelectedIssueTxnId(id);
+    setIssueMessage("");
+    setIssueDialogOpen(true);
+  };
+
+  const handleSubmitIssue = async () => {
+    if (!selectedIssueTxnId || !issueMessage.trim()) return;
+
+    try {
+      setProcessingTxnId(selectedIssueTxnId);
+      await reportTransactionIssue({
+        id: selectedIssueTxnId,
+        message: issueMessage.trim(),
+      }).unwrap();
+
+      setIssueDialogOpen(false);
+      setSelectedIssueTxnId(null);
+      setIssueMessage("");
+    } catch (err) {
+      console.error("Report issue failed", err);
+    } finally {
+      setProcessingTxnId(null);
     }
   };
 
@@ -471,8 +489,8 @@ export function BankTransactionList() {
                       <TableHead>Description</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Category</TableHead>
                       <TableHead className="text-right">Running Balance</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
 
@@ -504,26 +522,36 @@ export function BankTransactionList() {
                           <Badge variant="outline">{t.reconciliationStatus}</Badge>
                         </TableCell>
 
-                        <TableCell>
-                          <Select
-                            value={t.category || ""}
-                            onValueChange={(value) => handleCategoryChange(t._id, value)}
-                          >
-                            <SelectTrigger className="h-8 w-36">
-                              <SelectValue placeholder="Set category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(t.type === "credit" ? CREDIT_CATEGORY_OPTIONS : DEBIT_CATEGORY_OPTIONS).map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-
                         <TableCell className="text-right font-medium">
                           {formatCurrency(runningBalances[idx])}
+                        </TableCell>
+
+                        <TableCell className="text-right">
+                          <div className="inline-flex items-center gap-2">
+                            {t.acceptedByClient ? (
+                              <Badge className="bg-success/10 text-success border-success/20">Accepted</Badge>
+                            ) : t.hasPendingBankReconQuery ? (
+                              <Badge className="bg-warning/10 text-warning border-warning/20">Pending Query</Badge>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openIssueDialog(t._id)}
+                                  disabled={processingTxnId === t._id}
+                                >
+                                  Report Issue
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleAccept(t._id)}
+                                  disabled={processingTxnId === t._id}
+                                >
+                                  Accept
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </TableCell>
 
                       </TableRow>
@@ -531,6 +559,39 @@ export function BankTransactionList() {
                   </TableBody>
                 </Table>
               </div>
+
+              <Dialog open={issueDialogOpen} onOpenChange={setIssueDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Report Transaction Issue</DialogTitle>
+                    <DialogDescription>
+                      Tell your accountant what needs correction for this transaction.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <Textarea
+                    value={issueMessage}
+                    onChange={(e) => setIssueMessage(e.target.value)}
+                    placeholder="what issue you are facing? Any categories to update? "
+                    rows={5}
+                  />
+
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIssueDialogOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleSubmitIssue}
+                      disabled={!issueMessage.trim() || !selectedIssueTxnId || processingTxnId === selectedIssueTxnId}
+                    >
+                      Submit
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               {/* Pagination */}
               <div className="flex items-center justify-between pt-4">

@@ -42,6 +42,29 @@ export const bankingApi = baseApi.injectEndpoints({
       invalidatesTags: ["Banking"],
     }),
 
+    // ----------------------------------------
+    // ACCEPT TRANSACTION
+    // ----------------------------------------
+    acceptTransaction: builder.mutation({
+      query: ({ id }) => ({
+        url: `/banking/transaction/${id}/accept`,
+        method: "PATCH",
+      }),
+      invalidatesTags: ["Banking"],
+    }),
+
+    // ----------------------------------------
+    // REPORT ISSUE (BANK RECON QUERY)
+    // ----------------------------------------
+    reportTransactionIssue: builder.mutation({
+      query: ({ id, message }) => ({
+        url: `/banking/transaction/${id}/report-issue`,
+        method: "POST",
+        body: { message },
+      }),
+      invalidatesTags: ["Banking"],
+    }),
+
     // ------------------------------
     // PAYMENT HISTORY
     // ------------------------------
@@ -96,6 +119,8 @@ export const bankingApi = baseApi.injectEndpoints({
 export const {
   useGetBankDashboardQuery,
   useUpdateTransactionCategoryMutation,
+  useAcceptTransactionMutation,
+  useReportTransactionIssueMutation,
   useGetPaymentHistoryQuery,
   useRefetchPaymentHistoryMutation,
   useRebuildPaymentLedgerMutation,
