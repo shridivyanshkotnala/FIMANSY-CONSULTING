@@ -39,12 +39,29 @@
 // We will implement generic idempotency at client layer.
 
 import { getValidZohoToken } from "./zohoTokenService.js";
-import { ZohoConnection } from "../models/zohoConnectionModel.js";
-import { toZohoTime } from "../utils/zohoTime.js";
 
 const ZOHO_BASE = "https://www.zohoapis.in/books/v3";
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const readResponseBody = async (res) => {
+  try {
+    return await res.json();
+  } catch {
+    try {
+      const text = await res.text();
+      return { message: text };
+    } catch {
+      return {};
+    }
+  }
+};
+
+const parseRetryAfterMs = (res) => {
+  const retryAfter = Number(res.headers.get("retry-after"));
+  if (!Number.isFinite(retryAfter) || retryAfter <= 0) return null;
+  return retryAfter * 1000;
+};
 
 export class ZohoClient {
   constructor({ accessToken = null, organizationId = null, connection = null }) {
@@ -64,57 +81,83 @@ export class ZohoClient {
 
   async request(method, path, { params = {}, body = null, idempotencyKey = null } = {}) {
     let attempts = 0;
+    let lastError = null;
 
-    while (attempts < 4) {
+    while (attempts < 7) {
       attempts++;
 
-      await this.ensureAuth();
+      try {
+        await this.ensureAuth();
 
 
-      const url = new URL(`${ZOHO_BASE}${path}`);
-      url.searchParams.set("organization_id", this.organizationId);
+        const url = new URL(`${ZOHO_BASE}${path}`);
+        url.searchParams.set("organization_id", this.organizationId);
 
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null) url.searchParams.set(k, v);
-      });
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) url.searchParams.set(k, v);
+        });
 
-      const res = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Zoho-oauthtoken ${this.accessToken}`,
-          "Content-Type": "application/json",
-          ...(idempotencyKey && { "X-Idempotency-Key": idempotencyKey }),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+        const res = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Zoho-oauthtoken ${this.accessToken}`,
+            "Content-Type": "application/json",
+            ...(idempotencyKey && { "X-Idempotency-Key": idempotencyKey }),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
 
-      // token revoked while job running
-      if (res.status === 401 && this.connection) {
-        // force refresh next loop
-        this.connection.tokenExpiry = new Date(0);
-        continue;
+        // token revoked while job running
+        if (res.status === 401 && this.connection) {
+          // force refresh next loop
+          this.connection.tokenExpiry = new Date(0);
+          await sleep(300 * attempts);
+          continue;
+        }
+
+        // rate limit
+        if (res.status === 429) {
+          const retryAfterMs = parseRetryAfterMs(res);
+          const fallbackDelay = Math.min(30000, 2000 * Math.pow(2, attempts - 1));
+          await sleep(retryAfterMs || fallbackDelay);
+          continue;
+        }
+
+        // temporary server failure
+        if (res.status >= 500) {
+          const delay = Math.min(20000, 1000 * Math.pow(2, attempts - 1));
+          await sleep(delay);
+          continue;
+        }
+
+        const data = await readResponseBody(res);
+
+        if (!res.ok) {
+          const message = data?.message || data?.code || "Zoho API error";
+          throw new Error(`Zoho API ${res.status} ${method} ${path}: ${message}`);
+        }
+
+        return data;
+      } catch (err) {
+        lastError = err;
+        const message = String(err?.message || "").toLowerCase();
+        const isTransientNetwork =
+          message.includes("network") ||
+          message.includes("fetch failed") ||
+          message.includes("socket") ||
+          message.includes("econnreset") ||
+          message.includes("timed out");
+
+        if (!isTransientNetwork || attempts >= 7) {
+          break;
+        }
+
+        const delay = Math.min(15000, 700 * Math.pow(2, attempts - 1));
+        await sleep(delay);
       }
-
-      // rate limit
-      if (res.status === 429) {
-        await sleep(1500 * attempts);
-        continue;
-      }
-
-      // temporary server failure
-      if (res.status >= 500) {
-        await sleep(1000 * attempts);
-        continue;
-      }
-
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.message || "Zoho API error");
-
-      return data;
     }
 
-    throw new Error("Zoho request failed after retries");
+    throw new Error(`Zoho request failed after retries (${method} ${path}): ${lastError?.message || "unknown error"}`);
   }
 
   get(path, params) {

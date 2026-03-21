@@ -22,6 +22,16 @@ function getBackoffDelay(retryCount) {
   return 60 * 60 * 1000;                         // 60 min max
 }
 
+function getJobFrequency(jobType) {
+  const frequencies = {
+    sync_bank_feeds: 15 * 60 * 1000,
+    sync_vendor_payments: 15 * 60 * 1000,
+    generate_dso_metrics: 15 * 60 * 1000,
+  };
+
+  return frequencies[jobType] || JOB_FREQUENCY;
+}
+
 export const startScheduler = async () => {
   console.log(`[SCHEDULER] Started instance ${INSTANCE_ID}`);
 
@@ -64,7 +74,7 @@ export const startScheduler = async () => {
           // 3) run worker
           await runJobWorker(job);
 
-          const nextRunAt = new Date(Date.now() + JOB_FREQUENCY);
+          const nextRunAt = new Date(Date.now() + getJobFrequency(job.jobType));
 
           await completeJob(job._id, INSTANCE_ID, nextRunAt);
 
