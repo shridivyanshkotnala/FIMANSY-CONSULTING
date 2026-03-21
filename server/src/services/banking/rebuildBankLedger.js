@@ -68,6 +68,67 @@
 import { RawZohoBankTransaction } from "../../models/raw/rawZohoBankTransactionModel.js";
 import { BankTransactionLedger } from "../../models/ledger/bankTransactionLedgerModel.js";
 
+const deriveLedgerType = (raw) => {
+  const txn = raw?.payload || {};
+  const rawCandidates = [
+    txn.transaction_type,
+    txn.type,
+    txn.transactionType,
+    txn.transaction_type_formatted,
+    txn.transaction_category,
+    txn.entry_type,
+  ]
+    .map((v) => String(v || "").toLowerCase().trim())
+    .filter(Boolean);
+
+  const INFLOW = new Set([
+    "deposit",
+    "refund",
+    "interest",
+    "interest_income",
+    "other_income",
+    "credit_card_refund",
+    "owner_contribution",
+    "owners_contribution",
+    "revenue_adjustment",
+    "opening_balance",
+    "customer_payment",
+    "customer payment",
+  ]);
+
+  const OUTFLOW = new Set([
+    "expense",
+    "vendor_payment",
+    "vendor payment",
+    "vendor_advance",
+    "vendor advance",
+    "card_payment",
+    "card payment",
+    "bank_charges",
+    "bank charges",
+    "owner_drawings",
+    "owner drawings",
+    "tax_payment",
+    "tax payment",
+    "cash_withdrawal",
+    "cash withdrawal",
+  ]);
+
+  const hasInflowSemantic = rawCandidates.some((v) => INFLOW.has(v));
+  const hasOutflowSemantic = rawCandidates.some((v) => OUTFLOW.has(v));
+  if (hasInflowSemantic && !hasOutflowSemantic) return "credit";
+  if (hasOutflowSemantic && !hasInflowSemantic) return "debit";
+
+  const drCr = String(txn.debit_or_credit || "").toLowerCase().trim();
+  if (drCr === "credit" || rawCandidates.includes("credit") || rawCandidates.includes("cr")) return "debit";
+  if (drCr === "debit" || rawCandidates.includes("debit") || rawCandidates.includes("dr")) return "credit";
+
+  const amount = Number(raw.amount);
+  if (Number.isFinite(amount) && amount < 0) return "debit";
+
+  return raw.type === "credit" || raw.type === "debit" ? raw.type : "debit";
+};
+
 const upsertLedgerFromRaw = async (raw, organizationId) => {
   // Skip records without a date — BankTransactionLedger requires transactionDate
   if (!raw.transactionDate) {
@@ -87,7 +148,7 @@ const upsertLedgerFromRaw = async (raw, organizationId) => {
     zohoBankAccountId: raw.zohoBankAccountId,
     transactionDate: raw.transactionDate,
     amount: raw.amount,
-    type: raw.type,
+    type: deriveLedgerType(raw),
     description:
       raw.description ||
       txn.payee_name ||

@@ -68,17 +68,30 @@ const normalizeTransactionType = (txn = {}) => {
     .map((v) => String(v || "").toLowerCase().trim())
     .filter(Boolean);
 
-  const semanticType = rawCandidates[0] || "";
-  if (semanticType && ZOHO_INFLOW_TYPES.has(semanticType)) return "credit";
-  if (semanticType && ZOHO_OUTFLOW_TYPES.has(semanticType)) return "debit";
+  const semanticInflow = rawCandidates.some((v) => ZOHO_INFLOW_TYPES.has(v));
+  const semanticOutflow = rawCandidates.some((v) => ZOHO_OUTFLOW_TYPES.has(v));
 
-  if (rawCandidates.some((v) => v === "credit" || v === "cr")) return "credit";
-  if (rawCandidates.some((v) => v === "debit" || v === "dr")) return "debit";
+  if (semanticInflow && !semanticOutflow) return "credit";
+  if (semanticOutflow && !semanticInflow) return "debit";
 
-  // transfer_fund is direction-sensitive → use Zoho debit_or_credit hint
+  // Zoho's debit_or_credit / transaction_type values are accounting-side direction.
+  // For cashflow UX we invert them to business inflow(outflow):
+  // Zoho debit => money in (credit), Zoho credit => money out (debit).
   const debitOrCredit = String(txn.debit_or_credit || "").toLowerCase().trim();
-  if (debitOrCredit === "credit") return "credit";
-  if (debitOrCredit === "debit") return "debit";
+  if (debitOrCredit === "credit" || debitOrCredit === "cr") return "debit";
+  if (debitOrCredit === "debit" || debitOrCredit === "dr") return "credit";
+
+  if (rawCandidates.some((v) => v === "credit" || v === "cr")) return "debit";
+  if (rawCandidates.some((v) => v === "debit" || v === "dr")) return "credit";
+
+  const debitAmount = Number(txn.debit_amount);
+  const creditAmount = Number(txn.credit_amount);
+  if (Number.isFinite(debitAmount) && debitAmount > 0 && (!Number.isFinite(creditAmount) || creditAmount === 0)) {
+    return "debit";
+  }
+  if (Number.isFinite(creditAmount) && creditAmount > 0 && (!Number.isFinite(debitAmount) || debitAmount === 0)) {
+    return "credit";
+  }
 
   const amount = Number(txn.amount);
   if (Number.isFinite(amount) && amount < 0) return "debit";

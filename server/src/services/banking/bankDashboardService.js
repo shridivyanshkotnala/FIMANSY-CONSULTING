@@ -48,6 +48,21 @@ const matchesCategorySearch = (t, searchText) => {
   return categoryPool.some((value) => value.includes(searchText));
 };
 
+const normalizeDebitCreditToken = (...values) => {
+  for (const value of values) {
+    const token = String(value || "")
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .trim();
+
+    if (!token) continue;
+    if (token === "debit" || token === "dr") return "debit";
+    if (token === "credit" || token === "cr") return "credit";
+  }
+
+  return null;
+};
+
 /**
  * Get Banking Dashboard Summary + Transactions
  *
@@ -191,6 +206,8 @@ export const getBankDashboard = async ({
 
   const transactionObjectIds = transformedTransactions.map((t) => t._id);
 
+  let shouldInvertLegacyDrCr = false;
+
   if (transactionObjectIds.length > 0) {
     const pendingQueryRows = await BankReconQuery.find({
       organizationId: new mongoose.Types.ObjectId(organizationId),
@@ -223,8 +240,23 @@ export const getBankDashboard = async ({
 
       const rawMap = new Map(raws.map((r) => [r.zohoTransactionId, r.payload || {}]));
 
+      let sameAsRawDrCrCount = 0;
+      let differsFromRawDrCrCount = 0;
+
       for (const t of transformedTransactions) {
         const payload = rawMap.get(t.zohoTransactionId) || {};
+
+        const rawDebitCredit = normalizeDebitCreditToken(
+          payload.debit_or_credit,
+          payload.transaction_type,
+          payload.type,
+          payload.entry_type
+        );
+
+        if (rawDebitCredit && (t.type === "credit" || t.type === "debit")) {
+          if (t.type === rawDebitCredit) sameAsRawDrCrCount += 1;
+          else differsFromRawDrCrCount += 1;
+        }
 
         const categoryCandidate = pickFirst(
           payload.category_name,
@@ -348,6 +380,27 @@ export const getBankDashboard = async ({
           payload.narration,
           payload.notes
         );
+
+        t._rawDebitCredit = rawDebitCredit;
+      }
+
+      // Legacy bug: bank cashflow was stored with raw debit/credit direction without
+      // inverting it to business inflow/outflow meaning. If most rows match raw Dr/Cr,
+      // treat this response as legacy and invert for UI.
+      shouldInvertLegacyDrCr =
+        sameAsRawDrCrCount > 0 &&
+        sameAsRawDrCrCount >= differsFromRawDrCrCount;
+
+      if (shouldInvertLegacyDrCr) {
+        transformedTransactions = transformedTransactions.map((t) => {
+          if (t._rawDebitCredit === "credit") {
+            return { ...t, type: "debit" };
+          }
+          if (t._rawDebitCredit === "debit") {
+            return { ...t, type: "credit" };
+          }
+          return t;
+        });
       }
     }
   } catch (err) {
@@ -377,6 +430,18 @@ export const getBankDashboard = async ({
       }
     );
   }
+
+  // If response rows indicate legacy Dr/Cr inversion, swap summary buckets too.
+  if (shouldInvertLegacyDrCr) {
+    const { totalCredits = 0, totalDebits = 0 } = summary || {};
+    summary = {
+      ...summary,
+      totalCredits: totalDebits,
+      totalDebits: totalCredits,
+    };
+  }
+
+  transformedTransactions = transformedTransactions.map(({ _rawDebitCredit, ...rest }) => rest);
 
   return {
     summary: {
