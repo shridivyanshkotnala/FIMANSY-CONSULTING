@@ -82,12 +82,15 @@ export function PulseTile({
         )}
 
         {details.length > 0 && (
-          <div className="mt-4 rounded-lg bg-muted/10 px-3 py-2.5">
-            <div className="divide-y divide-border/40">
+          <div className="mt-4">
+            <div className="grid grid-cols-1 gap-2">
               {details.map((detail) => (
-                <div key={detail.label} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                  <span className="text-muted-foreground leading-relaxed">{detail.label}</span>
-                  <span className="font-medium text-foreground whitespace-nowrap">{detail.value}</span>
+                <div
+                  key={detail.label}
+                  className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2"
+                >
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{detail.label}</p>
+                  <p className="text-base font-semibold text-foreground mt-0.5 whitespace-nowrap">{detail.value}</p>
                 </div>
               ))}
             </div>

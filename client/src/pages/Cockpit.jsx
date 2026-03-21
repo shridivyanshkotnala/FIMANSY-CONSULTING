@@ -12,6 +12,7 @@ import {
   TrendingUp,
   CreditCard,
   Shield,
+  Wallet,
   Zap,
   CalendarClock,
   Building2,
@@ -50,6 +51,10 @@ export default function Cockpit() {
     reconciledStatus: "amber",
     complianceDue: 4,
     complianceStatus: "red",
+    payrollStatus: "amber",
+    payrollNetAmount: 124000,
+    payrollDueInDays: 3,
+    employeesPayable: 14,
     nextDueDate: new Date().toISOString(),
     complianceItems: [
       { id: "cmp-1", dueDate: "2026-01-20", status: "pending" },
@@ -207,7 +212,7 @@ export default function Cockpit() {
         </div>
 
         {/* Pulse Tiles */}
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
 
           <PulseTile
             id="cashflow"
@@ -246,6 +251,18 @@ export default function Cockpit() {
             ]}
             actionLabel="View Filings"
             onDrillDown={() => navigate("/compliance")}
+          />
+
+          <PulseTile id="payroll" title="Payroll" icon={Wallet}
+            value={formatCurrency(mockData.payrollNetAmount)}
+            status={mockData.payrollStatus}
+            subtitle="Upcoming payroll outflow"
+            details={[
+              { label: "Employees payable", value: `${mockData.employeesPayable}` },
+              { label: "Next run", value: `${mockData.payrollDueInDays} days` },
+            ]}
+            actionLabel="Open Payroll"
+            onDrillDown={() => navigate("/payroll")}
           />
         </div>
       </div>
