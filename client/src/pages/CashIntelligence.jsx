@@ -89,7 +89,7 @@ export default function CashIntelligence() {
            Example later:
            <LockedCashPanel data={useSelector(selectLockedCash)} />
         ========================================================== */}
-        <div className="grid gap-4 grid-cols-1">
+        <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
           <LockedCashPanel />
         </div>
 
