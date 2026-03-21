@@ -3,7 +3,7 @@ import { RawZohoBankTransaction } from "../models/raw/rawZohoBankTransactionMode
 import { ZohoConnection } from "../models/zohoConnectionModel.js";
 import { ZohoClient } from "../services/zohoClient.js";
 import { SyncJob } from "../models/scheduler/syncJobModel.js";
-import { rebuildBankLedger } from "../services/banking/rebuildBankLedger.js";
+import { rebuildBankLedgerIncremental } from "../services/banking/rebuildBankLedger.js";
 
 export const runBankFeedSync = async (job) => {
   console.log(`[BANK SYNC] Starting for connection ${job.connectionId}`);
@@ -25,6 +25,8 @@ export const runBankFeedSync = async (job) => {
 
   const lastTransactionSync =
     jobMeta.lastTransactionSync || {};
+
+  const touchedTransactionIds = new Set();
 
   // ---------------------------------------
   // STEP 1: FETCH BANK ACCOUNTS (INCREMENTAL)
@@ -167,6 +169,8 @@ export const runBankFeedSync = async (job) => {
         },
         { upsert: true }
       );
+
+      touchedTransactionIds.add(txn.transaction_id);
     }
 
     if (txnLastModified) {
@@ -196,8 +200,16 @@ export const runBankFeedSync = async (job) => {
   // ---------------------------------------
 
   try {
-    await rebuildBankLedger(organizationId);
-    console.log(`[BANK SYNC] Bank ledger rebuilt for org ${organizationId}`);
+    const touchedIdsArray = [...touchedTransactionIds];
+
+    if (touchedIdsArray.length > 0) {
+      await rebuildBankLedgerIncremental(organizationId, touchedIdsArray);
+      console.log(
+        `[BANK SYNC] Bank ledger incrementally rebuilt for org ${organizationId} (${touchedIdsArray.length} txns)`
+      );
+    } else {
+      console.log(`[BANK SYNC] Ledger rebuild skipped (no changed txns) for org ${organizationId}`);
+    }
   } catch (err) {
     console.error(`[BANK SYNC] Failed to rebuild bank ledger`, err);
   }
