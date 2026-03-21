@@ -1,10 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PillarLayout } from "@/components/layout/PillarLayout";
-import { PulseTile, DrillDownPanel } from "@/components/cockpit/PulseTile";
-import { ComplianceHealthBanner } from "@/components/cockpit/ComplianceHealthBanner";
-import { ActionFeed } from "@/components/command-center/ActionFeed";
-import { CashRunwayChart } from "@/components/command-center/CashRunwayChart";
+import { PulseTile } from "@/components/cockpit/PulseTile";
 import { BookConsultantModal } from "@/components/command-center/BookConsultantModal";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileCommandCenter } from "@/components/mobile/MobileCommandCenter";
@@ -12,12 +9,8 @@ import { MobileCommandCenter } from "@/components/mobile/MobileCommandCenter";
 import {
   TrendingUp,
   CreditCard,
-  Package,
   Shield,
-  Receipt,
   Zap,
-  Users,
-  Eye,
   CalendarClock
 } from "lucide-react";
 
@@ -45,17 +38,12 @@ export default function Cockpit() {
     cashGap: 32000,
     unreconciled: 3,
     reconciledStatus: "amber",
-    lowStockItems: 2,
-    inventoryStatus: "amber",
     complianceDue: 1,
     complianceStatus: "red",
     nextDueDate: new Date().toISOString(),
-    gstDue: 18000,
-    gstStatus: "amber",
     loading: false,
   });
 
-  const [activeDrillDown, setActiveDrillDown] = useState(null);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   // const { data: agingData } = useGetAgingQuery();
   const agingData = null; // Placeholder until API integration
@@ -68,28 +56,6 @@ export default function Cockpit() {
     if (absAmount >= 1000) return `₹${(amount / 1000).toFixed(0)}K`;
     return `₹${amount.toFixed(0)}`;
   };
-
-  const getComplianceHealth = () => {
-    if (mockData.complianceStatus === "red") {
-      return {
-        status: "red",
-        message: "Action Required",
-        subMessage: `${mockData.complianceDue} compliance items need immediate attention`,
-      };
-    }
-    if (mockData.complianceStatus === "amber") {
-      return {
-        status: "amber",
-        message: "Upcoming Deadlines",
-        subMessage: mockData.nextDueDate
-          ? `Next due: ${format(new Date(mockData.nextDueDate), "dd MMM yyyy")}`
-          : undefined,
-      };
-    }
-    return { status: "green", message: "All Clear", subMessage: "No pending compliance items" };
-  };
-
-  const complianceHealth = getComplianceHealth();
 
   return (
     <PillarLayout>
@@ -118,15 +84,8 @@ export default function Cockpit() {
           </div>
         </div>
 
-        {/* Compliance Banner */}
-        <ComplianceHealthBanner
-          status={complianceHealth.status}
-          message={complianceHealth.message}
-          subMessage={complianceHealth.subMessage}
-        />
-
         {/* Pulse Tiles */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 
           <PulseTile
             id="cashflow"
@@ -147,14 +106,6 @@ export default function Cockpit() {
             onDrillDown={() => navigate("/banking")}
           />
 
-          <PulseTile id="inventory" title="Inventory" icon={Package}
-            value={mockData.lowStockItems}
-            status={mockData.inventoryStatus}
-            subtitle="Items below reorder level"
-            actionLabel="View Stock"
-            onDrillDown={() => setActiveDrillDown("inventory")}
-          />
-
           <PulseTile id="compliance" title="Compliance" icon={Shield}
             value={mockData.complianceDue}
             status={mockData.complianceStatus}
@@ -162,19 +113,6 @@ export default function Cockpit() {
             actionLabel="View Filings"
             onDrillDown={() => navigate("/compliance")}
           />
-
-          <PulseTile id="gst" title="GST / TDS" icon={Receipt}
-            value={formatCurrency(mockData.gstDue)}
-            status={mockData.gstStatus}
-            subtitle="Next payment due"
-            actionLabel="Pay Now"
-            onDrillDown={() => setActiveDrillDown("gst")}
-          />
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <ActionFeed />
-          <CashRunwayChart />
         </div>
       </div>
 

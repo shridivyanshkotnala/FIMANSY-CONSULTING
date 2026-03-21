@@ -1,34 +1,20 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PillarLayout } from "@/components/layout/PillarLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 
 import { LockedCashPanel } from "@/components/cash-intelligence/LockedCashPanel";
-import { CashBurnPanel } from "@/components/cash-intelligence/CashBurnPanel";
-import { BankPositionPanel } from "@/components/cash-intelligence/BankPositionPanel";
 import { GapIndicatorPanel } from "@/components/cash-intelligence/GapIndicatorPanel";
-import { CCCEngine } from "@/components/cash-intelligence/CCCEngine";
-import { WeeklyReviewMode } from "@/components/cash-intelligence/WeeklyReviewMode";
 import { AgingAlertsPanel } from "@/components/cash-intelligence/AgingAlertsPanel";
 import { DSOTracker } from "@/components/cash-intelligence/DSOTracker";
-import { TReDSSuggestions } from "@/components/cash-intelligence/TReDSSuggestions";
-import { VendorNegotiationSupport } from "@/components/cash-intelligence/VendorNegotiationSupport";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 import {
   TrendingUp,
   AlertTriangle,
-  Calendar,
-  BarChart3,
-  FileText,
-  Handshake,
   ArrowLeft,
   AlertCircle,
-  Receipt,
-  Users,
-  Building2
 } from "lucide-react";
 
 /*
@@ -53,12 +39,9 @@ Redux Store → Panel Selectors → Panels → This Page (layout only)
 
 export default function CashIntelligence() {
 
-  const [showWeeklyReview, setShowWeeklyReview] = useState(false);
   const navigate = useNavigate();
   // const { data, isLoading, isFetching, error, refetch } = useGetAgingQuery();
-  // const { data: zoho } = useGetZohoStatusQuery();
   const data = null;
-  const zoho = null;
   const error = null;
   const isLoading = false;
   return (
@@ -88,24 +71,8 @@ export default function CashIntelligence() {
             </div>
           </div>
 
-          {/* Later: dispatch(openWeeklyReview()) */}
-          <Button onClick={() => setShowWeeklyReview(true)} variant="outline">
-            <Calendar className="h-4 w-4 mr-2" />
-            Weekly Review
-          </Button>
         </div>
 
-
-        {/* ================= Zoho Connection Check ================= */}
-        {!zoho?.connected && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Zoho Books Not Connected</AlertTitle>
-            <AlertDescription>
-              Please connect your Zoho Books account from the sidebar to view cash intelligence data.
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* ================= Error State ================= */}
         {error && (
@@ -123,37 +90,8 @@ export default function CashIntelligence() {
            Example later:
            <LockedCashPanel data={useSelector(selectLockedCash)} />
         ========================================================== */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
           <LockedCashPanel />
-          <CashBurnPanel
-            totalBurn={data?.cashBurn?.total || 0}
-            categories={(data?.cashBurn?.breakdown || []).filter(b => b.amount > 0).map(b => {
-              const iconMap = {
-                gst: <Receipt className="h-3.5 w-3.5" />,
-                tds: <FileText className="h-3.5 w-3.5" />,
-                payroll: <Users className="h-3.5 w-3.5" />,
-                vendors: <Building2 className="h-3.5 w-3.5" />,
-              };
-              return {
-                label: b.label,
-                amount: b.amount,
-                priority: b.amount > 50000 ? "high" : b.amount > 10000 ? "medium" : "low",
-                dueDate: b.dueDate || null,
-                icon: iconMap[b.type] || null,
-              };
-            })}
-            loading={isLoading}
-          />
-          <BankPositionPanel
-            totalBalance={data?.bankPosition?.available || 0}
-            accounts={(data?.bankPosition?.accounts ? [
-              ...(data.bankPosition.accounts.hdfc_current ? [{ name: "HDFC Current", type: "current", balance: data.bankPosition.accounts.hdfc_current }] : []),
-              ...(data.bankPosition.accounts.icici_current ? [{ name: "ICICI Current", type: "current", balance: data.bankPosition.accounts.icici_current }] : []),
-              ...(data.bankPosition.accounts.cc_limit ? [{ name: "CC", type: "cc", limit: data.bankPosition.accounts.cc_limit, utilized: data.bankPosition.accounts.cc_utilized || 0 }] : []),
-            ] : [])}
-            lastSync={data?.lastUpdated || null}
-            loading={isLoading}
-          />
           <GapIndicatorPanel
             gapData={data?.gapIndicator ? {
               status: data.gapIndicator.status || "neutral",
@@ -169,14 +107,9 @@ export default function CashIntelligence() {
 
 
         {/* ================= Intelligence Modules ================= */}
-        <Tabs defaultValue="analytics" className="space-y-6">
+        <Tabs defaultValue="alerts" className="space-y-6">
 
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-
-            <TabsTrigger value="analytics" className="gap-2">
-              <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Analytics</span>
-            </TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 lg:w-auto lg:inline-grid">
 
             <TabsTrigger value="alerts" className="gap-2">
               <AlertTriangle className="h-4 w-4" />
@@ -188,34 +121,10 @@ export default function CashIntelligence() {
               <span className="hidden sm:inline">DSO</span>
             </TabsTrigger>
 
-            <TabsTrigger value="treds" className="gap-2">
-              <FileText className="h-4 w-4" />
-              <span className="hidden sm:inline">TReDS</span>
-            </TabsTrigger>
-
-            <TabsTrigger value="negotiate" className="gap-2">
-              <Handshake className="h-4 w-4" />
-              <span className="hidden sm:inline">Negotiate</span>
-            </TabsTrigger>
-
           </TabsList>
 
 
           {/* Panels own their own data logic */}
-          <TabsContent value="analytics" className="space-y-6">
-            <CCCEngine
-              current={data?.gapIndicator ? {
-                inventoryDays: 0,
-                receivableDays: data.gapIndicator.operatingCycle || 0,
-                payableDays: data.gapIndicator.creditCycle || 0,
-                ccc: data.gapIndicator.netGap || 0,
-              } : null}
-              fundingGap={data?.lockedCash?.total || 0}
-              trend={0}
-              loading={isLoading}
-            />
-          </TabsContent>
-
           <TabsContent value="alerts" className="space-y-6">
             <AgingAlertsPanel agingData={data} loading={isLoading} />          
           </TabsContent>
@@ -224,25 +133,9 @@ export default function CashIntelligence() {
             <DSOTracker />
           </TabsContent>
 
-          <TabsContent value="treds" className="space-y-6">
-            <TReDSSuggestions />
-          </TabsContent>
-
-          <TabsContent value="negotiate" className="space-y-6">
-            <VendorNegotiationSupport />
-          </TabsContent>
-
         </Tabs>
 
       </div>
-
-
-      {/* Weekly Review Modal
-         Later controlled via Redux UI slice */}
-      <WeeklyReviewMode
-        open={showWeeklyReview}
-        onOpenChange={setShowWeeklyReview}
-      />
 
     </PillarLayout>
   );

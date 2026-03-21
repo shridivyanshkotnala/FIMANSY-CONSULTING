@@ -133,7 +133,7 @@ export default function Documents() {
                         navigate(docType.id === "sales_invoice" ? "/sales-invoice/new" : `/upload?type=${docType.id}`);
                       }}
                     >
-                      Upload
+                      {docType.id === "sales_invoice" ? "Create Invoice" : "Upload"}
                       <ArrowRight className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
                     </Button>
                   </CardContent>
