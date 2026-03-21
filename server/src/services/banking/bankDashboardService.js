@@ -26,40 +26,26 @@ const extractAmount = (...values) => {
   return null;
 };
 
-const matchesTransactionSearch = (t, searchText) => {
+const normalizeCategoryText = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const matchesCategorySearch = (t, searchText) => {
   if (!searchText) return true;
 
-  const searchNumber = Number(String(searchText).replace(/[₹,\s]/g, ""));
-  if (Number.isFinite(searchNumber) && Number(t.amount) === searchNumber) {
-    return true;
-  }
-
-  const fields = [
-    t.description,
-    t.referenceNumber,
-    t.zohoDescription,
+  const categoryPool = [
     t.category,
     t.zohoCategory,
-    t.vendor,
-    t.vendorName,
-    t.vendor_name,
-    t.customer,
-    t.customerName,
-    t.customer_name,
-    t.accountName,
-    t.offsetAccountName,
-    t.fromAccount,
-    t.toAccount,
-    t.expenseAccount,
-    t.paymentNumber,
-    t.reconciliationStatus,
-    t.type,
-    t.amount,
+    t.type === "credit" ? "deposit" : "expense",
+    t.type === "debit" ? "vendor payment" : null,
   ]
-    .filter((v) => v !== null && v !== undefined)
-    .map((v) => String(v).toLowerCase());
+    .filter(Boolean)
+    .map((v) => normalizeCategoryText(v));
 
-  return fields.some((value) => value.includes(searchText));
+  return categoryPool.some((value) => value.includes(searchText));
 };
 
 /**
@@ -80,6 +66,7 @@ export const getBankDashboard = async ({
   startDate = null,
   endDate = null,
   reconciliationStatus = null,
+  transactionType = null,
   search = null,
   page = 1,
   limit = 20,
@@ -110,6 +97,10 @@ export const getBankDashboard = async ({
     match.reconciliationStatus = reconciliationStatus;
   }
 
+  if (transactionType && ["debit", "credit"].includes(String(transactionType).toLowerCase())) {
+    match.type = String(transactionType).toLowerCase();
+  }
+
   if (startDate || endDate) {
     match.transactionDate = {};
     if (startDate) match.transactionDate.$gte = new Date(startDate);
@@ -118,7 +109,7 @@ export const getBankDashboard = async ({
 
   const skip = (page - 1) * limit;
   const hasSearch = Boolean(String(search || "").trim());
-  const searchText = String(search || "").trim().toLowerCase();
+  const searchText = normalizeCategoryText(search || "");
 
   // -----------------------------
   // FETCH BASE TRANSACTIONS
@@ -363,7 +354,7 @@ export const getBankDashboard = async ({
 
   if (hasSearch) {
     const filteredTransactions = transformedTransactions.filter((t) =>
-      matchesTransactionSearch(t, searchText)
+      matchesCategorySearch(t, searchText)
     );
 
     totalCount = filteredTransactions.length;
