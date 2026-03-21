@@ -33,6 +33,46 @@ const normalizeCategoryText = (value = "") =>
     .replace(/\s+/g, " ")
     .trim();
 
+const ZOHO_INFLOW_TYPES = new Set([
+  "deposit",
+  "refund",
+  "interest",
+  "interest income",
+  "interest_income",
+  "other income",
+  "other_income",
+  "credit card refund",
+  "credit_card_refund",
+  "owner contribution",
+  "owners contribution",
+  "owner_contribution",
+  "owners_contribution",
+  "revenue adjustment",
+  "revenue_adjustment",
+  "opening balance",
+  "opening_balance",
+  "customer payment",
+  "customer_payment",
+]);
+
+const ZOHO_OUTFLOW_TYPES = new Set([
+  "expense",
+  "vendor payment",
+  "vendor_payment",
+  "vendor advance",
+  "vendor_advance",
+  "card payment",
+  "card_payment",
+  "bank charges",
+  "bank_charges",
+  "owner drawings",
+  "owner_drawings",
+  "tax payment",
+  "tax_payment",
+  "cash withdrawal",
+  "cash_withdrawal",
+]);
+
 const matchesCategorySearch = (t, searchText) => {
   if (!searchText) return true;
 
@@ -48,19 +88,41 @@ const matchesCategorySearch = (t, searchText) => {
   return categoryPool.some((value) => value.includes(searchText));
 };
 
-const normalizeDebitCreditToken = (...values) => {
-  for (const value of values) {
-    const token = String(value || "")
-      .toLowerCase()
-      .replace(/[_-]+/g, " ")
-      .trim();
+const normalizeToken = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .trim();
 
-    if (!token) continue;
-    if (token === "debit" || token === "dr") return "debit";
-    if (token === "credit" || token === "cr") return "credit";
-  }
+const deriveBusinessType = (fallbackType, payload = {}, categoryCandidate = null) => {
+  const semanticTokens = [
+    payload.transaction_type,
+    payload.type,
+    payload.transactionType,
+    payload.transaction_type_formatted,
+    payload.transaction_category,
+    payload.entry_type,
+    categoryCandidate,
+  ]
+    .map(normalizeToken)
+    .filter(Boolean);
 
-  return null;
+  const hasInflowSemantic = semanticTokens.some((v) => ZOHO_INFLOW_TYPES.has(v));
+  const hasOutflowSemantic = semanticTokens.some((v) => ZOHO_OUTFLOW_TYPES.has(v));
+
+  if (hasInflowSemantic && !hasOutflowSemantic) return "credit";
+  if (hasOutflowSemantic && !hasInflowSemantic) return "debit";
+
+  // Zoho debit/credit reflects accounting side; for cashflow UI we invert:
+  // Zoho credit => money out (debit), Zoho debit => money in (credit).
+  const drCr = normalizeToken(payload.debit_or_credit);
+  if (drCr === "credit" || drCr === "cr") return "debit";
+  if (drCr === "debit" || drCr === "dr") return "credit";
+
+  if (semanticTokens.some((v) => v === "credit" || v === "cr")) return "debit";
+  if (semanticTokens.some((v) => v === "debit" || v === "dr")) return "credit";
+
+  return fallbackType === "credit" ? "credit" : "debit";
 };
 
 /**
@@ -112,12 +174,10 @@ export const getBankDashboard = async ({
     match.reconciliationStatus = reconciliationStatus;
   }
 
-  const sortQuery =
-    transactionSort === "debit_first"
-      ? { type: -1, transactionDate: -1 }
-      : transactionSort === "credit_first"
-      ? { type: 1, transactionDate: -1 }
-      : { transactionDate: -1 };
+  const needsTypeAwareSort =
+    transactionSort === "debit_first" || transactionSort === "credit_first";
+
+  const sortQuery = { transactionDate: -1 };
 
   if (startDate || endDate) {
     match.transactionDate = {};
@@ -140,7 +200,7 @@ export const getBankDashboard = async ({
   let transactions = [];
   let totalCount = 0;
 
-  if (hasSearch) {
+  if (hasSearch || needsTypeAwareSort) {
     transactions = await BankTransactionLedger.find(match)
       .sort(sortQuery)
       .lean();
@@ -206,8 +266,6 @@ export const getBankDashboard = async ({
 
   const transactionObjectIds = transformedTransactions.map((t) => t._id);
 
-  let shouldInvertLegacyDrCr = false;
-
   if (transactionObjectIds.length > 0) {
     const pendingQueryRows = await BankReconQuery.find({
       organizationId: new mongoose.Types.ObjectId(organizationId),
@@ -240,23 +298,8 @@ export const getBankDashboard = async ({
 
       const rawMap = new Map(raws.map((r) => [r.zohoTransactionId, r.payload || {}]));
 
-      let sameAsRawDrCrCount = 0;
-      let differsFromRawDrCrCount = 0;
-
       for (const t of transformedTransactions) {
         const payload = rawMap.get(t.zohoTransactionId) || {};
-
-        const rawDebitCredit = normalizeDebitCreditToken(
-          payload.debit_or_credit,
-          payload.transaction_type,
-          payload.type,
-          payload.entry_type
-        );
-
-        if (rawDebitCredit && (t.type === "credit" || t.type === "debit")) {
-          if (t.type === rawDebitCredit) sameAsRawDrCrCount += 1;
-          else differsFromRawDrCrCount += 1;
-        }
 
         const categoryCandidate = pickFirst(
           payload.category_name,
@@ -381,26 +424,7 @@ export const getBankDashboard = async ({
           payload.notes
         );
 
-        t._rawDebitCredit = rawDebitCredit;
-      }
-
-      // Legacy bug: bank cashflow was stored with raw debit/credit direction without
-      // inverting it to business inflow/outflow meaning. If most rows match raw Dr/Cr,
-      // treat this response as legacy and invert for UI.
-      shouldInvertLegacyDrCr =
-        sameAsRawDrCrCount > 0 &&
-        sameAsRawDrCrCount >= differsFromRawDrCrCount;
-
-      if (shouldInvertLegacyDrCr) {
-        transformedTransactions = transformedTransactions.map((t) => {
-          if (t._rawDebitCredit === "credit") {
-            return { ...t, type: "debit" };
-          }
-          if (t._rawDebitCredit === "debit") {
-            return { ...t, type: "credit" };
-          }
-          return t;
-        });
+        t.type = deriveBusinessType(t.type, payload, normalizedCategory);
       }
     }
   } catch (err) {
@@ -408,15 +432,36 @@ export const getBankDashboard = async ({
     console.warn("Failed to enrich bank transactions with raw Zoho payloads", err);
   }
 
-  if (hasSearch) {
-    const filteredTransactions = transformedTransactions.filter((t) =>
-      matchesCategorySearch(t, searchText)
-    );
+  const filteredTransactions = hasSearch
+    ? transformedTransactions.filter((t) => matchesCategorySearch(t, searchText))
+    : transformedTransactions;
 
-    totalCount = filteredTransactions.length;
-    transformedTransactions = filteredTransactions.slice(skip, skip + limit);
+  const sortedTransactions = [...filteredTransactions].sort((a, b) => {
+    const aTs = new Date(a.transactionDate || 0).getTime();
+    const bTs = new Date(b.transactionDate || 0).getTime();
 
-    summary = filteredTransactions.reduce(
+    if (transactionSort === "debit_first") {
+      const aRank = a.type === "debit" ? 0 : 1;
+      const bRank = b.type === "debit" ? 0 : 1;
+      if (aRank !== bRank) return aRank - bRank;
+      return bTs - aTs;
+    }
+
+    if (transactionSort === "credit_first") {
+      const aRank = a.type === "credit" ? 0 : 1;
+      const bRank = b.type === "credit" ? 0 : 1;
+      if (aRank !== bRank) return aRank - bRank;
+      return bTs - aTs;
+    }
+
+    return bTs - aTs;
+  });
+
+  if (hasSearch || needsTypeAwareSort) {
+    totalCount = sortedTransactions.length;
+    transformedTransactions = sortedTransactions.slice(skip, skip + limit);
+
+    summary = sortedTransactions.reduce(
       (acc, t) => {
         if (t.type === "credit") acc.totalCredits += Number(t.amount || 0);
         if (t.type === "debit") acc.totalDebits += Number(t.amount || 0);
@@ -429,19 +474,9 @@ export const getBankDashboard = async ({
         unreconciledCount: 0,
       }
     );
+  } else {
+    transformedTransactions = sortedTransactions;
   }
-
-  // If response rows indicate legacy Dr/Cr inversion, swap summary buckets too.
-  if (shouldInvertLegacyDrCr) {
-    const { totalCredits = 0, totalDebits = 0 } = summary || {};
-    summary = {
-      ...summary,
-      totalCredits: totalDebits,
-      totalDebits: totalCredits,
-    };
-  }
-
-  transformedTransactions = transformedTransactions.map(({ _rawDebitCredit, ...rest }) => rest);
 
   return {
     summary: {
