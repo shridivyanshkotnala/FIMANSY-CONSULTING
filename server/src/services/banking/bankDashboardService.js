@@ -2,6 +2,29 @@ import { BankTransactionLedger } from "../../models/ledger/bankTransactionLedger
 import { RawZohoBankTransaction } from "../../models/raw/rawZohoBankTransactionModel.js";
 import mongoose from "mongoose";
 
+const pickFirst = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+      continue;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "object" && value) return value;
+  }
+  return null;
+};
+
+const extractAmount = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+};
+
 /**
  * Get Banking Dashboard Summary + Transactions
  *
@@ -144,16 +167,83 @@ export const getBankDashboard = async ({
       for (const t of transformedTransactions) {
         const payload = rawMap.get(t.zohoTransactionId) || {};
 
-        t.expenseAccount =
-          payload.expense_account_name ||
-          payload.expense_account ||
-          payload.account_name ||
-          payload.account ||
-          null;
+        const categoryCandidate = pickFirst(
+          payload.category_name,
+          payload.transaction_type_name,
+          payload.category,
+          payload.transaction_category,
+          payload.transaction_type,
+          payload.expense_type,
+          payload.payment_type,
+          payload.entry_type
+        );
 
-        t.vendor = payload.vendor_name || payload.payee_name || payload.vendor || null;
-        t.customer = payload.customer_name || payload.customer || null;
-        t.zohoDescription = payload.description || payload.memo || payload.narration || null;
+        const normalizedCategory =
+          typeof categoryCandidate === "string" && !["debit", "credit"].includes(categoryCandidate.toLowerCase())
+            ? categoryCandidate
+            : null;
+
+        t.zohoCategory = normalizedCategory;
+
+        t.expenseAccount = pickFirst(
+          payload.expense_account_name,
+          payload.expense_account,
+          payload.expense_account_id,
+          payload.account_name,
+          payload.account,
+          payload.account_id
+        );
+
+        t.vendor = pickFirst(
+          payload.vendor_name,
+          payload.payee_name,
+          payload.vendor,
+          payload.contact_name
+        );
+
+        t.customer = pickFirst(
+          payload.customer_name,
+          payload.customer,
+          payload.contact_name
+        );
+
+        t.fromAccount = pickFirst(
+          payload.from_account_name,
+          payload.source_account_name,
+          payload.paid_through_account_name,
+          payload.paid_through,
+          payload.from_account
+        );
+
+        t.toAccount = pickFirst(
+          payload.to_account_name,
+          payload.destination_account_name,
+          payload.deposit_to_account_name,
+          payload.deposit_to,
+          payload.to_account
+        );
+
+        t.paymentNumber = pickFirst(
+          payload.payment_number,
+          payload.refund_payment_number,
+          payload.refund_against_payment_number,
+          payload.payment?.payment_number
+        );
+
+        t.selectedPaymentAmount = extractAmount(
+          payload.refund_payment_amount,
+          payload.payment_amount,
+          payload.amount_applied,
+          payload.amount_to_refund,
+          payload.payment?.amount
+        );
+
+        t.zohoDescription = pickFirst(
+          payload.description,
+          payload.memo,
+          payload.narration,
+          payload.notes
+        );
       }
     }
   } catch (err) {

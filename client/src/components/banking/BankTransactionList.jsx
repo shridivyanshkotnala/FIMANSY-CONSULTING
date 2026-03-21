@@ -74,39 +74,37 @@ export function BankTransactionList() {
     return matches ? matches[0] : null;
   };
 
-  const mapExpenseTag = (desc = "", category = "") => {
-    const text = (desc + " " + category).toLowerCase();
-    const mapping = [
-      { label: "Labor", keys: ["labor", "labour", "wages", "salary", "payroll", "manpower"] },
-      { label: "Job Costing", keys: ["job costing", "jobcosting", "jobcost", "job"] },
-      { label: "Lodging", keys: ["lodg", "lodging", "hotel", "stay", "boarding"] },
-      { label: "Rent", keys: ["rent", "rentals"] },
-      { label: "Transfer", keys: ["transfer", "rtgs", "neft", "neft-", "upi/"] },
-      { label: "Vendor Payment", keys: ["vendor", "payment", "payt", "payment to", "pymt"] },
-      { label: "Cash Withdrawal", keys: ["wdl", "withdrawal", "cash wdl", "cash withdraw", "atm"] },
-      { label: "Advance", keys: ["advance", "employee advance"] },
-    ];
+  const normalizeCategory = (value = "") =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/\//g, " ")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ");
 
-    for (const m of mapping) {
-      for (const k of m.keys) {
-        if (text.includes(k)) return m.label;
-      }
-    }
+  const toLabel = (value = "") =>
+    String(value || "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (m) => m.toUpperCase());
 
-    // As a last attempt, if description contains short uppercase words like 'LABOR' or 'JOB', show them
-    const uppercaseMatch = desc.match(/\b([A-Z]{3,})\b/);
-    if (uppercaseMatch) {
-      const word = uppercaseMatch[1].toLowerCase();
-      if (word.includes("lab")) return "Labor";
-      if (word.includes("job")) return "Job Costing";
-      if (word.includes("lodg") || word.includes("hotel")) return "Lodging";
-    }
+  const getCategoryLabel = (t, desc = "") => {
+    const zohoLabel = t.zohoCategory || "";
+    if (zohoLabel) return toLabel(zohoLabel);
 
+    const fallback = t.category || "";
+    if (fallback) return toLabel(fallback);
+
+    const text = (desc || "").toLowerCase();
+    if (text.includes("transfer")) return "Transfer";
+    if (text.includes("vendor") && text.includes("payment")) return "Vendor Payment";
     return "Expense";
   };
 
   const renderDescription = (t) => {
-    const desc = t.description || t.referenceNumber || "";
+    const desc = t.zohoDescription || t.description || t.referenceNumber || "";
     const cleaned = cleanDescription(desc);
 
     if (t.type === "credit") {
@@ -125,26 +123,78 @@ export function BankTransactionList() {
       );
     }
 
-    // debit / expense
-    const tag = mapExpenseTag(desc, t.category);
+    // debit
+    const tag = getCategoryLabel(t, desc);
+    const normalizedTag = normalizeCategory(tag);
 
     const expenseAccount = t.expenseAccount || t.expenseAccountName || t.account || t.expense_account;
     const vendor = t.vendor || t.vendorName || t.payee || t.supplier;
     const customer = t.customer || t.customerName || t.customer_name;
-    const rawDesc = t.description || t.referenceNumber || "";
+    const fromAccount = t.fromAccount || t.from_account || null;
+    const toAccount = t.toAccount || t.to_account || null;
+    const paymentNumber = t.paymentNumber || null;
+    const selectedPaymentAmount = t.selectedPaymentAmount;
+    const rawDesc = t.zohoDescription || t.description || t.referenceNumber || "";
+
+    const isExpense = normalizedTag.includes("expense");
+    const isVendorAdvance = normalizedTag.includes("vendor advance");
+    const isVendorPayment = normalizedTag.includes("vendor payment");
+    const isTransfer = normalizedTag.includes("transfer to another account") || normalizedTag === "transfer";
+    const isCardPayment = normalizedTag.includes("card payment");
+    const isOwnerDrawings = normalizedTag.includes("owner drawings");
+    const isPaymentRefund = normalizedTag.includes("payment refund");
+    const isCreditNoteRefund = normalizedTag.includes("credit note refund");
 
     return (
       <div className="text-sm">
         <div className="font-medium">{tag}</div>
-        {expenseAccount && (
+
+        {isExpense && expenseAccount && (
           <div className="text-muted-foreground text-sm">Expense Account: {expenseAccount}</div>
         )}
-        {vendor && (
+
+        {isExpense && vendor && (
           <div className="text-muted-foreground text-sm">Vendor: {vendor}</div>
         )}
-        {customer && (
+
+        {isExpense && customer && (
           <div className="text-muted-foreground text-sm">Customer: {customer}</div>
         )}
+
+        {(isVendorAdvance || isVendorPayment) && vendor && (
+          <div className="text-muted-foreground text-sm">Vendor: {vendor}</div>
+        )}
+
+        {(isTransfer || isCardPayment) && fromAccount && (
+          <div className="text-muted-foreground text-sm">From Account: {fromAccount}</div>
+        )}
+
+        {(isTransfer || isCardPayment) && toAccount && (
+          <div className="text-muted-foreground text-sm">To Account: {toAccount}</div>
+        )}
+
+        {isOwnerDrawings && toAccount && (
+          <div className="text-muted-foreground text-sm">To Account: {toAccount}</div>
+        )}
+
+        {isPaymentRefund && customer && (
+          <div className="text-muted-foreground text-sm">Customer: {customer}</div>
+        )}
+
+        {isPaymentRefund && paymentNumber && (
+          <div className="text-muted-foreground text-sm">Payment #: {paymentNumber}</div>
+        )}
+
+        {isPaymentRefund && selectedPaymentAmount != null && (
+          <div className="text-muted-foreground text-sm">
+            Refunded Amount: {formatCurrency(selectedPaymentAmount)}
+          </div>
+        )}
+
+        {isCreditNoteRefund && customer && (
+          <div className="text-muted-foreground text-sm">Customer: {customer}</div>
+        )}
+
         {rawDesc && (
           <div className="text-muted-foreground text-sm">{cleanDescription(rawDesc)}</div>
         )}
