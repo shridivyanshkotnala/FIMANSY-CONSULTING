@@ -5,6 +5,12 @@ const normalizeText = (value = "") =>
     .replace(/\s+/g, " ")
     .trim();
 
+const extractGstStateCode = (gstin) => {
+  const cleaned = String(gstin || "").replace(/\s+/g, "").toUpperCase();
+  const m = cleaned.match(/^(\d{2})[0-9A-Z]{13}$/);
+  return m ? m[1] : undefined;
+};
+
 const GST_STATE_CODE_TO_POS = {
   "01": "JK",
   "02": "HP",
@@ -237,6 +243,27 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
     return isInterstateLabel(obj.tax_name || obj.tax_group_name || "");
   };
 
+  const isPurchaseTaxObject = (obj = {}) => {
+    const source = normalizeText(
+      [
+        obj.tax_type,
+        obj.tax_type_name,
+        obj.tax_specific_type,
+        obj.tax_name,
+        obj.tax_group_name,
+        obj.tax_authority_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+
+    // Keep permissive fallback when Zoho does not expose purchase/sales metadata clearly.
+    if (!source) return true;
+    if (source.includes("purchase")) return true;
+    if (source.includes("sales")) return false;
+    return true;
+  };
+
   const groupCandidates = taxGroups
     .map((g) => ({
       id: g.tax_group_id,
@@ -245,6 +272,7 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
       diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
     }))
     .filter((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : true))
+    .filter((x) => isPurchaseTaxObject(x.raw))
     .filter((x) => x.id)
     .sort(byRateAsc);
 
@@ -260,6 +288,7 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
       diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
     }))
     .filter((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : true))
+    .filter((x) => isPurchaseTaxObject(x.raw))
     .filter((x) => x.id)
     .sort(byRateAsc);
 
@@ -271,17 +300,22 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
 }
 
 export async function pushExpenseToZoho(zohoClient, expenseData) {
+  const placeOfSupply = normalizePlaceOfSupply(expenseData.place_of_supply);
+  const gstNo = String(expenseData.vendor_gstin || "").replace(/\s+/g, "").toUpperCase();
+  const vendorGstState = extractGstStateCode(gstNo);
+  const posNumericState = placeOfSupply?.numeric;
+  const isInterstate = Boolean(vendorGstState && posNumericState && vendorGstState !== posNumericState);
+
   const accountId = await resolveExpenseAccountId(zohoClient, expenseData.expense_account);
   const paidThroughAccountId = await resolvePaidThroughAccountId(zohoClient, expenseData.payment_mode);
-  const taxId = await resolveExpenseTaxId(zohoClient, expenseData);
+  const taxId = await resolveExpenseTaxId(zohoClient, expenseData, {
+    mode: isInterstate ? "interstate" : "auto",
+  });
 
   const amount = Number(expenseData.total_with_gst || expenseData.taxable_amount || 0);
   if (!(amount > 0)) {
     throw new Error("Expense amount must be greater than zero");
   }
-
-  const placeOfSupply = normalizePlaceOfSupply(expenseData.place_of_supply);
-  const gstNo = String(expenseData.vendor_gstin || "").replace(/\s+/g, "").toUpperCase();
 
   const payload = {
     account_id: accountId,
@@ -346,7 +380,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
 
         // Last-resort fallback to avoid complete failure for strict org GST mappings.
         // Expense gets posted; GST can be adjusted in Zoho if needed.
-        const { gst_no, gst_treatment, ...minimalInterstatePayload } = interstatePayload;
+        const { gst_no, gst_treatment, tax_id, place_of_supply, ...minimalInterstatePayload } = interstatePayload;
 
         return await zohoClient.post(
           "/expenses",
