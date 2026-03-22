@@ -26,7 +26,7 @@ function buildHeaders({ isJson = true, includeOrg = true } = {}) {
   return headers;
 }
 
-async function request(path, { method = "GET", body, includeOrg = true } = {}) {
+async function request(path, { method = "GET", body, includeOrg = true, unwrapData = true } = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     credentials: "include",
@@ -39,7 +39,7 @@ async function request(path, { method = "GET", body, includeOrg = true } = {}) {
     throw new Error(payload?.message || `Request failed (${response.status})`);
   }
 
-  return payload?.data ?? payload;
+  return unwrapData ? (payload?.data ?? payload) : payload;
 }
 
 export function useQueryHub({ isAccountant = false } = {}) {
@@ -54,6 +54,7 @@ export function useQueryHub({ isAccountant = false } = {}) {
   const getTickets = useCallback(({ status = "open", page = 1, limit = 8 } = {}) => {
     return request(`${listPath}?status=${status}&page=${page}&limit=${limit}`, {
       includeOrg: !isAccountant,
+      unwrapData: false,
     });
   }, [listPath, isAccountant]);
 

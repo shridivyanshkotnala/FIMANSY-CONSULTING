@@ -800,7 +800,7 @@ export default function Reports() {
               </TabsContent>
 
               <TabsContent value="queries">
-                <div className="rounded-[26px] border border-white/10 bg-white p-4 text-black">
+                <div className="p-0">
                   <QueryResolutionHub />
                 </div>
               </TabsContent>
