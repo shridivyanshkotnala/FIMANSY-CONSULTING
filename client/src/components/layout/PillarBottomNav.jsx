@@ -39,11 +39,9 @@ export function PillarBottomNav() {
             onClick={() => handlePillarClick(pillar)}
             className={cn(
               "flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors",
-              pillar.id === "command"
-                ? isActive(pillar)
-                  ? "text-primary"
-                  : "text-muted-foreground"
-                : "text-primary"
+              isActive(pillar)
+                ? "text-primary"
+                : "text-muted-foreground"
             )}
           >
             <pillar.icon className="h-5 w-5" />

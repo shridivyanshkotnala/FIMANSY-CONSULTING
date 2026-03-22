@@ -131,11 +131,9 @@ export function PillarSidebar() {
                 className={cn(
                   "w-14 h-14 rounded-xl flex flex-col items-center justify-center gap-1 transition-all duration-200",
                   "hover:scale-105",
-                  pillar.id === "command"
-                    ? isActive(pillar)
-                      ? "bg-primary text-primary-foreground shadow-lg"
-                      : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                    : "bg-primary text-primary-foreground shadow-lg hover:bg-primary/90"
+                  isActive(pillar)
+                    ? "bg-primary text-primary-foreground shadow-lg"
+                    : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                 )}
               >
                 <pillar.icon className="h-5 w-5" />
