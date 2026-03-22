@@ -229,11 +229,44 @@ export const listFinalVerifiedComplianceLogs = async ({
       },
     },
     { $addFields: { obligation: { $first: "$obligation" } } },
+      {
+        $lookup: {
+          from: "compliancetickets",
+          localField: "ticket_id",
+          foreignField: "_id",
+          as: "ticket",
+        },
+      },
+      { $addFields: { ticket: { $first: "$ticket" } } },
+      {
+        $lookup: {
+          from: "compliancetemplates",
+          localField: "ticket.template_id",
+          foreignField: "_id",
+          as: "template",
+        },
+      },
+      { $addFields: { template: { $first: "$template" } } },
     {
       $addFields: {
-        recurrence_type: { $ifNull: ["$obligation.recurrence_type", "one_time"] },
+          recurrence_type: {
+            $ifNull: [
+              "$template.recurrence_type",
+              { $ifNull: ["$obligation.recurrence_type", "one_time"] },
+            ],
+          },
         compliance_category: {
-          $toLower: { $ifNull: ["$obligation.compliance_category", "$obligation.category_tag"] },
+            $toLower: {
+              $ifNull: [
+                "$obligation.compliance_category",
+                {
+                  $ifNull: [
+                    "$obligation.category_tag",
+                    { $ifNull: ["$template.compliance_category", "$template.category_tag"] },
+                  ],
+                },
+              ],
+            },
         },
         due_month_num: { $month: "$due_date" },
         due_distance: { $abs: { $subtract: ["$due_date", now] } },
