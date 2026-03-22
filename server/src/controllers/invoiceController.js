@@ -169,6 +169,12 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     "special:non-gst-supply": "Non-GST Supply",
   };
 
+  const specialTaxMatchTokens = {
+    "special:non-taxable": ["non", "taxable"],
+    "special:out-of-scope": ["out", "scope"],
+    "special:non-gst-supply": ["non", "gst", "supply"],
+  };
+
   const presetTaxToName = {
     "preset:GST0": "GST0",
     "preset:GST5": "GST5",
@@ -179,12 +185,25 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
   };
 
   let zohoTaxesCache = null;
-  const resolvePresetTaxId = async (presetId) => {
-    if (!presetTaxToName[presetId]) return presetId;
 
+  const getZohoTaxesCache = async () => {
     if (!zohoTaxesCache) {
       zohoTaxesCache = await req.zoho.get("/settings/taxes", { page: 1, per_page: 200 });
     }
+    return zohoTaxesCache;
+  };
+
+  const normalize = (value = "") =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const resolvePresetTaxId = async (presetId) => {
+    if (!presetTaxToName[presetId]) return presetId;
+
+    await getZohoTaxesCache();
 
     const lookupName = String(presetTaxToName[presetId] || "").toLowerCase();
     const groups = zohoTaxesCache?.tax_groups || [];
@@ -197,6 +216,40 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     if (taxMatch?.tax_id) return taxMatch.tax_id;
 
     throw new ApiError(400, `${presetTaxToName[presetId]} is not configured in Zoho taxes. Please create it in Zoho first.`);
+  };
+
+  const resolveSpecialTaxExemption = async (specialId) => {
+    await getZohoTaxesCache();
+    const exemptions = zohoTaxesCache?.tax_exemptions || [];
+    const matchTokens = specialTaxMatchTokens[specialId] || [];
+
+    const matched = exemptions.find((ex) => {
+      const hay = normalize(
+        [
+          ex?.tax_exemption_name,
+          ex?.tax_exemption_code,
+          ex?.tax_treatment_code,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+
+      return matchTokens.every((token) => hay.includes(token));
+    });
+
+    if (matched?.tax_exemption_id || matched?.tax_exemption_code) {
+      return {
+        ...(matched?.tax_exemption_id ? { tax_exemption_id: matched.tax_exemption_id } : {}),
+        ...(matched?.tax_exemption_code ? { tax_exemption_code: matched.tax_exemption_code } : {}),
+      };
+    }
+
+    // Fallbacks when Zoho doesn't return tax_exemptions in this org response shape.
+    if (specialId === "special:out-of-scope") return { tax_exemption_code: "out_of_scope" };
+    if (specialId === "special:non-gst-supply") return { tax_exemption_code: "non_gst_supply" };
+    if (specialId === "special:non-taxable") return { tax_exemption_code: "non_taxable" };
+
+    throw new ApiError(400, `Unable to resolve tax exemption for ${specialTaxLabels[specialId] || specialId}. Configure tax exemptions in Zoho and retry.`);
   };
 
   const items = [];
@@ -214,6 +267,7 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
 
     const isSpecialTax = Object.prototype.hasOwnProperty.call(specialTaxLabels, taxId);
     const resolvedTaxId = isSpecialTax ? taxId : await resolvePresetTaxId(taxId);
+    const specialTaxExemption = isSpecialTax ? await resolveSpecialTaxExemption(taxId) : null;
 
     const itemId = await getOrCreateZohoItem(req.zoho, {
       name: description,
@@ -226,7 +280,7 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
       description: isSpecialTax ? `${description} (${specialTaxLabels[taxId]})` : description,
       quantity,
       rate,
-      ...(isSpecialTax ? {} : { tax_id: resolvedTaxId }),
+      ...(isSpecialTax ? specialTaxExemption : { tax_id: resolvedTaxId }),
       ...(discount != null && !Number.isNaN(discount) ? { discount } : {}),
     });
   }
