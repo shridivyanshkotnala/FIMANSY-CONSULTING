@@ -25,6 +25,17 @@ function formatResolutionTime(hours) {
   return `${total.toFixed(1)}h`;
 }
 
+function formatCurrency(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
 function Pagination({ page, totalPages, onPageChange }) {
   return (
     <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs text-muted-foreground">
@@ -181,6 +192,33 @@ export function AccountantQueryHub() {
     return [...commentUpdates, ...docUpdates].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
   }, [comments, documents]);
 
+  const clientUpdates = useMemo(() => {
+    const commentUpdates = comments
+      .filter((item) => item.role === "client" || item.author_role === "client")
+      .map((item) => ({
+        id: item._id || item.id,
+        type: "message",
+        text: item.message,
+        at: item.createdAt || item.created_at,
+      }));
+
+    const docUpdates = documents
+      .filter((item) => item.uploaded_by_role === "client")
+      .map((item) => ({
+        id: item._id || item.key,
+        type: "document",
+        text: `Uploaded ${item.display_file_name || item.original_file_name || "document"}`,
+        at: item.createdAt || item.created_at,
+      }));
+
+    return [...commentUpdates, ...docUpdates].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+  }, [comments, documents]);
+
+  const clientUpdatesPending = useMemo(
+    () => openTickets.filter((ticket) => Boolean(ticket.has_unread_client_update)).length,
+    [openTickets]
+  );
+
   const ticketStatus = ticketDetail?.ticket?.status || selectedTicket?.status;
   const organization = ticketDetail?.organization || selectedTicket?.organization_id || {};
 
@@ -191,7 +229,7 @@ export function AccountantQueryHub() {
         <p className="text-sm text-muted-foreground">Client-raised queries with thread and documents.</p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded-xl border bg-card p-3">
           <p className="text-xs text-muted-foreground">Avg resolution time</p>
           <p className="mt-1 flex items-center gap-2 text-xl font-semibold"><Timer className="h-4 w-4" />{formatResolutionTime(stats.avg_resolution_hours)}</p>
@@ -203,6 +241,10 @@ export function AccountantQueryHub() {
         <div className="rounded-xl border bg-card p-3">
           <p className="text-xs text-muted-foreground">Resolved this month</p>
           <p className="mt-1 flex items-center gap-2 text-xl font-semibold"><CheckCircle2 className="h-4 w-4" />{stats.resolved_this_month || 0}</p>
+        </div>
+        <div className="rounded-xl border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Client updates pending</p>
+          <p className="mt-1 flex items-center gap-2 text-xl font-semibold"><Send className="h-4 w-4" />{clientUpdatesPending}</p>
         </div>
       </div>
 
@@ -219,6 +261,7 @@ export function AccountantQueryHub() {
                 <Badge variant="outline">{ticket.query_number}</Badge>
                 <Badge className="bg-orange-500/10 text-orange-600">Open</Badge>
                 <Badge variant="secondary">{ticket.organization_id?.name || "Organization"}</Badge>
+                {ticket.has_unread_client_update ? <Badge className="bg-blue-500/10 text-blue-600">Client Update</Badge> : null}
               </div>
               <p className="mt-2 text-sm font-semibold">{ticket.subject}</p>
               <p className="mt-1 text-xs text-muted-foreground">Opened {formatDateTime(ticket.createdAt || ticket.created_at)}</p>
@@ -276,13 +319,23 @@ export function AccountantQueryHub() {
                   <p>GSTIN: {organization?.gstin || "—"}</p>
                   <p>PAN: {organization?.pan || "—"}</p>
                   <p>TAN: {organization?.tan || "—"}</p>
+                  <p>CIN/LLPIN: {organization?.cin || organization?.llpin || "—"}</p>
+                  <p>Company Type: {organization?.company_type ? String(organization.company_type).replaceAll("_", " ") : "—"}</p>
+                  <p>Incorporation: {formatDateTime(organization?.date_of_incorporation)}</p>
+                  <p>MCA Status: {organization?.mca_status || "—"}</p>
+                  <p>Authorized Capital: {formatCurrency(organization?.authorized_capital)}</p>
+                  <p>Paid-up Capital: {formatCurrency(organization?.paid_up_capital)}</p>
+                  <p>Base Currency: {organization?.base_currency || "INR"}</p>
+                  <p>FY Start: {organization?.financial_year_start || "—"}</p>
+                  <p className="md:col-span-2">Registered Office: {organization?.registered_office_address || "—"}</p>
                 </div>
               </div>
 
               <Tabs defaultValue="thread" className="mt-4">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="thread">Thread</TabsTrigger>
                   <TabsTrigger value="documents">Documents</TabsTrigger>
+                  <TabsTrigger value="client_updates">Client Updates</TabsTrigger>
                   <TabsTrigger value="updates">Accountant Updates</TabsTrigger>
                 </TabsList>
 
@@ -329,6 +382,20 @@ export function AccountantQueryHub() {
                   {accountantUpdates.length === 0 ? (
                     <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">No accountant updates yet.</div>
                   ) : accountantUpdates.map((item) => (
+                    <div key={item.id} className="rounded-lg border p-3">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant="outline">{item.type === "document" ? "Document" : "Message"}</Badge>
+                        <span>{formatDateTime(item.at)}</span>
+                      </div>
+                      <p className="mt-1.5 text-sm">{item.text}</p>
+                    </div>
+                  ))}
+                </TabsContent>
+
+                <TabsContent value="client_updates" className="space-y-3 pt-3">
+                  {clientUpdates.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">No client updates yet.</div>
+                  ) : clientUpdates.map((item) => (
                     <div key={item.id} className="rounded-lg border p-3">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Badge variant="outline">{item.type === "document" ? "Document" : "Message"}</Badge>

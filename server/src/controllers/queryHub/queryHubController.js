@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { QueryHubTicket } from "../../models/queryHub/queryHubTicketModel.js";
 import { QueryHubComment } from "../../models/queryHub/queryHubCommentModel.js";
 import { Organization } from "../../models/organizationModel.js";
+import { CompanyComplianceProfile } from "../../models/compliance/companyComplianceProfileModel.js";
 import {
   validateUploadPayload,
   createQueryHubUploadSignedUrl,
@@ -104,6 +105,38 @@ async function ensureTicketAccessForClient(req, ticketId) {
 function handleError(res, error, fallbackMessage = "Server error") {
   const status = error?.status || 500;
   return res.status(status).json({ success: false, message: error?.message || fallbackMessage });
+}
+
+async function getMergedCompanyDetails(organizationId) {
+  const [organization, profile] = await Promise.all([
+    Organization.findById(organizationId)
+      .select("name gstin pan tan baseCurrency financialYearStart status createdAt")
+      .lean(),
+    CompanyComplianceProfile.findOne({ organization_id: organizationId })
+      .select("company_type cin llpin date_of_incorporation registered_office_address authorized_capital paid_up_capital mca_status gstin pan tan")
+      .lean(),
+  ]);
+
+  if (!organization && !profile) return null;
+
+  return {
+    name: organization?.name || null,
+    gstin: profile?.gstin || organization?.gstin || null,
+    pan: profile?.pan || organization?.pan || null,
+    tan: profile?.tan || organization?.tan || null,
+    company_type: profile?.company_type || null,
+    cin: profile?.cin || profile?.llpin || null,
+    llpin: profile?.llpin || null,
+    date_of_incorporation: profile?.date_of_incorporation || null,
+    registered_office_address: profile?.registered_office_address || null,
+    authorized_capital: profile?.authorized_capital ?? null,
+    paid_up_capital: profile?.paid_up_capital ?? null,
+    mca_status: profile?.mca_status || null,
+    base_currency: organization?.baseCurrency || "INR",
+    financial_year_start: organization?.financialYearStart || null,
+    organization_status: organization?.status || null,
+    organization_created_at: organization?.createdAt || null,
+  };
 }
 
 export const getClientQueryHubStats = async (req, res) => {
@@ -215,9 +248,7 @@ export const createClientQueryHubTicket = async (req, res) => {
 export const getClientQueryHubTicketDetail = async (req, res) => {
   try {
     const ticket = await ensureTicketAccessForClient(req, req.params.ticketId);
-    const organization = await Organization.findById(ticket.organization_id)
-      .select("name gstin pan tan")
-      .lean();
+    const organization = await getMergedCompanyDetails(ticket.organization_id);
 
     return res.status(200).json({
       success: true,
@@ -416,9 +447,7 @@ export const getAccountantQueryHubTickets = async (req, res) => {
 export const getAccountantQueryHubTicketDetail = async (req, res) => {
   try {
     const ticket = await getTicketForAccountant(req.params.ticketId);
-    const organization = await Organization.findById(ticket.organization_id)
-      .select("name gstin pan tan")
-      .lean();
+    const organization = await getMergedCompanyDetails(ticket.organization_id);
 
     return res.status(200).json({ success: true, data: { ticket, organization } });
   } catch (error) {
