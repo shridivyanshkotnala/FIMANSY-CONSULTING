@@ -1,5 +1,6 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import mongoose from "mongoose";
 import { r2 } from "../r2Client.js";
 import { ComplianceDocument } from "../../models/compliance/complianceDocumentModel.js";
 
@@ -136,10 +137,26 @@ const parseFinancialYearRange = (value) => {
   };
 };
 
+const normalizeFinancialYearVariants = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+
+  const match = raw.match(/^(\d{4})-(\d{2}|\d{4})$/);
+  if (!match) return [raw];
+
+  const startYear = Number(match[1]);
+  const endYear = match[2].length === 2 ? Number(`${String(startYear).slice(0, 2)}${match[2]}`) : Number(match[2]);
+  if (!startYear || !endYear || endYear !== startYear + 1) return [raw];
+
+  const shortFy = `${startYear}-${String(endYear).slice(-2)}`;
+  const longFy = `${startYear}-${endYear}`;
+  return [shortFy, longFy];
+};
+
 const normalizeRecurrenceType = (value) => {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw || raw === "all") return undefined;
-  if (["annual", "annually", "yearly"].includes(raw)) return "annual";
+  if (["annual", "annually", "anually", "yearly"].includes(raw)) return "annual";
   if (["monthly", "quarterly", "one_time"].includes(raw)) return raw;
   return undefined;
 };
@@ -179,14 +196,16 @@ const buildComplianceLogMatch = ({ organizationId, financialYear }) => {
     is_final_verified: true,
   };
 
-  if (organizationId) match.organization_id = organizationId;
+  if (organizationId) {
+    const orgIdRaw = String(organizationId).trim();
+    match.organization_id = mongoose.Types.ObjectId.isValid(orgIdRaw)
+      ? new mongoose.Types.ObjectId(orgIdRaw)
+      : orgIdRaw;
+  }
 
-  const financialYearRange = parseFinancialYearRange(financialYear);
-  if (financialYearRange) {
-    match.due_date = {
-      $gte: financialYearRange.start,
-      $lte: financialYearRange.end,
-    };
+  const financialYearVariants = normalizeFinancialYearVariants(financialYear);
+  if (financialYearVariants.length) {
+    match.financial_year = { $in: financialYearVariants };
   }
 
   return match;
@@ -241,18 +260,32 @@ export const listFinalVerifiedComplianceLogs = async ({
       {
         $lookup: {
           from: "compliancetemplates",
-          localField: "ticket.template_id",
+          localField: "obligation.template_id",
           foreignField: "_id",
           as: "template",
         },
       },
+      {
+        $lookup: {
+          from: "compliancetemplates",
+          localField: "ticket.template_id",
+          foreignField: "_id",
+          as: "ticket_template",
+        },
+      },
       { $addFields: { template: { $first: "$template" } } },
+      { $addFields: { ticket_template: { $first: "$ticket_template" } } },
     {
       $addFields: {
           recurrence_type: {
             $ifNull: [
               "$template.recurrence_type",
-              { $ifNull: ["$obligation.recurrence_type", "one_time"] },
+              {
+                $ifNull: [
+                  "$ticket_template.recurrence_type",
+                  { $ifNull: ["$obligation.recurrence_type", "one_time"] },
+                ],
+              },
             ],
           },
         compliance_category: {
@@ -262,7 +295,22 @@ export const listFinalVerifiedComplianceLogs = async ({
                 {
                   $ifNull: [
                     "$obligation.category_tag",
-                    { $ifNull: ["$template.compliance_category", "$template.category_tag"] },
+                    {
+                      $ifNull: [
+                        "$template.compliance_category",
+                        {
+                          $ifNull: [
+                            "$template.category_tag",
+                            {
+                              $ifNull: [
+                                "$ticket_template.compliance_category",
+                                "$ticket_template.category_tag",
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
                   ],
                 },
               ],
@@ -281,7 +329,7 @@ export const listFinalVerifiedComplianceLogs = async ({
       { $match: baseMatch },
       ...lookupStages,
       ...matchStages,
-      { $sort: { due_distance: 1, due_date: 1, createdAt: -1 } },
+      { $sort: { due_distance: 1, due_date: 1, compliance_obligation_name: 1, createdAt: -1 } },
       {
         $facet: {
           rows: [
@@ -315,17 +363,26 @@ export const listFinalVerifiedComplianceLogs = async ({
       { $match: buildComplianceLogMatch({ organizationId }) },
       {
         $project: {
+          financial_year: "$financial_year",
+        },
+      },
+      { $match: { financial_year: { $nin: [null, ""] } } },
+      {
+        $addFields: {
           fy_start_year: {
-            $cond: [
-              { $lte: [{ $month: "$due_date" }, 3] },
-              { $subtract: [{ $year: "$due_date" }, 1] },
-              { $year: "$due_date" },
-            ],
+            $toInt: {
+              $arrayElemAt: [{ $split: ["$financial_year", "-"] }, 0],
+            },
           },
         },
       },
-      { $group: { _id: "$fy_start_year" } },
-      { $sort: { _id: -1 } },
+      {
+        $group: {
+          _id: "$financial_year",
+          fy_start_year: { $first: "$fy_start_year" },
+        },
+      },
+      { $sort: { fy_start_year: -1, _id: -1 } },
     ]),
     ComplianceDocument.aggregate([
       { $match: buildComplianceLogMatch({ organizationId }) },
@@ -343,7 +400,7 @@ export const listFinalVerifiedComplianceLogs = async ({
     data: rows.map((row) => ({
       ...row,
       url: row?.key ? toPublicUrl(row.key) : row?.url,
-      financial_year_label: buildFinancialYearLabel(row.due_date) || row.financial_year,
+      financial_year_label: row.financial_year || buildFinancialYearLabel(row.due_date),
       recurrence_label:
         row.recurrence_type === "annual"
           ? "Yearly"
@@ -363,8 +420,8 @@ export const listFinalVerifiedComplianceLogs = async ({
     total_pages: Math.max(1, Math.ceil(total / parsedLimit)),
     filter_options: {
       financial_years: fyOptions.map((entry) => ({
-        value: `${entry._id}-${String(entry._id + 1).slice(-2)}`,
-        label: `${entry._id}-${String(entry._id + 1).slice(-2)}`,
+        value: String(entry._id),
+        label: String(entry._id),
       })),
       obligation_tags: tagOptions.map((entry) => ({
         value: entry._id,
