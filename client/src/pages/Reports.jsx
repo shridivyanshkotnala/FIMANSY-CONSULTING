@@ -3,7 +3,6 @@ import { format, subMonths } from "date-fns";
 import {
   BarChart3,
   CalendarIcon,
-  Download,
   Landmark,
   MessageSquare,
   Shield,
@@ -342,14 +341,11 @@ export default function Reports() {
   const [quickWindow, setQuickWindow] = useState(initialWindow);
   const [financialFilters, setFinancialFilters] = useState(initialWindow);
   const [otherFilters, setOtherFilters] = useState(initialWindow);
-  const [exportFormat, setExportFormat] = useState("excel");
   const [selectedComplianceFY, setSelectedComplianceFY] = useState(getCurrentFinancialYearLabel());
   const [selectedComplianceRecurrence, setSelectedComplianceRecurrence] = useState("all");
   const [selectedComplianceMonth, setSelectedComplianceMonth] = useState("all");
   const [selectedComplianceQuarter, setSelectedComplianceQuarter] = useState("all");
   const [selectedComplianceTag, setSelectedComplianceTag] = useState("all");
-
-  const quickWindowLabel = formatDateRangeLabel(quickWindow, "Select reporting window");
 
   const {
     data: selectedFinancialResponse,
@@ -360,6 +356,32 @@ export default function Reports() {
     periodEnd: toApiDate(financialFilters?.to),
     page: financialPage,
     limit: 20,
+  });
+
+  // Card counts must represent total documents per type for current window,
+  // independent of selected card/type.
+  const { data: profitLossCountResponse } = useGetFinancialReportsQuery({
+    reportType: "profit_and_loss",
+    periodStart: toApiDate(quickWindow?.from),
+    periodEnd: toApiDate(quickWindow?.to),
+    page: 1,
+    limit: 1,
+  });
+
+  const { data: balanceSheetCountResponse } = useGetFinancialReportsQuery({
+    reportType: "balance_sheet",
+    periodStart: toApiDate(quickWindow?.from),
+    periodEnd: toApiDate(quickWindow?.to),
+    page: 1,
+    limit: 1,
+  });
+
+  const { data: cashflowCountResponse } = useGetFinancialReportsQuery({
+    reportType: "cashflow_statement",
+    periodStart: toApiDate(quickWindow?.from),
+    periodEnd: toApiDate(quickWindow?.to),
+    page: 1,
+    limit: 1,
   });
 
   const {
@@ -398,11 +420,11 @@ export default function Reports() {
     financial_years: [],
     obligation_tags: [],
   };
-  const financialSummary = selectedFinancialResponse?.summary || {
-    profit_and_loss: 0,
-    balance_sheet: 0,
-    cashflow_statement: 0,
-    other: 0,
+  const financialSummary = {
+    profit_and_loss: profitLossCountResponse?.total ?? selectedFinancialResponse?.summary?.profit_and_loss ?? 0,
+    balance_sheet: balanceSheetCountResponse?.total ?? selectedFinancialResponse?.summary?.balance_sheet ?? 0,
+    cashflow_statement: cashflowCountResponse?.total ?? selectedFinancialResponse?.summary?.cashflow_statement ?? 0,
+    other: selectedFinancialResponse?.summary?.other ?? 0,
   };
 
   useEffect(() => {
@@ -445,10 +467,6 @@ export default function Reports() {
     }
   };
 
-  const handleExport = () => {
-    toast.success(`Prepared ${selectedFinancialType.replaceAll("_", " ")} reports in ${exportFormat.toUpperCase()} mode.`);
-  };
-
   return (
     <PillarLayout>
       <div className="min-h-screen bg-[#0a0a0b] px-2 py-3 text-white md:px-5">
@@ -484,21 +502,6 @@ export default function Reports() {
                     setOtherPage(1);
                   }}
                 />
-
-                <Select value={exportFormat} onValueChange={setExportFormat}>
-                  <SelectTrigger className="h-9 w-[110px] rounded-xl border-white/10 bg-transparent text-xs md:text-sm text-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="excel">Excel</SelectItem>
-                    <SelectItem value="pdf">PDF</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Button className="h-9 rounded-xl bg-orange-500 px-4 text-xs md:text-sm text-white hover:bg-orange-400" onClick={handleExport}>
-                  <Download className="mr-2 h-3.5 w-3.5" />
-                  Export
-                </Button>
               </div>
             </div>
 

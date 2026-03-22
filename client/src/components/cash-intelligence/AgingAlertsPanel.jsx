@@ -1,5 +1,7 @@
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -67,6 +69,22 @@ export function AgingAlertsPanel() {
 
 
   const invoices = data?.data || [];
+  const [invoicePage, setInvoicePage] = useState(1);
+  const INVOICE_PAGE_SIZE = 10;
+
+  const invoiceTotalPages = Math.max(1, Math.ceil(invoices.length / INVOICE_PAGE_SIZE));
+
+  useEffect(() => {
+    if (invoicePage > invoiceTotalPages) {
+      setInvoicePage(1);
+    }
+  }, [invoicePage, invoiceTotalPages]);
+
+  const paginatedInvoices = useMemo(() => {
+    const safePage = Math.min(invoicePage, invoiceTotalPages);
+    const start = (safePage - 1) * INVOICE_PAGE_SIZE;
+    return invoices.slice(start, start + INVOICE_PAGE_SIZE);
+  }, [invoicePage, invoiceTotalPages, invoices]);
 
   // ===== ALERT BADGE COMPONENT LOGIC =====
   const getAlertBadge = (level) => {
@@ -237,55 +255,85 @@ export function AgingAlertsPanel() {
               <p>All receivables are within acceptable aging limits</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead className="text-right">Paid Amount</TableHead>
-                  <TableHead className="text-right">Balance Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-center">Days</TableHead>
-                  <TableHead>Alert Level</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invoices.map((invoice) => (
-                  <TableRow
-                    key={invoice.id}
-                    className={cn(
-                      invoice.alertLevel === "legal" && "bg-destructive/5"
-                    )}
-                  >
-                    <TableCell className="font-medium">{invoice.invoice_number}</TableCell>
-                    <TableCell>{invoice.vendor_name}</TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(invoice.paid_amount ?? invoice.paidAmount ?? 0)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(
-                        (invoice.balance_amount ?? invoice.balance ?? (
-                          (invoice.total_with_gst ?? invoice.total ?? 0) - (invoice.paid_amount ?? invoice.paidAmount ?? 0)
-                        ))
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <span className="capitalize">{invoice.status ?? invoice.state ?? "unknown"}</span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className={cn(
-                        "font-medium",
-                        invoice.daysOutstanding > 45 && "text-destructive",
-                        invoice.daysOutstanding > 30 && invoice.daysOutstanding <= 45 && "text-warning"
-                      )}>
-                        {invoice.daysOutstanding}
-                      </span>
-                    </TableCell>
-                    <TableCell>{getAlertBadge(invoice.alertLevel)}</TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead className="text-right">Paid Amount</TableHead>
+                    <TableHead className="text-right">Balance Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-center">Days</TableHead>
+                    <TableHead>Alert Level</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {paginatedInvoices.map((invoice) => (
+                    <TableRow
+                      key={invoice.id}
+                      className={cn(
+                        invoice.alertLevel === "legal" && "bg-destructive/5"
+                      )}
+                    >
+                      <TableCell className="font-medium">{invoice.invoice_number}</TableCell>
+                      <TableCell>{invoice.vendor_name}</TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(invoice.paid_amount ?? invoice.paidAmount ?? 0)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(
+                          (invoice.balance_amount ?? invoice.balance ?? (
+                            (invoice.total_with_gst ?? invoice.total ?? 0) - (invoice.paid_amount ?? invoice.paidAmount ?? 0)
+                          ))
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span className="capitalize">{invoice.status ?? invoice.state ?? "unknown"}</span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className={cn(
+                          "font-medium",
+                          invoice.daysOutstanding > 45 && "text-destructive",
+                          invoice.daysOutstanding > 30 && invoice.daysOutstanding <= 45 && "text-warning"
+                        )}>
+                          {invoice.daysOutstanding}
+                        </span>
+                      </TableCell>
+                      <TableCell>{getAlertBadge(invoice.alertLevel)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {invoiceTotalPages > 1 && (
+                <div className="mt-4 flex flex-col gap-2 border-t border-border/40 pt-3 text-xs md:flex-row md:items-center md:justify-between">
+                  <span className="text-muted-foreground">
+                    Page {Math.min(invoicePage, invoiceTotalPages)} of {invoiceTotalPages} • {invoices.length} invoices
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={invoicePage <= 1}
+                      onClick={() => setInvoicePage((prev) => Math.max(1, prev - 1))}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={invoicePage >= invoiceTotalPages}
+                      onClick={() => setInvoicePage((prev) => Math.min(invoiceTotalPages, prev + 1))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
