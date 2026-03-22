@@ -132,7 +132,7 @@ function formatDateRangeLabel(range, fallback) {
   return `${format(range.from, "dd MMM yyyy")} - ${format(range.to, "dd MMM yyyy")}`;
 }
 
-function CompactDateRangeFilter({ label, range, onChange, fallback = "Select range" }) {
+function CompactDateRangeFilter({ label, range, onChange, fallback = "Select range", align = "start" }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -145,7 +145,11 @@ function CompactDateRangeFilter({ label, range, onChange, fallback = "Select ran
           <span className="truncate text-white">{formatDateRangeLabel(range, fallback)}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent className="w-[320px] rounded-[20px] border border-white/10 bg-[#101012] p-0 text-white shadow-[0_24px_60px_rgba(0,0,0,0.45)]" align={align}>
+        <div className="border-b border-white/10 px-4 py-3">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">{label}</p>
+          <p className="mt-1 text-sm font-medium text-white">{formatDateRangeLabel(range, fallback)}</p>
+        </div>
         <Calendar
           mode="range"
           selected={{ from: range?.from, to: range?.to }}
@@ -154,7 +158,27 @@ function CompactDateRangeFilter({ label, range, onChange, fallback = "Select ran
               onChange({ from: nextRange.from, to: nextRange.to });
             }
           }}
-          numberOfMonths={2}
+          numberOfMonths={1}
+          className="p-4"
+          classNames={{
+            months: "flex flex-col",
+            month: "space-y-4",
+            caption: "flex items-center justify-center pb-2 pt-1 relative",
+            caption_label: "text-sm font-semibold text-white",
+            nav: "flex items-center gap-1",
+            nav_button: "h-8 w-8 rounded-md border border-white/10 bg-white/5 p-0 text-white opacity-100 hover:bg-white/10",
+            nav_button_previous: "absolute left-0",
+            nav_button_next: "absolute right-0",
+            head_row: "grid grid-cols-7 gap-1",
+            head_cell: "h-8 text-center text-[11px] font-medium text-white/45",
+            row: "mt-1 grid grid-cols-7 gap-1",
+            cell: "h-9 w-9 p-0 text-center text-sm",
+            day: "h-9 w-9 rounded-md text-sm text-white hover:bg-white/10",
+            day_selected: "bg-orange-500 text-white hover:bg-orange-500 hover:text-white focus:bg-orange-500 focus:text-white",
+            day_range_middle: "bg-orange-500/15 text-white",
+            day_today: "border border-white/20 bg-white/5 text-white",
+            day_outside: "text-white/25",
+          }}
         />
       </PopoverContent>
     </Popover>
@@ -165,7 +189,6 @@ function ReportFilterBar({
   reportLabel,
   filters,
   onPeriodChange,
-  onUploadChange,
   onReset,
 }) {
   return (
@@ -177,15 +200,9 @@ function ReportFilterBar({
       <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
         <CompactDateRangeFilter
           label="Period"
-          range={filters.period}
+          range={filters}
           onChange={onPeriodChange}
           fallback="All periods"
-        />
-        <CompactDateRangeFilter
-          label="Uploaded"
-          range={filters.uploaded}
-          onChange={onUploadChange}
-          fallback="All uploads"
         />
         <Button
           type="button"
@@ -307,14 +324,8 @@ export default function Reports() {
   const [financialPage, setFinancialPage] = useState(1);
   const [otherPage, setOtherPage] = useState(1);
   const [quickWindow, setQuickWindow] = useState(initialWindow);
-  const [financialFilters, setFinancialFilters] = useState({
-    period: initialWindow,
-    uploaded: { from: null, to: null },
-  });
-  const [otherFilters, setOtherFilters] = useState({
-    period: initialWindow,
-    uploaded: { from: null, to: null },
-  });
+  const [financialFilters, setFinancialFilters] = useState(initialWindow);
+  const [otherFilters, setOtherFilters] = useState(initialWindow);
   const [exportFormat, setExportFormat] = useState("excel");
   const [localQueries, setLocalQueries] = useState(MOCK_QUERIES);
   const [localComments, setLocalComments] = useState(MOCK_COMMENTS);
@@ -326,10 +337,8 @@ export default function Reports() {
     isFetching: financialLoading,
   } = useGetFinancialReportsQuery({
     reportType: selectedFinancialType,
-    periodStart: toApiDate(financialFilters.period?.from),
-    periodEnd: toApiDate(financialFilters.period?.to),
-    uploadedStart: toApiDate(financialFilters.uploaded?.from),
-    uploadedEnd: toApiDate(financialFilters.uploaded?.to),
+    periodStart: toApiDate(financialFilters?.from),
+    periodEnd: toApiDate(financialFilters?.to),
     page: financialPage,
     limit: 20,
   });
@@ -339,10 +348,8 @@ export default function Reports() {
     isFetching: otherLoading,
   } = useGetFinancialReportsQuery({
     reportType: "other",
-    periodStart: toApiDate(otherFilters.period?.from),
-    periodEnd: toApiDate(otherFilters.period?.to),
-    uploadedStart: toApiDate(otherFilters.uploaded?.from),
-    uploadedEnd: toApiDate(otherFilters.uploaded?.to),
+    periodStart: toApiDate(otherFilters?.from),
+    periodEnd: toApiDate(otherFilters?.to),
     page: otherPage,
     limit: 20,
   });
@@ -500,34 +507,19 @@ export default function Reports() {
               </div>
 
               <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="h-9 justify-start gap-2 rounded-xl border-white/10 bg-transparent px-3 text-xs md:text-sm text-white hover:bg-white/5 hover:text-white"
-                    >
-                      <CalendarIcon className="h-3.5 w-3.5 text-white/70" />
-                      {quickWindowLabel}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="end">
-                    <Calendar
-                      mode="range"
-                      selected={{ from: quickWindow.from, to: quickWindow.to }}
-                      onSelect={(range) => {
-                        if (range?.from && range?.to) {
-                          const nextWindow = { from: range.from, to: range.to };
-                          setQuickWindow(nextWindow);
-                          setFinancialFilters((current) => ({ ...current, period: nextWindow }));
-                          setOtherFilters((current) => ({ ...current, period: nextWindow }));
-                          setFinancialPage(1);
-                          setOtherPage(1);
-                        }
-                      }}
-                      numberOfMonths={2}
-                    />
-                  </PopoverContent>
-                </Popover>
+                <CompactDateRangeFilter
+                  label="Window"
+                  range={quickWindow}
+                  fallback="Select reporting window"
+                  align="end"
+                  onChange={(nextWindow) => {
+                    setQuickWindow(nextWindow);
+                    setFinancialFilters(nextWindow);
+                    setOtherFilters(nextWindow);
+                    setFinancialPage(1);
+                    setOtherPage(1);
+                  }}
+                />
 
                 <Select value={exportFormat} onValueChange={setExportFormat}>
                   <SelectTrigger className="h-9 w-[110px] rounded-xl border-white/10 bg-transparent text-xs md:text-sm text-white">
@@ -596,18 +588,11 @@ export default function Reports() {
                     reportLabel={REPORT_TYPE_LABELS[selectedFinancialType]}
                     filters={financialFilters}
                     onPeriodChange={(nextRange) => {
-                      setFinancialFilters((current) => ({ ...current, period: nextRange }));
-                      setFinancialPage(1);
-                    }}
-                    onUploadChange={(nextRange) => {
-                      setFinancialFilters((current) => ({ ...current, uploaded: nextRange }));
+                      setFinancialFilters(nextRange);
                       setFinancialPage(1);
                     }}
                     onReset={() => {
-                      setFinancialFilters({
-                        period: quickWindow,
-                        uploaded: { from: null, to: null },
-                      });
+                      setFinancialFilters(quickWindow);
                       setFinancialPage(1);
                     }}
                   />
@@ -656,18 +641,11 @@ export default function Reports() {
                     reportLabel={REPORT_TYPE_LABELS.other}
                     filters={otherFilters}
                     onPeriodChange={(nextRange) => {
-                      setOtherFilters((current) => ({ ...current, period: nextRange }));
-                      setOtherPage(1);
-                    }}
-                    onUploadChange={(nextRange) => {
-                      setOtherFilters((current) => ({ ...current, uploaded: nextRange }));
+                      setOtherFilters(nextRange);
                       setOtherPage(1);
                     }}
                     onReset={() => {
-                      setOtherFilters({
-                        period: quickWindow,
-                        uploaded: { from: null, to: null },
-                      });
+                      setOtherFilters(quickWindow);
                       setOtherPage(1);
                     }}
                   />
