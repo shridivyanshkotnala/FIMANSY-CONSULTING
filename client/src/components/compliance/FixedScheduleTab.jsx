@@ -158,6 +158,17 @@ export function FixedScheduleTab({ currentDate }) {
     [localObligations]
   );
 
+  // Calendar should reflect live ticket progress (filed/approved/closed),
+  // not only raw obligation.status from generation time.
+  const calendarObligations = useMemo(
+    () =>
+      visibleObligations.map((ob) => {
+        const ticket = getTicketForObligation(ob);
+        return ticket?.status ? { ...ob, status: ticket.status } : ob;
+      }),
+    [visibleObligations, getTicketForObligation]
+  );
+
   /* ================= Filters ================= */
   const obligationsWithTickets = useMemo(
     () => visibleObligations.filter((ob) => Boolean(getTicketForObligation(ob))),
@@ -565,7 +576,7 @@ export function FixedScheduleTab({ currentDate }) {
       </div>
 
       <ComplianceCalendar
-        obligations={visibleObligations}
+        obligations={calendarObligations}
         currentDate={effectiveCurrentDate}
         onDayClick={handleCalendarDayClick}
       />

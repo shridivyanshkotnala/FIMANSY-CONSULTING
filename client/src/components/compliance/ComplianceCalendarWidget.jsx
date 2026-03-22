@@ -32,6 +32,9 @@ const parseDate = (dateStr) => {
   }
 };
 
+const COMPLETED_STATUSES = new Set(["filed", "approved", "closed", "not_applicable", "ignored"]);
+const isCompleted = (status) => COMPLETED_STATUSES.has(String(status || "").toLowerCase());
+
 export function ComplianceCalendar({ obligations = [], loading, currentDate, onDayClick }) {
   const effectiveCurrentDate = currentDate || new Date();
   const effectiveTimestamp = new Date(effectiveCurrentDate).getTime();
@@ -52,10 +55,10 @@ export function ComplianceCalendar({ obligations = [], loading, currentDate, onD
 
   // Stats
   const stats = useMemo(() => {
-    const filed = obligationsArray.filter((o) => o.status === "filed").length;
+    const filed = obligationsArray.filter((o) => isCompleted(o.status)).length;
 
     const overdue = obligationsArray.filter((o) => {
-      if (o.status === "filed" || !o.due_date) return false;
+      if (isCompleted(o.status) || !o.due_date) return false;
       const d = parseDate(o.due_date);
       return d && d < today;
     }).length;
@@ -100,10 +103,10 @@ export function ComplianceCalendar({ obligations = [], loading, currentDate, onD
     const hasUrgent = dayObs.some(
       (ob) =>
         getDaysUntilDue(ob.due_date, effectiveCurrentDate) <= 3 &&
-        ob.status !== "filed"
+        !isCompleted(ob.status)
     );
 
-    const allFiled = dayObs.every((ob) => ob.status === "filed");
+    const allFiled = dayObs.every((ob) => isCompleted(ob.status));
 
     if (hasOverdue)
       return "bg-destructive/20 text-destructive font-semibold";
@@ -246,7 +249,7 @@ export function ComplianceCalendar({ obligations = [], loading, currentDate, onD
                     {dayObs.slice(0, 3).map((ob, i) => {
                       let dotColor = "bg-primary";
 
-                      if (ob.status === "filed")
+                      if (isCompleted(ob.status))
                         dotColor = "bg-success";
                       else if (
                         ob.status === "overdue" ||
