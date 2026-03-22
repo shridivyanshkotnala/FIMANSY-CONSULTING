@@ -24,7 +24,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useTransparency } from "@/hooks/useTransparency";
 import {
   useGetFinancialReportsQuery,
   useLazyGetFinancialReportViewUrlQuery,
@@ -35,58 +34,6 @@ import {
 } from "@/Redux/Slices/api/complianceApi";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-
-const MOCK_QUERIES = [
-  {
-    id: "local-query-001",
-    query_number: "QR-2418",
-    subject: "Vendor ledger mismatch in March expense pack",
-    description: "The office expense report shows INR 48,500 while the supporting vendor ledger totals INR 44,500. Need confirmation on the missing adjustment entry before publishing the report.",
-    status: "awaiting_response",
-    priority: "high",
-    category: "discrepancy",
-    created_at: "2026-03-18T09:15:00.000Z",
-    updated_at: "2026-03-21T11:20:00.000Z",
-    due_date: "2026-03-25T00:00:00.000Z",
-    resolution_notes: "",
-    resolved_at: null,
-  },
-  {
-    id: "local-query-002",
-    query_number: "QR-2415",
-    subject: "Approval pending for payroll variance note",
-    description: "Payroll report is ready, but the salary variance note needs founder approval before sharing the final MIS deck with leadership.",
-    status: "open",
-    priority: "urgent",
-    category: "approval_needed",
-    created_at: "2026-03-17T07:30:00.000Z",
-    updated_at: "2026-03-20T13:45:00.000Z",
-    due_date: "2026-03-23T00:00:00.000Z",
-    resolution_notes: "",
-    resolved_at: null,
-  },
-];
-
-const MOCK_COMMENTS = {
-  "local-query-001": [
-    {
-      id: "comment-001",
-      content: "Cross-checking the ledger export against the uploaded bills. Will update after reconciling the manual adjustment.",
-      user_name: "Aarav",
-      is_internal: false,
-      created_at: "2026-03-21T11:20:00.000Z",
-    },
-  ],
-  "local-query-002": [
-    {
-      id: "comment-002",
-      content: "Variance note drafted. Waiting for founder sign-off before attaching it to the payroll pack.",
-      user_name: "Finance Desk",
-      is_internal: false,
-      created_at: "2026-03-20T13:45:00.000Z",
-    },
-  ],
-};
 
 const REPORT_CARD_META = {
   profit_and_loss: {
@@ -141,10 +88,6 @@ const COMPLIANCE_QUARTER_OPTIONS = [
   { value: "q3", label: "Q3 (Oct-Dec)" },
   { value: "q4", label: "Q4 (Jan-Mar)" },
 ];
-
-function createLocalId(prefix) {
-  return `${prefix}-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
-}
 
 function formatReportDate(value) {
   if (!value) return "-";
@@ -405,8 +348,6 @@ export default function Reports() {
   const [selectedComplianceMonth, setSelectedComplianceMonth] = useState("all");
   const [selectedComplianceQuarter, setSelectedComplianceQuarter] = useState("all");
   const [selectedComplianceTag, setSelectedComplianceTag] = useState("all");
-  const [localQueries, setLocalQueries] = useState(MOCK_QUERIES);
-  const [localComments, setLocalComments] = useState(MOCK_COMMENTS);
 
   const quickWindowLabel = formatDateRangeLabel(quickWindow, "Select reporting window");
 
@@ -453,17 +394,6 @@ export default function Reports() {
 
   const [fetchFinancialViewUrl] = useLazyGetFinancialReportViewUrlQuery();
   const [fetchComplianceLogViewUrl] = useLazyGetComplianceLogViewUrlQuery();
-
-  const {
-    queries: backendQueries,
-    createQuery,
-    updateQuery,
-    addQueryComment,
-    fetchQueryComments,
-  } = useTransparency();
-
-  const liveQueries = backendQueries.length ? backendQueries : localQueries;
-  const urgentQueryCount = liveQueries.filter((query) => ["open", "awaiting_response", "escalated"].includes(query.status)).length;
   const complianceFilterOptions = complianceLogsResponse?.filter_options || {
     financial_years: [],
     obligation_tags: [],
@@ -517,103 +447,6 @@ export default function Reports() {
 
   const handleExport = () => {
     toast.success(`Prepared ${selectedFinancialType.replaceAll("_", " ")} reports in ${exportFormat.toUpperCase()} mode.`);
-  };
-
-  const handleCreateQuery = async (payload) => {
-    try {
-      const created = await createQuery(payload);
-      if (created) return created;
-    } catch {
-      // local fallback below
-    }
-
-    const now = new Date().toISOString();
-    const localQuery = {
-      id: createLocalId("query"),
-      query_number: `QR-${String(localQueries.length + 2419).padStart(4, "0")}`,
-      status: "open",
-      created_at: now,
-      updated_at: now,
-      due_date: null,
-      resolution_notes: "",
-      resolved_at: null,
-      ...payload,
-    };
-
-    setLocalQueries((current) => [localQuery, ...current]);
-    setLocalComments((current) => ({ ...current, [localQuery.id]: [] }));
-    return localQuery;
-  };
-
-  const handleUpdateQuery = async (queryId, updates) => {
-    const existingLocalQuery = localQueries.find((query) => query.id === queryId);
-
-    if (!existingLocalQuery) {
-      try {
-        await updateQuery(queryId, updates);
-        return;
-      } catch {
-        // local fallback below
-      }
-    }
-
-    setLocalQueries((current) =>
-      current.map((query) => {
-        if (query.id !== queryId) return query;
-
-        const nextStatus = updates.status || query.status;
-        return {
-          ...query,
-          ...updates,
-          status: nextStatus,
-          updated_at: new Date().toISOString(),
-          resolved_at: nextStatus === "resolved" ? new Date().toISOString() : null,
-        };
-      })
-    );
-  };
-
-  const handleAddComment = async (queryId, content) => {
-    const isLocalQuery = localQueries.some((query) => query.id === queryId);
-
-    if (!isLocalQuery) {
-      try {
-        const response = await addQueryComment(queryId, content);
-        if (response) return response;
-      } catch {
-        // local fallback below
-      }
-    }
-
-    const comment = {
-      id: createLocalId("comment"),
-      content,
-      user_name: "You",
-      is_internal: false,
-      created_at: new Date().toISOString(),
-    };
-
-    setLocalComments((current) => ({
-      ...current,
-      [queryId]: [...(current[queryId] || []), comment],
-    }));
-
-    return comment;
-  };
-
-  const handleFetchComments = async (queryId) => {
-    const isLocalQuery = localQueries.some((query) => query.id === queryId);
-
-    if (!isLocalQuery) {
-      try {
-        const response = await fetchQueryComments(queryId);
-        if (Array.isArray(response) && response.length) return response;
-      } catch {
-        // local fallback below
-      }
-    }
-
-    return localComments[queryId] || [];
   };
 
   return (
@@ -682,7 +515,6 @@ export default function Reports() {
                 <TabsTrigger value="queries" className="rounded-lg px-3 py-2.5 text-sm data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
                   <MessageSquare className="mr-2 h-4 w-4" />
                   Query Hub
-                  <Badge className="ml-2 border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-300 hover:bg-orange-500/10">{urgentQueryCount}</Badge>
                 </TabsTrigger>
               </TabsList>
 
@@ -969,13 +801,7 @@ export default function Reports() {
 
               <TabsContent value="queries">
                 <div className="rounded-[26px] border border-white/10 bg-white p-4 text-black">
-                  <QueryResolutionHub
-                    queries={liveQueries}
-                    onCreateQuery={handleCreateQuery}
-                    onUpdateQuery={handleUpdateQuery}
-                    onAddComment={handleAddComment}
-                    onFetchComments={handleFetchComments}
-                  />
+                  <QueryResolutionHub />
                 </div>
               </TabsContent>
             </Tabs>

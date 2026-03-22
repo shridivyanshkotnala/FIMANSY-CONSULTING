@@ -8,6 +8,7 @@ import cashIntelligenceRoutes from './cashIntelligence.js';
 import bankRoutes from './bankingRoutes.js';
 import complianceRoutes from './complianceRoutes.js';
 import accountantRoutes from './accountantRoutes.js';
+import queryHubRoutes from './queryHubRoutes.js';
 
 const router = express.Router();
 
@@ -20,5 +21,6 @@ router.use("/cash-intelligence", cashIntelligenceRoutes);
 router.use("/banking", bankRoutes);
 router.use("/compliance", complianceRoutes);
 router.use("/accountant", accountantRoutes);
+router.use("/query-hub", queryHubRoutes);
 
 export default router;

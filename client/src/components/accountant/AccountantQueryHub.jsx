@@ -1,252 +1,348 @@
-import { useState, useMemo } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { format } from "date-fns";
+import { toast } from "sonner";
+import { Building2, CheckCircle2, Clock3, Send, Timer, Upload } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Search,
-  MessageSquare,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  TrendingUp,
-  Timer,
-  Building2,
-  ChevronRight,
-  Paperclip,
-  Send,
-} from "lucide-react";
-import { format, differenceInHours } from "date-fns";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useQueryHub } from "@/hooks/useQueryHub";
 
-/*
-  Removed:
-  interface QueryTicket { ... }
-*/
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return format(date, "dd MMM yyyy, hh:mm a");
+}
 
-const STATUS_CONFIG = {
-  open: { label: "Open", className: "bg-destructive/10 text-destructive border-destructive/20" },
-  under_review: { label: "Under Review", className: "bg-info/10 text-info border-info/20" },
-  waiting_on_client: { label: "Waiting on Client", className: "bg-warning/10 text-warning border-warning/20" },
-  resolved: { label: "Resolved", className: "bg-success/10 text-success border-success/20" },
-  closed: { label: "Closed", className: "bg-muted text-muted-foreground border-border" },
-};
+function formatResolutionTime(hours) {
+  const total = Number(hours || 0);
+  if (!total) return "—";
+  if (total >= 24) return `${(total / 24).toFixed(1)}d`;
+  return `${total.toFixed(1)}h`;
+}
 
-const PRIORITY_CONFIG = {
-  high: "text-destructive bg-destructive/10 border-destructive/20",
-  medium: "text-warning bg-warning/10 border-warning/20",
-  low: "text-muted-foreground bg-muted border-border",
-};
-
-/*
-  Removed:
-  const MOCK_QUERIES: QueryTicket[]
-*/
-const MOCK_QUERIES = [
-  {
-    id: "q-1",
-    query_number: "QRY-0012",
-    subject: "Clarification on TDS rate for rent payment",
-    description: "Need guidance on applicable TDS rate for office rent paid to NRI landlord.",
-    category: "Advisory",
-    priority: "high",
-    status: "open",
-    organization_name: "Stratzi Pvt Ltd",
-    created_at: "2026-03-01T10:00:00Z",
-    updated_at: "2026-03-01T10:00:00Z",
-    due_date: "2026-03-02",
-    sla_hours: 24,
-    thread: [
-      { text: "What TDS rate applies for rent paid to NRI?", by: "Client", at: "01 Mar, 10:00" },
-    ],
-  },
-  // (other objects unchanged — only types removed)
-];
+function Pagination({ page, totalPages, onPageChange }) {
+  return (
+    <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs text-muted-foreground">
+      <span>Page {page} of {totalPages}</span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Prev</Button>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Next</Button>
+      </div>
+    </div>
+  );
+}
 
 export function AccountantQueryHub() {
+  const { getStats, getTickets, getTicketDetail, getComments, addComment, getDocuments, uploadDocument, updateStatus } = useQueryHub({ isAccountant: true });
 
-  // Removed <QueryTicket[]>
-  const [queries] = useState(MOCK_QUERIES);
+  const [stats, setStats] = useState({ open_queries: 0, resolved_this_month: 0, avg_resolution_hours: 0 });
+  const [openTickets, setOpenTickets] = useState([]);
+  const [closedTickets, setClosedTickets] = useState([]);
+  const [openPage, setOpenPage] = useState(1);
+  const [closedPage, setClosedPage] = useState(1);
+  const [openTotalPages, setOpenTotalPages] = useState(1);
+  const [closedTotalPages, setClosedTotalPages] = useState(1);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [ticketDetail, setTicketDetail] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [commenting, setCommenting] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [closing, setClosing] = useState(false);
 
-  // Removed <QueryTicket | null>
-  const [selectedQuery, setSelectedQuery] = useState(null);
+  const loadTickets = useCallback(async (status, page) => {
+    const result = await getTickets({ status, page, limit: 8 });
+    if (status === "open") {
+      setOpenTickets(result?.data || []);
+      setOpenTotalPages(result?.total_pages || 1);
+    } else {
+      setClosedTickets(result?.data || []);
+      setClosedTotalPages(result?.total_pages || 1);
+    }
+  }, [getTickets]);
 
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [replyText, setReplyText] = useState("");
+  const refreshAll = useCallback(async () => {
+    try {
+      const [statsData] = await Promise.all([
+        getStats(),
+        loadTickets("open", openPage),
+        loadTickets("closed", closedPage),
+      ]);
+      setStats(statsData || {});
+    } catch (error) {
+      toast.error(error?.message || "Failed to load query hub");
+    }
+  }, [getStats, loadTickets, openPage, closedPage]);
 
-  const filtered = useMemo(() => {
-    return queries.filter((q) => {
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
 
-      if (searchQuery) {
-        const s = searchQuery.toLowerCase();
+  const openTicket = async (ticket) => {
+    setSelectedTicket(ticket);
+    try {
+      const ticketId = ticket._id || ticket.id;
+      const [detail, ticketComments, ticketDocuments] = await Promise.all([
+        getTicketDetail(ticketId),
+        getComments(ticketId),
+        getDocuments(ticketId),
+      ]);
+      setTicketDetail(detail);
+      setComments(Array.isArray(ticketComments) ? ticketComments : []);
+      setDocuments(Array.isArray(ticketDocuments) ? ticketDocuments : []);
+    } catch (error) {
+      toast.error(error?.message || "Failed to open ticket");
+    }
+  };
 
-        if (
-          !q.subject.toLowerCase().includes(s) &&
-          !q.query_number.toLowerCase().includes(s) &&
-          !q.organization_name.toLowerCase().includes(s)
-        ) return false;
-      }
+  const handleAddComment = async () => {
+    if (!selectedTicket || !newComment.trim()) return;
+    setCommenting(true);
+    try {
+      const ticketId = selectedTicket._id || selectedTicket.id;
+      await addComment(ticketId, newComment.trim());
+      const updated = await getComments(ticketId);
+      setComments(Array.isArray(updated) ? updated : []);
+      setNewComment("");
+      await refreshAll();
+    } catch (error) {
+      toast.error(error?.message || "Failed to post comment");
+    } finally {
+      setCommenting(false);
+    }
+  };
 
-      if (statusFilter !== "all" && q.status !== statusFilter)
-        return false;
+  const handleUploadDocument = async (event) => {
+    if (!selectedTicket) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-      return true;
+    setUploadingDoc(true);
+    try {
+      const ticketId = selectedTicket._id || selectedTicket.id;
+      await uploadDocument(ticketId, file, `Accountant uploaded document: ${file.name}`);
+      const [nextDocs, nextComments] = await Promise.all([getDocuments(ticketId), getComments(ticketId)]);
+      setDocuments(Array.isArray(nextDocs) ? nextDocs : []);
+      setComments(Array.isArray(nextComments) ? nextComments : []);
+      await refreshAll();
+      toast.success("Document uploaded");
+    } catch (error) {
+      toast.error(error?.message || "Upload failed");
+    } finally {
+      setUploadingDoc(false);
+      event.target.value = "";
+    }
+  };
 
-    });
-  }, [queries, searchQuery, statusFilter]);
+  const handleCloseTicket = async () => {
+    if (!selectedTicket) return;
+    setClosing(true);
+    try {
+      const ticketId = selectedTicket._id || selectedTicket.id;
+      await updateStatus(ticketId, "closed");
+      const detail = await getTicketDetail(ticketId);
+      setTicketDetail(detail);
+      setSelectedTicket((prev) => prev ? { ...prev, status: "closed" } : prev);
+      await refreshAll();
+      toast.success("Ticket closed");
+    } catch (error) {
+      toast.error(error?.message || "Could not close ticket");
+    } finally {
+      setClosing(false);
+    }
+  };
 
-  const openCount =
-    queries.filter((q) => q.status === "open").length;
+  const accountantUpdates = useMemo(() => {
+    const commentUpdates = comments
+      .filter((item) => item.role === "accountant" || item.author_role === "accountant")
+      .map((item) => ({
+        id: item._id || item.id,
+        type: "comment",
+        text: item.message,
+        at: item.createdAt || item.created_at,
+      }));
 
-  const overdueCount =
-    queries.filter((q) => {
-      const hours =
-        differenceInHours(new Date(), new Date(q.created_at));
+    const docUpdates = documents
+      .filter((item) => item.uploaded_by_role === "accountant")
+      .map((item) => ({
+        id: item._id || item.key,
+        type: "document",
+        text: `Uploaded ${item.display_file_name || item.original_file_name || "document"}`,
+        at: item.createdAt || item.created_at,
+      }));
 
-      return q.status === "open" && hours > q.sla_hours;
-    }).length;
+    return [...commentUpdates, ...docUpdates].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+  }, [comments, documents]);
 
-  const resolvedCount =
-    queries.filter(
-      (q) => q.status === "resolved" || q.status === "closed"
-    ).length;
+  const ticketStatus = ticketDetail?.ticket?.status || selectedTicket?.status;
+  const organization = ticketDetail?.organization || selectedTicket?.organization_id || {};
 
   return (
-    <div className="space-y-6">
-
-      {/* Header */}
+    <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold">Query Hub</h1>
-        <p className="text-sm text-muted-foreground">
-          Non-compliance tickets — advisory, accounting, reports
-        </p>
+        <h1 className="text-2xl font-semibold">Query Hub</h1>
+        <p className="text-sm text-muted-foreground">Client-raised queries with thread and documents.</p>
       </div>
 
-      {/* Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-card to-destructive/10">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-destructive/10">
-                <MessageSquare className="h-4 w-4 text-destructive" />
-              </div>
-              <div>
-                <p className="text-lg font-bold">{openCount}</p>
-                <p className="text-[10px] text-muted-foreground">
-                  Open Queries
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Remaining metric cards unchanged */}
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search queries..."
-            value={searchQuery}
-            onChange={(e) =>
-              setSearchQuery(e.target.value)
-            }
-            className="pl-9"
-          />
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Avg resolution time</p>
+          <p className="mt-1 flex items-center gap-2 text-xl font-semibold"><Timer className="h-4 w-4" />{formatResolutionTime(stats.avg_resolution_hours)}</p>
         </div>
-
-        <Select
-          value={statusFilter}
-          onValueChange={setStatusFilter}
-        >
-          <SelectTrigger className="w-full sm:w-[160px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-
-            {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-              <SelectItem key={k} value={k}>
-                {v.label}
-              </SelectItem>
-            ))}
-
-          </SelectContent>
-        </Select>
-
+        <div className="rounded-xl border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Open / pending</p>
+          <p className="mt-1 flex items-center gap-2 text-xl font-semibold"><Clock3 className="h-4 w-4" />{stats.open_queries || 0}</p>
+        </div>
+        <div className="rounded-xl border bg-card p-3">
+          <p className="text-xs text-muted-foreground">Resolved this month</p>
+          <p className="mt-1 flex items-center gap-2 text-xl font-semibold"><CheckCircle2 className="h-4 w-4" />{stats.resolved_this_month || 0}</p>
+        </div>
       </div>
 
-      {/* Query List */}
-      <div className="space-y-2">
+      <Tabs defaultValue="open">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="open">Opened Tickets</TabsTrigger>
+          <TabsTrigger value="closed">Closed Tickets</TabsTrigger>
+        </TabsList>
 
-        {filtered.map((query) => {
+        <TabsContent value="open" className="space-y-3 pt-3">
+          {openTickets.map((ticket) => (
+            <button key={ticket._id || ticket.id} className="w-full rounded-xl border bg-card p-4 text-left hover:border-primary/30" onClick={() => openTicket(ticket)}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{ticket.query_number}</Badge>
+                <Badge className="bg-orange-500/10 text-orange-600">Open</Badge>
+                <Badge variant="secondary">{ticket.organization_id?.name || "Organization"}</Badge>
+              </div>
+              <p className="mt-2 text-sm font-semibold">{ticket.subject}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Opened {formatDateTime(ticket.createdAt || ticket.created_at)}</p>
+            </button>
+          ))}
+          {openTickets.length === 0 ? <div className="rounded-xl border border-dashed p-7 text-center text-sm text-muted-foreground">No open tickets.</div> : null}
+          <Pagination page={openPage} totalPages={openTotalPages} onPageChange={setOpenPage} />
+        </TabsContent>
 
-          const cfg = STATUS_CONFIG[query.status];
+        <TabsContent value="closed" className="space-y-3 pt-3">
+          {closedTickets.map((ticket) => (
+            <button key={ticket._id || ticket.id} className="w-full rounded-xl border bg-card p-4 text-left hover:border-primary/30" onClick={() => openTicket(ticket)}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{ticket.query_number}</Badge>
+                <Badge className="bg-emerald-500/10 text-emerald-600">Closed</Badge>
+                <Badge variant="secondary">{ticket.organization_id?.name || "Organization"}</Badge>
+              </div>
+              <p className="mt-2 text-sm font-semibold">{ticket.subject}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Closed {formatDateTime(ticket.closed_at)}</p>
+            </button>
+          ))}
+          {closedTickets.length === 0 ? <div className="rounded-xl border border-dashed p-7 text-center text-sm text-muted-foreground">No closed tickets.</div> : null}
+          <Pagination page={closedPage} totalPages={closedTotalPages} onPageChange={setClosedPage} />
+        </TabsContent>
+      </Tabs>
 
-          const slaHoursElapsed =
-            differenceInHours(
-              new Date(),
-              new Date(query.created_at)
-            );
-
-          const slaBreached =
-            slaHoursElapsed > query.sla_hours &&
-            query.status === "open";
-
-          return (
-            <div
-              key={query.id}
-              className={`p-4 border rounded-xl cursor-pointer transition-all hover:shadow-md hover:border-primary/30 bg-card ${
-                slaBreached ? "border-destructive/30" : ""
-              }`}
-              onClick={() => {
-                setSelectedQuery(query);
-                setDetailOpen(true);
-              }}
-            >
-
-              {/* Layout unchanged below */}
-
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-
-            </div>
-          );
-        })}
-
-      </div>
-
-      {/* Detail Sheet unchanged structurally */}
-      <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
-        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-
-          {selectedQuery && (
+      <Sheet open={Boolean(selectedTicket)} onOpenChange={(open) => !open && setSelectedTicket(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+          {selectedTicket ? (
             <>
-              <SheetHeader className="space-y-3 pb-4">
-                <Badge className={STATUS_CONFIG[selectedQuery.status].className}>
-                  {STATUS_CONFIG[selectedQuery.status].label}
-                </Badge>
-                <SheetTitle className="text-lg">
-                  {selectedQuery.subject}
-                </SheetTitle>
+              <SheetHeader>
+                <SheetTitle className="text-left">{ticketDetail?.ticket?.subject || selectedTicket.subject}</SheetTitle>
               </SheetHeader>
 
-              {/* Rest of JSX unchanged — only types removed */}
+              <div className="mt-4 rounded-xl border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Badge className={ticketStatus === "closed" ? "bg-emerald-500/10 text-emerald-600" : "bg-orange-500/10 text-orange-600"}>
+                    {ticketStatus === "closed" ? "Closed" : "Open"}
+                  </Badge>
+                  {ticketStatus !== "closed" ? (
+                    <Button size="sm" onClick={handleCloseTicket} disabled={closing}>{closing ? "Closing..." : "Close Ticket"}</Button>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-sm">{ticketDetail?.ticket?.message || selectedTicket.message}</p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span>Opened: {formatDateTime(ticketDetail?.ticket?.createdAt || selectedTicket.createdAt)}</span>
+                  <span>Closed: {formatDateTime(ticketDetail?.ticket?.closed_at || selectedTicket.closed_at)}</span>
+                </div>
+              </div>
 
+              <div className="mt-4 rounded-xl border p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company Summary</p>
+                <div className="grid gap-2 text-sm md:grid-cols-2">
+                  <p className="flex items-center gap-2"><Building2 className="h-4 w-4" /> {organization?.name || "—"}</p>
+                  <p>GSTIN: {organization?.gstin || "—"}</p>
+                  <p>PAN: {organization?.pan || "—"}</p>
+                  <p>TAN: {organization?.tan || "—"}</p>
+                </div>
+              </div>
+
+              <Tabs defaultValue="thread" className="mt-4">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="thread">Thread</TabsTrigger>
+                  <TabsTrigger value="documents">Documents</TabsTrigger>
+                  <TabsTrigger value="updates">Accountant Updates</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="thread" className="space-y-3 pt-3">
+                  {comments.map((comment) => (
+                    <div key={comment._id || comment.id} className="rounded-lg border p-3">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant={comment.role === "accountant" ? "default" : "secondary"}>{comment.role === "accountant" ? "Accountant" : "Client"}</Badge>
+                        <span>{formatDateTime(comment.createdAt || comment.created_at)}</span>
+                      </div>
+                      <p className="mt-1.5 text-sm">{comment.message}</p>
+                    </div>
+                  ))}
+
+                  {ticketStatus !== "closed" ? (
+                    <div className="flex gap-2">
+                      <Textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Post update to client" className="min-h-[90px]" />
+                      <Button className="h-auto" onClick={handleAddComment} disabled={commenting || !newComment.trim()}>
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </TabsContent>
+
+                <TabsContent value="documents" className="space-y-3 pt-3">
+                  {documents.map((doc) => (
+                    <div key={doc._id || doc.key} className="rounded-lg border p-3">
+                      <p className="text-sm font-medium">{doc.display_file_name || doc.original_file_name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{doc.uploaded_by_role === "accountant" ? "Accountant" : "Client"} • {formatDateTime(doc.createdAt || doc.created_at)}</p>
+                      <a href={doc.url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">View document</a>
+                    </div>
+                  ))}
+
+                  {ticketStatus !== "closed" ? (
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+                      <Upload className="h-4 w-4" />
+                      {uploadingDoc ? "Uploading..." : "Upload document"}
+                      <Input type="file" className="hidden" disabled={uploadingDoc} onChange={handleUploadDocument} />
+                    </label>
+                  ) : null}
+                </TabsContent>
+
+                <TabsContent value="updates" className="space-y-3 pt-3">
+                  {accountantUpdates.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">No accountant updates yet.</div>
+                  ) : accountantUpdates.map((item) => (
+                    <div key={item.id} className="rounded-lg border p-3">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant="outline">{item.type === "document" ? "Document" : "Message"}</Badge>
+                        <span>{formatDateTime(item.at)}</span>
+                      </div>
+                      <p className="mt-1.5 text-sm">{item.text}</p>
+                    </div>
+                  ))}
+                </TabsContent>
+              </Tabs>
             </>
-          )}
-
+          ) : null}
         </SheetContent>
       </Sheet>
-
     </div>
   );
 }

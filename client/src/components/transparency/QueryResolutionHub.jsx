@@ -1,16 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { format, formatDistanceToNowStrict } from "date-fns";
+import { MessageSquare, Plus, Paperclip, Send, Upload, Clock3, CheckCircle2, Timer } from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -18,550 +14,426 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import {
-  Plus,
-  Search,
-  Filter,
-  MessageSquare,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  Send,
-  ChevronRight,
-  CalendarClock,
-  Sparkles,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { format, formatDistanceToNow } from 'date-fns';
-import {
-  QUERY_CATEGORIES,
-  QUERY_STATUS_COLORS,
-  PRIORITY_COLORS,
-} from '@/lib/transparency/types';
-import { toast } from 'sonner';
+} from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useQueryHub } from "@/hooks/useQueryHub";
 
-const STATUS_CONFIG = {
-  open: { label: 'Open', icon: MessageSquare },
-  awaiting_response: { label: 'Awaiting Response', icon: Clock },
-  resolved: { label: 'Resolved', icon: CheckCircle2 },
-  escalated: { label: 'Escalated', icon: AlertTriangle },
-};
-
-const priorityOrder = {
-  urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
-function formatTimestamp(value) {
-  if (!value) return 'No timestamp';
-
+function formatDateTime(value) {
+  if (!value) return "—";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Invalid date';
-
-  return format(date, 'dd MMM yyyy, hh:mm a');
+  if (Number.isNaN(date.getTime())) return "—";
+  return format(date, "dd MMM yyyy, hh:mm a");
 }
 
-function getCategoryLabel(value) {
-  return QUERY_CATEGORIES.find((category) => category.value === value)?.label || 'General';
+function formatResolutionTime(hours) {
+  const total = Number(hours || 0);
+  if (!total) return "—";
+  if (total >= 24) return `${(total / 24).toFixed(1)}d`;
+  return `${total.toFixed(1)}h`;
 }
 
-function QueryStatCard({ title, value, helper, icon: Icon, tone }) {
-  return (
-    <Card className="border-border/60 shadow-sm">
-      <CardContent className="flex items-start justify-between p-5">
-        <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
-          <p className="mt-2 text-xs text-muted-foreground">{helper}</p>
-        </div>
-        <div className={cn('rounded-2xl p-3', tone)}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function QueryListCard({ query, onOpen }) {
-  const statusMeta = STATUS_CONFIG[query.status] || STATUS_CONFIG.open;
-  const StatusIcon = statusMeta.icon;
-
+function TicketCard({ ticket, onOpen }) {
   return (
     <button
       type="button"
-      onClick={() => onOpen(query)}
-      className="w-full text-left"
+      onClick={() => onOpen(ticket)}
+      className="w-full rounded-2xl border border-white/10 bg-[#121214] p-4 text-left transition hover:border-orange-400/35 hover:bg-[#151518]"
     >
-      <Card className="group h-full border-border/60 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="font-medium">
-                  {query.query_number || 'Draft Query'}
-                </Badge>
-                <Badge className={cn('border-0', QUERY_STATUS_COLORS[query.status] || QUERY_STATUS_COLORS.open)}>
-                  <StatusIcon className="mr-1 h-3.5 w-3.5" />
-                  {statusMeta.label}
-                </Badge>
-                <Badge className={cn('border-0 capitalize', PRIORITY_COLORS[query.priority] || PRIORITY_COLORS.medium)}>
-                  {query.priority || 'medium'}
-                </Badge>
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-foreground">{query.subject}</h3>
-                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{query.description}</p>
-              </div>
-            </div>
-            <ChevronRight className="mt-1 h-5 w-5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-          </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge className="border border-white/15 bg-white/5 text-white/90 hover:bg-white/5">{ticket.query_number}</Badge>
+        <Badge className={ticket.status === "closed" ? "bg-emerald-500/15 text-emerald-300" : "bg-orange-500/15 text-orange-300"}>
+          {ticket.status === "closed" ? "Closed" : "Open"}
+        </Badge>
+        {ticket.has_unread_accountant_update ? <Badge className="bg-sky-500/15 text-sky-300">Accountant Update</Badge> : null}
+      </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="rounded-full bg-muted px-2.5 py-1">{getCategoryLabel(query.category)}</span>
-            <span className="rounded-full bg-muted px-2.5 py-1">
-              Updated {formatDistanceToNow(new Date(query.updated_at || query.created_at), { addSuffix: true })}
-            </span>
-            {query.due_date ? (
-              <span className="rounded-full bg-muted px-2.5 py-1">Due {format(new Date(query.due_date), 'dd MMM')}</span>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
+      <p className="mt-3 text-sm font-semibold text-white">{ticket.subject}</p>
+      <p className="mt-1 line-clamp-2 text-xs text-white/60">{ticket.message}</p>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-white/45">
+        <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1">Opened: {formatDateTime(ticket.createdAt || ticket.created_at)}</span>
+        {ticket.status === "closed" ? (
+          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-emerald-300">
+            Closed: {formatDateTime(ticket.closed_at)}
+          </span>
+        ) : null}
+      </div>
     </button>
   );
 }
 
-export function QueryResolutionHub({
-  queries = [],
-  onCreateQuery,
-  onUpdateQuery,
-  onAddComment,
-  onFetchComments,
-}) {
-  const [isCreating, setIsCreating] = useState(false);
-  const [selectedQuery, setSelectedQuery] = useState(null);
+function Pagination({ page, totalPages, onPageChange }) {
+  return (
+    <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-xs text-white/55">
+      <span>Page {page} of {totalPages}</span>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          className="border-white/15 bg-transparent text-white hover:bg-white/10"
+        >
+          Prev
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+          className="border-white/15 bg-transparent text-white hover:bg-white/10"
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function QueryResolutionHub() {
+  const { getStats, getTickets, createTicket, getTicketDetail, getComments, addComment, getDocuments, uploadDocument } = useQueryHub();
+
+  const [stats, setStats] = useState({ open_queries: 0, resolved_this_month: 0, avg_resolution_hours: 0 });
+  const [openTickets, setOpenTickets] = useState([]);
+  const [closedTickets, setClosedTickets] = useState([]);
+  const [openPage, setOpenPage] = useState(1);
+  const [closedPage, setClosedPage] = useState(1);
+  const [openTotalPages, setOpenTotalPages] = useState(1);
+  const [closedTotalPages, setClosedTotalPages] = useState(1);
+
+  const [loading, setLoading] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newMessage, setNewMessage] = useState("");
+  const [createFile, setCreateFile] = useState(null);
+
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [ticketDetail, setTicketDetail] = useState(null);
   const [comments, setComments] = useState([]);
-  const [isLoadingComments, setIsLoadingComments] = useState(false);
-  const [newComment, setNewComment] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('open');
-  const [resolutionNotes, setResolutionNotes] = useState('');
-  const [newQuery, setNewQuery] = useState({
-    subject: '',
-    description: '',
-    category: 'clarification',
-    priority: 'medium',
-  });
+  const [documents, setDocuments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [commenting, setCommenting] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
 
-  const sortedQueries = [...queries].sort((a, b) => {
-    const priorityDelta = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99);
-    if (priorityDelta !== 0) return priorityDelta;
-    return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
-  });
+  const loadStats = useCallback(async () => {
+    const result = await getStats();
+    setStats(result || {});
+  }, [getStats]);
 
-  const filteredQueries = sortedQueries.filter((query) => {
-    const subject = query.subject || '';
-    const description = query.description || '';
-    const queryNumber = query.query_number || '';
-    const searchValue = searchQuery.toLowerCase();
-    const matchesSearch =
-      subject.toLowerCase().includes(searchValue) ||
-      description.toLowerCase().includes(searchValue) ||
-      queryNumber.toLowerCase().includes(searchValue);
-    const matchesStatus = filterStatus === 'all' || query.status === filterStatus;
-    return matchesSearch && matchesStatus;
-  });
+  const loadTickets = useCallback(async (status, page) => {
+    const result = await getTickets({ status, page, limit: 6 });
+    if (status === "open") {
+      setOpenTickets(result?.data || []);
+      setOpenTotalPages(result?.total_pages || 1);
+    } else {
+      setClosedTickets(result?.data || []);
+      setClosedTotalPages(result?.total_pages || 1);
+    }
+  }, [getTickets]);
 
-  const openQueries = queries.filter((query) => query.status === 'open').length;
-  const awaitingQueries = queries.filter((query) => query.status === 'awaiting_response').length;
-  const escalatedQueries = queries.filter((query) => query.status === 'escalated').length;
-  const resolvedThisMonth = queries.filter((query) => {
-    if (query.status !== 'resolved' || !query.resolved_at) return false;
-    const resolved = new Date(query.resolved_at);
-    const now = new Date();
-    return resolved.getMonth() === now.getMonth() && resolved.getFullYear() === now.getFullYear();
-  }).length;
+  const refreshAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        loadStats(),
+        loadTickets("open", openPage),
+        loadTickets("closed", closedPage),
+      ]);
+    } catch (error) {
+      toast.error(error?.message || "Failed to load query hub");
+    } finally {
+      setLoading(false);
+    }
+  }, [loadStats, loadTickets, openPage, closedPage]);
 
   useEffect(() => {
-    if (!selectedQuery) return;
+    refreshAll();
+  }, [refreshAll]);
 
-    setSelectedStatus(selectedQuery.status || 'open');
-    setResolutionNotes(selectedQuery.resolution_notes || '');
-    setIsLoadingComments(true);
-
-    Promise.resolve(onFetchComments?.(selectedQuery.id))
-      .then((fetchedComments) => {
-        setComments(Array.isArray(fetchedComments) ? fetchedComments : []);
-      })
-      .finally(() => setIsLoadingComments(false));
-  }, [selectedQuery, onFetchComments]);
-
-  const resetCreateForm = () => {
-    setNewQuery({
-      subject: '',
-      description: '',
-      category: 'clarification',
-      priority: 'medium',
-    });
+  const openTicket = async (ticket) => {
+    setSelectedTicket(ticket);
+    try {
+      const ticketId = ticket._id || ticket.id;
+      const [detail, ticketComments, ticketDocuments] = await Promise.all([
+        getTicketDetail(ticketId),
+        getComments(ticketId),
+        getDocuments(ticketId),
+      ]);
+      setTicketDetail(detail);
+      setComments(Array.isArray(ticketComments) ? ticketComments : []);
+      setDocuments(Array.isArray(ticketDocuments) ? ticketDocuments : []);
+    } catch (error) {
+      toast.error(error?.message || "Failed to open ticket");
+    }
   };
 
-  const handleCreate = async () => {
-    if (!newQuery.subject.trim() || !newQuery.description.trim()) {
-      toast.error('Please fill in the subject and description.');
+  const handleCreateTicket = async () => {
+    const message = newMessage.trim();
+    if (!message) {
+      toast.error("Please enter your query message");
       return;
     }
 
+    setCreating(true);
     try {
-      await onCreateQuery?.({
-        ...newQuery,
-        subject: newQuery.subject.trim(),
-        description: newQuery.description.trim(),
-      });
-      toast.success('Query created successfully.');
-      setIsCreating(false);
-      resetCreateForm();
-    } catch {
-      toast.error('Failed to create the query.');
+      await createTicket({ message, file: createFile });
+      toast.success("Query raised successfully");
+      setCreateOpen(false);
+      setNewMessage("");
+      setCreateFile(null);
+      setOpenPage(1);
+      await refreshAll();
+    } catch (error) {
+      toast.error(error?.message || "Failed to create query");
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleStatusChange = async () => {
-    if (!selectedQuery) return;
+  const handleAddComment = async () => {
+    if (!selectedTicket) return;
+    const message = newComment.trim();
+    if (!message) return;
 
+    setCommenting(true);
     try {
-      await onUpdateQuery?.(selectedQuery.id, {
-        status: selectedStatus,
-        resolution_notes: resolutionNotes.trim() || null,
-      });
-      toast.success('Query status updated.');
-      setSelectedQuery((current) => current ? {
-        ...current,
-        status: selectedStatus,
-        resolution_notes: resolutionNotes.trim(),
-      } : current);
-    } catch {
-      toast.error('Unable to update the query status.');
+      const ticketId = selectedTicket._id || selectedTicket.id;
+      await addComment(ticketId, message);
+      const updated = await getComments(ticketId);
+      setComments(Array.isArray(updated) ? updated : []);
+      setNewComment("");
+      await refreshAll();
+    } catch (error) {
+      toast.error(error?.message || "Failed to post comment");
+    } finally {
+      setCommenting(false);
     }
   };
 
-  const handleSendComment = async () => {
-    if (!selectedQuery || !newComment.trim()) return;
+  const handleUploadDocument = async (event) => {
+    if (!selectedTicket) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
 
+    setUploadingDoc(true);
     try {
-      await onAddComment?.(selectedQuery.id, newComment.trim());
-      const updatedComments = await onFetchComments?.(selectedQuery.id);
+      const ticketId = selectedTicket._id || selectedTicket.id;
+      await uploadDocument(ticketId, file, `Supporting document uploaded: ${file.name}`);
+      const [updatedDocuments, updatedComments] = await Promise.all([
+        getDocuments(ticketId),
+        getComments(ticketId),
+      ]);
+      setDocuments(Array.isArray(updatedDocuments) ? updatedDocuments : []);
       setComments(Array.isArray(updatedComments) ? updatedComments : []);
-      setNewComment('');
-      toast.success('Comment added.');
-    } catch {
-      toast.error('Unable to add the comment.');
+      await refreshAll();
+      toast.success("Document uploaded");
+    } catch (error) {
+      toast.error(error?.message || "Upload failed");
+    } finally {
+      setUploadingDoc(false);
+      event.target.value = "";
     }
   };
+
+  const accountantUpdates = useMemo(() => {
+    const commentUpdates = comments
+      .filter((item) => item.role === "accountant" || item.author_role === "accountant")
+      .map((item) => ({
+        id: item._id || item.id,
+        type: "comment",
+        text: item.message,
+        at: item.createdAt || item.created_at,
+      }));
+
+    const docUpdates = documents
+      .filter((item) => item.uploaded_by_role === "accountant")
+      .map((item) => ({
+        id: item._id || item.key,
+        type: "document",
+        text: `Uploaded ${item.display_file_name || item.original_file_name || "document"}`,
+        at: item.createdAt || item.created_at,
+      }));
+
+    return [...commentUpdates, ...docUpdates].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+  }, [comments, documents]);
+
+  const selectedTicketStatus = ticketDetail?.ticket?.status || selectedTicket?.status;
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <QueryStatCard
-          title="Open Queries"
-          value={openQueries}
-          helper="Active items waiting for review"
-          icon={MessageSquare}
-          tone="bg-sky-500/10 text-sky-600"
-        />
-        <QueryStatCard
-          title="Awaiting Response"
-          value={awaitingQueries}
-          helper="Items blocked on client input"
-          icon={Clock}
-          tone="bg-amber-500/10 text-amber-600"
-        />
-        <QueryStatCard
-          title="Escalated"
-          value={escalatedQueries}
-          helper="Needs leadership or finance intervention"
-          icon={AlertTriangle}
-          tone="bg-rose-500/10 text-rose-600"
-        />
-        <QueryStatCard
-          title="Resolved This Month"
-          value={resolvedThisMonth}
-          helper="Closed and documented with notes"
-          icon={CheckCircle2}
-          tone="bg-emerald-500/10 text-emerald-600"
-        />
+    <div className="rounded-[24px] border border-white/10 bg-[#101012] p-4 text-white md:p-5">
+      <div className="flex flex-col gap-3 border-b border-white/10 pb-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-semibold">Query Hub</p>
+          <p className="text-xs text-white/50">Raise questions for accountant and track updates.</p>
+        </div>
+        <Button className="bg-orange-500 text-white hover:bg-orange-400" onClick={() => setCreateOpen(true)}>
+          <Plus className="mr-1.5 h-4 w-4" /> New Query
+        </Button>
       </div>
 
-      <Card className="border-border/60 shadow-sm">
-        <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <CardTitle className="text-xl">Resolution Queue</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Keep finance questions visible, searchable, and moving.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative min-w-0 sm:w-72">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search subject, detail, or query id"
-                className="pl-9"
-              />
-            </div>
-            <div className="flex gap-3">
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-[180px]">
-                  <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <SelectValue placeholder="Filter status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="awaiting_response">Awaiting Response</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="escalated">Escalated</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={() => setIsCreating(true)} className="gap-2">
-                <Plus className="h-4 w-4" />
-                New Query
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {filteredQueries.length ? (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {filteredQueries.map((query) => (
-                <QueryListCard key={query.id} query={query} onOpen={setSelectedQuery} />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Sparkles className="h-5 w-5" />
-              </div>
-              <h3 className="mt-4 text-lg font-semibold">No matching queries</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Adjust your search or create a new question to keep the reporting workflow moving.
-              </p>
-              <Button onClick={() => setIsCreating(true)} variant="outline" className="mt-4 gap-2">
-                <Plus className="h-4 w-4" />
-                Create Query
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl border border-white/10 bg-[#141416] p-3">
+          <p className="text-[11px] text-white/50">Avg resolution time</p>
+          <p className="mt-1 flex items-center gap-2 text-lg font-semibold"><Timer className="h-4 w-4 text-orange-300" />{formatResolutionTime(stats.avg_resolution_hours)}</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-[#141416] p-3">
+          <p className="text-[11px] text-white/50">Open / pending</p>
+          <p className="mt-1 flex items-center gap-2 text-lg font-semibold"><Clock3 className="h-4 w-4 text-amber-300" />{stats.open_queries || 0}</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-[#141416] p-3">
+          <p className="text-[11px] text-white/50">Resolved this month</p>
+          <p className="mt-1 flex items-center gap-2 text-lg font-semibold"><CheckCircle2 className="h-4 w-4 text-emerald-300" />{stats.resolved_this_month || 0}</p>
+        </div>
+      </div>
 
-      <Dialog open={isCreating} onOpenChange={setIsCreating}>
-        <DialogContent className="sm:max-w-2xl">
+      <Tabs defaultValue="open" className="mt-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl bg-white/5 p-1">
+          <TabsTrigger value="open" className="data-[state=active]:bg-[#0f0f10] data-[state=active]:text-white">Opened Tickets</TabsTrigger>
+          <TabsTrigger value="closed" className="data-[state=active]:bg-[#0f0f10] data-[state=active]:text-white">Closed Tickets</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="open" className="mt-4">
+          <div className="space-y-3">
+            {(loading ? [] : openTickets).map((ticket) => (
+              <TicketCard key={ticket._id || ticket.id} ticket={ticket} onOpen={openTicket} />
+            ))}
+            {!loading && openTickets.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/15 bg-black/20 p-8 text-center text-sm text-white/45">No open tickets.</div>
+            ) : null}
+          </div>
+          <Pagination page={openPage} totalPages={openTotalPages} onPageChange={setOpenPage} />
+        </TabsContent>
+
+        <TabsContent value="closed" className="mt-4">
+          <div className="space-y-3">
+            {(loading ? [] : closedTickets).map((ticket) => (
+              <TicketCard key={ticket._id || ticket.id} ticket={ticket} onOpen={openTicket} />
+            ))}
+            {!loading && closedTickets.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/15 bg-black/20 p-8 text-center text-sm text-white/45">No closed tickets.</div>
+            ) : null}
+          </div>
+          <Pagination page={closedPage} totalPages={closedTotalPages} onPageChange={setClosedPage} />
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="border-white/10 bg-[#101012] text-white sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Create Query</DialogTitle>
-            <DialogDescription>
-              Capture an issue from reports, compliance review, or document checks so it stays visible.
-            </DialogDescription>
+            <DialogTitle>Raise New Query</DialogTitle>
+            <DialogDescription className="text-white/60">Ask your general question for accountant and attach a supporting document if needed.</DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2">
-            <div className="grid gap-2">
-              <Label htmlFor="query-subject">Subject</Label>
-              <Input
-                id="query-subject"
-                value={newQuery.subject}
-                onChange={(event) => setNewQuery((current) => ({ ...current, subject: event.target.value }))}
-                placeholder="Mismatch in vendor payment summary"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="query-description">Description</Label>
-              <Textarea
-                id="query-description"
-                value={newQuery.description}
-                onChange={(event) => setNewQuery((current) => ({ ...current, description: event.target.value }))}
-                placeholder="Describe what needs attention, what was expected, and who should respond."
-                className="min-h-32"
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-2">
-                <Label>Category</Label>
-                <Select
-                  value={newQuery.category}
-                  onValueChange={(value) => setNewQuery((current) => ({ ...current, category: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {QUERY_CATEGORIES.map((category) => (
-                      <SelectItem key={category.value} value={category.value}>
-                        {category.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Priority</Label>
-                <Select
-                  value={newQuery.priority}
-                  onValueChange={(value) => setNewQuery((current) => ({ ...current, priority: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+          <div className="space-y-3">
+            <Textarea
+              value={newMessage}
+              onChange={(event) => setNewMessage(event.target.value)}
+              placeholder="Type your general query message"
+              className="min-h-[130px] border-white/15 bg-[#171719] text-white placeholder:text-white/35"
+            />
+            <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-white/65">
+              <label className="flex cursor-pointer items-center gap-2">
+                <Paperclip className="h-4 w-4" />
+                <span>{createFile ? createFile.name : "Attach supporting document (optional)"}</span>
+                <Input type="file" className="hidden" onChange={(e) => setCreateFile(e.target.files?.[0] || null)} />
+              </label>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreating(false)}>
-              Cancel
+            <Button variant="outline" className="border-white/15 bg-transparent text-white hover:bg-white/10" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreateTicket} disabled={creating} className="bg-orange-500 text-white hover:bg-orange-400">
+              {creating ? "Creating..." : "Create Ticket"}
             </Button>
-            <Button onClick={handleCreate}>Create Query</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Sheet open={Boolean(selectedQuery)} onOpenChange={(open) => !open && setSelectedQuery(null)}>
-        <SheetContent className="w-full sm:max-w-2xl">
-          {selectedQuery ? (
-            <div className="flex h-full flex-col">
+      <Sheet open={Boolean(selectedTicket)} onOpenChange={(open) => !open && setSelectedTicket(null)}>
+        <SheetContent className="w-full overflow-y-auto border-white/10 bg-[#0f0f11] text-white sm:max-w-2xl">
+          {selectedTicket ? (
+            <>
               <SheetHeader>
-                <SheetTitle className="pr-8 text-left">{selectedQuery.subject}</SheetTitle>
+                <SheetTitle className="text-left text-white">{ticketDetail?.ticket?.subject || selectedTicket.subject}</SheetTitle>
               </SheetHeader>
 
-              <div className="mt-6 flex flex-wrap items-center gap-2">
-                <Badge variant="outline">{selectedQuery.query_number || 'Draft Query'}</Badge>
-                <Badge className={cn('border-0', QUERY_STATUS_COLORS[selectedQuery.status] || QUERY_STATUS_COLORS.open)}>
-                  {(STATUS_CONFIG[selectedQuery.status] || STATUS_CONFIG.open).label}
-                </Badge>
-                <Badge className={cn('border-0 capitalize', PRIORITY_COLORS[selectedQuery.priority] || PRIORITY_COLORS.medium)}>
-                  {selectedQuery.priority || 'medium'} priority
-                </Badge>
-                <Badge variant="secondary">{getCategoryLabel(selectedQuery.category)}</Badge>
-              </div>
-
-              <div className="mt-5 rounded-2xl border border-border/70 bg-muted/20 p-4">
-                <p className="text-sm leading-6 text-foreground">{selectedQuery.description}</p>
-                <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <CalendarClock className="h-3.5 w-3.5" />
-                    Created {formatTimestamp(selectedQuery.created_at)}
-                  </span>
-                  <span>Last updated {formatTimestamp(selectedQuery.updated_at || selectedQuery.created_at)}</span>
+              <div className="mt-4 rounded-xl border border-white/10 bg-[#151517] p-3 text-sm">
+                <p className="text-white/85">{ticketDetail?.ticket?.message || selectedTicket.message}</p>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-white/50">
+                  <span>Opened: {formatDateTime(ticketDetail?.ticket?.createdAt || selectedTicket.createdAt)}</span>
+                  {selectedTicketStatus === "closed" ? <span>Closed: {formatDateTime(ticketDetail?.ticket?.closed_at || selectedTicket.closed_at)}</span> : null}
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label>Status</Label>
-                  <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="open">Open</SelectItem>
-                      <SelectItem value="awaiting_response">Awaiting Response</SelectItem>
-                      <SelectItem value="resolved">Resolved</SelectItem>
-                      <SelectItem value="escalated">Escalated</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <Tabs defaultValue="comments" className="mt-4">
+                <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl bg-white/5 p-1">
+                  <TabsTrigger value="comments" className="data-[state=active]:bg-[#19191b] data-[state=active]:text-white">Comments</TabsTrigger>
+                  <TabsTrigger value="documents" className="data-[state=active]:bg-[#19191b] data-[state=active]:text-white">Documents</TabsTrigger>
+                  <TabsTrigger value="updates" className="data-[state=active]:bg-[#19191b] data-[state=active]:text-white">Accountant Updates</TabsTrigger>
+                </TabsList>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="resolution-notes">Resolution Notes</Label>
-                  <Textarea
-                    id="resolution-notes"
-                    value={resolutionNotes}
-                    onChange={(event) => setResolutionNotes(event.target.value)}
-                    placeholder="Add the latest outcome or next action."
-                    className="min-h-24"
-                  />
-                </div>
-              </div>
+                <TabsContent value="comments" className="space-y-3 pt-3">
+                  {comments.map((comment) => (
+                    <div key={comment._id || comment.id} className="rounded-lg border border-white/10 bg-[#151517] p-3">
+                      <div className="flex items-center gap-2 text-xs text-white/55">
+                        <Badge className={comment.role === "accountant" ? "bg-orange-500/15 text-orange-300" : "bg-white/10 text-white/75"}>
+                          {comment.role === "accountant" ? "Accountant" : "You"}
+                        </Badge>
+                        <span>{formatDateTime(comment.createdAt || comment.created_at)}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-white/90">{comment.message}</p>
+                    </div>
+                  ))}
 
-              <Button onClick={handleStatusChange} className="mt-4 self-start">
-                Save Status Update
-              </Button>
-
-              <Separator className="my-6" />
-
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Comments</h3>
-                  <span className="text-xs text-muted-foreground">{comments.length} updates</span>
-                </div>
-
-                <ScrollArea className="min-h-0 flex-1 rounded-2xl border border-border/70 bg-background/60 p-4">
-                  <div className="space-y-4">
-                    {isLoadingComments ? (
-                      <p className="text-sm text-muted-foreground">Loading comments...</p>
-                    ) : comments.length ? (
-                      comments.map((comment) => (
-                        <div key={comment.id} className="flex gap-3">
-                          <Avatar className="h-9 w-9">
-                            <AvatarFallback>
-                              {(comment.user_name || comment.user_email || 'F').slice(0, 1).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1 rounded-2xl bg-muted/40 p-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-sm font-medium text-foreground">
-                                {comment.user_name || comment.user_email || 'Finance Team'}
-                              </p>
-                              {comment.is_internal ? <Badge variant="outline">Internal</Badge> : null}
-                              <span className="text-xs text-muted-foreground">{formatTimestamp(comment.created_at)}</span>
-                            </div>
-                            <p className="mt-2 text-sm leading-6 text-foreground">{comment.content}</p>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No comments yet. Add the first update below.</p>
-                    )}
+                  <div className="flex gap-2">
+                    <Textarea
+                      value={newComment}
+                      onChange={(event) => setNewComment(event.target.value)}
+                      placeholder={selectedTicketStatus === "closed" ? "Ticket is closed" : "Write a comment"}
+                      disabled={selectedTicketStatus === "closed"}
+                      className="min-h-[90px] border-white/15 bg-[#151517] text-white"
+                    />
+                    <Button onClick={handleAddComment} disabled={commenting || !newComment.trim() || selectedTicketStatus === "closed"} className="h-auto bg-orange-500 px-4 hover:bg-orange-400">
+                      <Send className="h-4 w-4" />
+                    </Button>
                   </div>
-                </ScrollArea>
+                </TabsContent>
 
-                <div className="mt-4 flex gap-3">
-                  <Textarea
-                    value={newComment}
-                    onChange={(event) => setNewComment(event.target.value)}
-                    placeholder="Share the next update, request, or resolution note."
-                    className="min-h-24"
-                  />
-                  <Button onClick={handleSendComment} size="icon" className="h-auto px-4">
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
+                <TabsContent value="documents" className="space-y-3 pt-3">
+                  {documents.map((doc) => (
+                    <div key={doc._id || doc.key} className="rounded-lg border border-white/10 bg-[#151517] p-3">
+                      <p className="text-sm text-white">{doc.display_file_name || doc.original_file_name}</p>
+                      <p className="mt-1 text-xs text-white/55">{doc.uploaded_by_role === "accountant" ? "Accountant" : "Client"} • {formatDateTime(doc.createdAt || doc.created_at)}</p>
+                      <a className="mt-2 inline-block text-xs text-orange-300 hover:text-orange-200" href={doc.url} target="_blank" rel="noreferrer">View Document</a>
+                    </div>
+                  ))}
+
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs text-white/80">
+                    <Upload className="h-4 w-4" />
+                    {uploadingDoc ? "Uploading..." : "Upload document"}
+                    <Input type="file" className="hidden" disabled={uploadingDoc || selectedTicketStatus === "closed"} onChange={handleUploadDocument} />
+                  </label>
+                </TabsContent>
+
+                <TabsContent value="updates" className="space-y-3 pt-3">
+                  {accountantUpdates.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-white/15 bg-black/20 p-5 text-center text-xs text-white/45">No accountant updates yet.</div>
+                  ) : (
+                    accountantUpdates.map((item) => (
+                      <div key={item.id} className="rounded-lg border border-white/10 bg-[#151517] p-3">
+                        <div className="flex items-center gap-2 text-xs text-white/55">
+                          <Badge className="bg-orange-500/15 text-orange-300">{item.type === "document" ? "Document" : "Message"}</Badge>
+                          <span>{formatDateTime(item.at)}</span>
+                        </div>
+                        <p className="mt-1.5 text-sm text-white/85">{item.text}</p>
+                        <p className="mt-1 text-[11px] text-white/40">{item.at ? formatDistanceToNowStrict(new Date(item.at), { addSuffix: true }) : ""}</p>
+                      </div>
+                    ))
+                  )}
+                </TabsContent>
+              </Tabs>
+            </>
           ) : null}
         </SheetContent>
       </Sheet>

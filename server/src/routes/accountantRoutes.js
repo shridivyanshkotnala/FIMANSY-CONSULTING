@@ -42,6 +42,17 @@ import {
   initAccountantFinancialReportUpload,
   listAccountantOrganizationFinancialReports,
 } from "../controllers/financialReportsController.js";
+import {
+  getAccountantQueryHubStats,
+  getAccountantQueryHubTickets,
+  getAccountantQueryHubTicketDetail,
+  getAccountantQueryHubComments,
+  postAccountantQueryHubComment,
+  updateAccountantQueryHubTicketStatus,
+  initAccountantQueryHubDocumentUpload,
+  completeAccountantQueryHubDocumentUpload,
+  listAccountantQueryHubDocuments,
+} from "../controllers/queryHub/queryHubController.js";
 
 const accountantRoutes = express.Router();
 
@@ -89,5 +100,15 @@ accountantRoutes.post("/organizations/:orgId/financial-reports/complete-upload",
 accountantRoutes.get("/compliance-templates", protectRoute, isAdmin, listComplianceTemplates);
 accountantRoutes.get("/all-organizations", protectRoute, isAdmin, listAllOrganizations);
 accountantRoutes.post("/compliance-requests/create", protectRoute, isAdmin, createTicket);
+
+accountantRoutes.get("/queries/stats", protectRoute, isAdmin, getAccountantQueryHubStats);
+accountantRoutes.get("/queries", protectRoute, isAdmin, getAccountantQueryHubTickets);
+accountantRoutes.get("/queries/:ticketId", protectRoute, isAdmin, getAccountantQueryHubTicketDetail);
+accountantRoutes.get("/queries/:ticketId/comments", protectRoute, isAdmin, getAccountantQueryHubComments);
+accountantRoutes.post("/queries/:ticketId/comments", protectRoute, isAdmin, postAccountantQueryHubComment);
+accountantRoutes.patch("/queries/:ticketId/status", protectRoute, isAdmin, updateAccountantQueryHubTicketStatus);
+accountantRoutes.post("/queries/:ticketId/documents/init-upload", protectRoute, isAdmin, initAccountantQueryHubDocumentUpload);
+accountantRoutes.post("/queries/:ticketId/documents/complete-upload", protectRoute, isAdmin, completeAccountantQueryHubDocumentUpload);
+accountantRoutes.get("/queries/:ticketId/documents", protectRoute, isAdmin, listAccountantQueryHubDocuments);
 
 export default accountantRoutes;
