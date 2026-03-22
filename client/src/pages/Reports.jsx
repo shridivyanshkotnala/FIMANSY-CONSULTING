@@ -129,24 +129,24 @@ function ReportTypeCard({ type, selected, count, onSelect }) {
     <button type="button" onClick={() => onSelect(type)} className="text-left">
       <div
         className={cn(
-          "rounded-[28px] border px-6 py-6 transition-all",
+          "rounded-[24px] border px-5 py-5 transition-all",
           selected
             ? "border-orange-400/50 bg-[#1b1b1d] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
             : "border-white/10 bg-[#18181a] hover:border-white/20"
         )}
       >
         <div className="flex items-start justify-between gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
-            <Icon className="h-5 w-5" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-[18px] bg-orange-500/15 text-orange-400">
+            <Icon className="h-4.5 w-4.5" />
           </div>
           <Badge className="border border-white/10 bg-white/5 text-white hover:bg-white/5">
             {count > 0 ? "Ready" : "No Reports"}
           </Badge>
         </div>
-        <div className="mt-8">
-          <h3 className="text-2xl font-semibold text-white">{meta.title}</h3>
-          <p className="mt-2 text-base leading-7 text-white/55">{meta.description}</p>
-          <p className="mt-5 text-sm text-white/45">{count} report{count === 1 ? "" : "s"} available</p>
+        <div className="mt-6">
+          <h3 className="text-xl md:text-[1.7rem] font-semibold text-white">{meta.title}</h3>
+          <p className="mt-1.5 text-sm md:text-[15px] leading-6 text-white/55">{meta.description}</p>
+          <p className="mt-4 text-sm text-white/45">{count} report{count === 1 ? "" : "s"} available</p>
         </div>
       </div>
     </button>
@@ -155,11 +155,11 @@ function ReportTypeCard({ type, selected, count, onSelect }) {
 
 function ReportRow({ report, onView }) {
   return (
-    <div className="rounded-[24px] border border-white/10 bg-[#151517] p-5">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="rounded-[20px] border border-white/10 bg-[#151517] p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-base font-medium text-white">{report.display_file_name || report.original_file_name}</p>
+            <p className="truncate text-sm md:text-[15px] font-medium text-white">{report.display_file_name || report.original_file_name}</p>
             <Badge className="border border-white/10 bg-white/5 text-white/85 hover:bg-white/5">
               {REPORT_TYPE_LABELS[report.report_type] || "Report"}
             </Badge>
@@ -169,14 +169,14 @@ function ReportRow({ report, onView }) {
               </Badge>
             ))}
           </div>
-          <p className="mt-2 text-sm text-white/55">
+          <p className="mt-1.5 text-xs md:text-sm text-white/55">
             Period: {formatReportDate(report.period_start)} - {formatReportDate(report.period_end)}
           </p>
-          <p className="mt-1 text-sm text-white/40">
+          <p className="mt-1 text-xs md:text-sm text-white/40">
             Uploaded on {formatReportDate(report.uploaded_at || report.createdAt)}
           </p>
         </div>
-        <Button className="bg-orange-500 text-white hover:bg-orange-400" onClick={() => onView(report._id)}>
+        <Button className="bg-orange-500 text-white hover:bg-orange-400 h-9 px-4 text-sm" onClick={() => onView(report._id)}>
           View Report
         </Button>
       </div>
@@ -188,7 +188,7 @@ function PaginationBar({ page, totalPages, total, onPageChange, tone = "dark" })
   const dark = tone === "dark";
 
   return (
-    <div className="flex flex-col gap-3 border-t border-white/10 pt-4 text-sm md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-2 border-t border-white/10 pt-3 text-xs md:text-sm md:flex-row md:items-center md:justify-between">
       <span className={dark ? "text-white/50" : "text-muted-foreground"}>
         Page {page} of {totalPages} • {total} items
       </span>
@@ -388,29 +388,29 @@ export default function Reports() {
 
   return (
     <PillarLayout>
-      <div className="min-h-screen bg-[#0a0a0b] px-4 py-6 text-white md:px-8">
-        <div className="mx-auto max-w-7xl space-y-6">
-          <div className="rounded-[32px] border border-white/10 bg-[#0f0f11] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex items-start gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-orange-500 text-white">
-                  <BarChart3 className="h-8 w-8" />
+      <div className="min-h-screen bg-[#0a0a0b] px-3 py-4 text-white md:px-6">
+        <div className="mx-auto max-w-7xl space-y-4">
+          <div className="rounded-[28px] border border-white/10 bg-[#0f0f11] p-4 md:p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-orange-500 text-white">
+                  <BarChart3 className="h-7 w-7" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-3">
-                    <h1 className="text-4xl font-semibold tracking-tight">Reports</h1>
+                  <div className="flex items-center gap-2.5">
+                    <h1 className="text-3xl md:text-[2rem] font-semibold tracking-tight">Reports</h1>
                     <Badge className="border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/10">
                       Live
                     </Badge>
                   </div>
-                  <p className="mt-1 text-lg text-white/55">Insights & Output Layer</p>
+                  <p className="mt-0.5 text-base text-white/55">Insights & Output Layer</p>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <div className="flex flex-col gap-2.5 md:flex-row md:items-center">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="justify-start gap-2 rounded-2xl border-white/10 bg-transparent px-5 py-6 text-white hover:bg-white/5 hover:text-white">
+                    <Button variant="outline" className="justify-start gap-2 rounded-xl border-white/10 bg-transparent px-4 py-4 text-white hover:bg-white/5 hover:text-white">
                       <CalendarIcon className="h-4 w-4 text-white/70" />
                       {periodLabel}
                     </Button>
@@ -432,7 +432,7 @@ export default function Reports() {
                 </Popover>
 
                 <Select value={exportFormat} onValueChange={setExportFormat}>
-                  <SelectTrigger className="w-[140px] rounded-2xl border-white/10 bg-transparent text-white">
+                  <SelectTrigger className="w-[128px] rounded-xl border-white/10 bg-transparent text-white h-11">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -441,32 +441,32 @@ export default function Reports() {
                   </SelectContent>
                 </Select>
 
-                <Button className="rounded-2xl bg-orange-500 px-6 py-6 text-base text-white hover:bg-orange-400" onClick={handleExport}>
+                <Button className="rounded-xl bg-orange-500 px-5 py-4 text-sm md:text-base text-white hover:bg-orange-400" onClick={handleExport}>
                   <Download className="mr-2 h-4 w-4" />
                   Export
                 </Button>
               </div>
             </div>
 
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8 space-y-6">
-              <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-[24px] bg-white/8 p-2 md:grid-cols-3">
-                <TabsTrigger value="financials" className="rounded-2xl px-4 py-4 text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6 space-y-4">
+              <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-[20px] bg-white/8 p-1.5 md:grid-cols-3">
+                <TabsTrigger value="financials" className="rounded-xl px-3 py-3 text-sm md:text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
                   <BarChart3 className="mr-2 h-4 w-4" />
                   Financials
                 </TabsTrigger>
-                <TabsTrigger value="compliance" className="rounded-2xl px-4 py-4 text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
+                <TabsTrigger value="compliance" className="rounded-xl px-3 py-3 text-sm md:text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
                   <Shield className="mr-2 h-4 w-4" />
                   Compliance Logs
                 </TabsTrigger>
-                <TabsTrigger value="queries" className="rounded-2xl px-4 py-4 text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
+                <TabsTrigger value="queries" className="rounded-xl px-3 py-3 text-sm md:text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
                   <MessageSquare className="mr-2 h-4 w-4" />
                   Query Hub
                   <Badge className="ml-2 border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/10">{urgentQueryCount}</Badge>
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="financials" className="space-y-6">
-                <div className="grid gap-4 xl:grid-cols-3">
+              <TabsContent value="financials" className="space-y-4">
+                <div className="grid gap-3 xl:grid-cols-3">
                   {Object.keys(REPORT_CARD_META).map((type) => (
                     <ReportTypeCard
                       key={type}
@@ -481,24 +481,24 @@ export default function Reports() {
                   ))}
                 </div>
 
-                <div className="rounded-[30px] border border-white/10 bg-[#171719] p-6">
+                <div className="rounded-[24px] border border-white/10 bg-[#171719] p-4 md:p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-3xl font-semibold text-white">Financial Summary</h2>
-                      <p className="mt-2 text-base text-white/50">
+                      <h2 className="text-2xl md:text-[2rem] font-semibold text-white">Financial Summary</h2>
+                      <p className="mt-1.5 text-sm md:text-[15px] text-white/50">
                         {REPORT_TYPE_LABELS[selectedFinancialType]} documents for the selected reporting window.
                       </p>
                     </div>
-                    <div className="hidden rounded-2xl border border-white/10 bg-[#111113] px-4 py-2 text-sm text-white/50 md:block">
+                    <div className="hidden rounded-xl border border-white/10 bg-[#111113] px-3 py-1.5 text-xs text-white/50 md:block">
                       Limit 20 per page
                     </div>
                   </div>
 
-                  <div className="mt-6 rounded-[28px] border border-dashed border-white/10 bg-[#121214] p-5">
+                  <div className="mt-4 rounded-[22px] border border-dashed border-white/10 bg-[#121214] p-4">
                     {financialLoading ? (
                       <p className="text-center text-white/50">Loading financial reports...</p>
                     ) : (selectedFinancialResponse?.data || []).length === 0 ? (
-                      <div className="flex min-h-[240px] items-center justify-center text-center text-white/45">
+                      <div className="flex min-h-[180px] items-center justify-center text-center text-white/45">
                         Select a report window with uploaded documents to view details here.
                       </div>
                     ) : (
@@ -510,7 +510,7 @@ export default function Reports() {
                     )}
                   </div>
 
-                  <div className="mt-6">
+                  <div className="mt-4">
                     <PaginationBar
                       page={selectedFinancialResponse?.page || 1}
                       totalPages={selectedFinancialResponse?.total_pages || 1}
@@ -521,11 +521,11 @@ export default function Reports() {
                   </div>
                 </div>
 
-                <div className="rounded-[30px] border border-white/10 bg-[#171719] p-6">
+                <div className="rounded-[24px] border border-white/10 bg-[#171719] p-4 md:p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-2xl font-semibold text-white">Other Reports / Custom Reports</h2>
-                      <p className="mt-2 text-base text-white/50">
+                      <h2 className="text-xl md:text-[1.7rem] font-semibold text-white">Other Reports / Custom Reports</h2>
+                      <p className="mt-1.5 text-sm md:text-[15px] text-white/50">
                         Reports tagged as other plus accountant-defined custom financial packs.
                       </p>
                     </div>
@@ -548,7 +548,7 @@ export default function Reports() {
                     )}
                   </div>
 
-                  <div className="mt-6">
+                  <div className="mt-4">
                     <PaginationBar
                       page={otherFinancialResponse?.page || 1}
                       totalPages={otherFinancialResponse?.total_pages || 1}
