@@ -84,6 +84,24 @@ export const complianceApi = baseApi.injectEndpoints({
       keepUnusedDataFor: 30,
     }),
 
+    getComplianceLogs: builder.query({
+      query: (params) => ({
+        url: "/upload/compliance-logs",
+        method: "GET",
+        params,
+      }),
+      providesTags: [{ type: "TicketDocument", id: "COMPLIANCE_LOGS" }],
+      keepUnusedDataFor: 30,
+    }),
+
+    getComplianceLogViewUrl: builder.query({
+      query: (documentId) => ({
+        url: `/upload/compliance-logs/${documentId}/view-url`,
+        method: "GET",
+      }),
+      transformResponse: (response) => response?.data || response,
+    }),
+
     // =========================
     // TICKET DETAIL
     // =========================
@@ -384,6 +402,8 @@ export const {
   useGetOrganizationsQuery,
   useGetComplianceRequestsQuery,
   useGetFinalVerifiedDocumentsReportQuery,
+  useGetComplianceLogsQuery,
+  useLazyGetComplianceLogViewUrlQuery,
   useGetTicketByIdQuery,
   useGetTicketStatusHistoryQuery,
   useGetCommentsQuery,

@@ -1,71 +1,81 @@
 import mongoose from "mongoose";
-import { ComplianceDocument } from "../../models/compliance/complianceDocumentModel.js";
+import {
+  createComplianceDocumentAccessUrl,
+  listFinalVerifiedComplianceLogs,
+} from "../../services/compliance/complianceLogsService.js";
+
+const handleError = (res, error, fallback = "Server error") => {
+  console.error("complianceReportController error:", error);
+  const status = error?.status || 500;
+  return res.status(status).json({ message: error?.message || fallback });
+};
+
+const isValidOrgId = (value) => value && mongoose.Types.ObjectId.isValid(String(value));
+
+const readListParams = (req) => ({
+  financialYear: String(req.query?.financial_year || "").trim() || undefined,
+  recurrenceType: String(req.query?.recurrence_type || "").trim() || undefined,
+  month: String(req.query?.month || "").trim() || undefined,
+  quarter: String(req.query?.quarter || "").trim() || undefined,
+  obligationTag: String(req.query?.obligation_tag || "").trim() || undefined,
+  page: req.query?.page,
+  limit: req.query?.limit,
+});
 
 export const getFinalVerifiedDocumentsReport = async (req, res) => {
   try {
-    const {
-      organization_id,
-      financial_year,
-      compliance_name,
-      from_due_date,
-      to_due_date,
-      page = 1,
-      limit = 20,
-    } = req.query;
+    const organizationId = String(req.query?.organization_id || "").trim() || undefined;
 
-    const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
-    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
-    const skip = (parsedPage - 1) * parsedLimit;
-
-    const match = {
-      is_active: true,
-      is_final_verified: true,
-    };
-
-    if (organization_id) {
-      if (!mongoose.Types.ObjectId.isValid(organization_id)) {
-        return res.status(400).json({ message: "Invalid organization_id" });
-      }
-      match.organization_id = new mongoose.Types.ObjectId(organization_id);
+    if (organizationId && !isValidOrgId(organizationId)) {
+      return res.status(400).json({ message: "Invalid organization_id" });
     }
 
-    if (financial_year) {
-      match.financial_year = String(financial_year).trim();
-    }
-
-    if (compliance_name) {
-      match.compliance_obligation_name = {
-        $regex: String(compliance_name).trim(),
-        $options: "i",
-      };
-    }
-
-    if (from_due_date || to_due_date) {
-      match.due_date = {};
-      if (from_due_date) match.due_date.$gte = new Date(from_due_date);
-      if (to_due_date) match.due_date.$lte = new Date(to_due_date);
-    }
-
-    const [rows, total] = await Promise.all([
-      ComplianceDocument.find(match)
-        .sort({ due_date: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(parsedLimit)
-        .populate("organization_id", "name")
-        .populate("ticket_id", "ticket_number category_tag subtag due_date financial_year")
-        .populate("final_verified_by", "name email")
-        .lean(),
-      ComplianceDocument.countDocuments(match),
-    ]);
-
-    return res.status(200).json({
-      page: parsedPage,
-      pages: Math.ceil(total / parsedLimit),
-      total,
-      data: rows,
+    const payload = await listFinalVerifiedComplianceLogs({
+      organizationId,
+      ...readListParams(req),
     });
+
+    return res.status(200).json(payload);
   } catch (error) {
-    console.error("getFinalVerifiedDocumentsReport error:", error);
-    return res.status(500).json({ message: "Server error" });
+    return handleError(res, error, "Failed to fetch final verified documents report");
+  }
+};
+
+export const getOrganizationComplianceLogs = async (req, res) => {
+  try {
+    const organizationId = req.organizationId || req.headers["x-organization-id"];
+
+    if (!isValidOrgId(organizationId)) {
+      return res.status(400).json({ message: "Invalid organization ID" });
+    }
+
+    const payload = await listFinalVerifiedComplianceLogs({
+      organizationId,
+      ...readListParams(req),
+    });
+
+    return res.status(200).json(payload);
+  } catch (error) {
+    return handleError(res, error, "Failed to fetch compliance logs");
+  }
+};
+
+export const getOrganizationComplianceLogAccessUrl = async (req, res) => {
+  try {
+    const organizationId = req.organizationId || req.headers["x-organization-id"];
+    const { documentId } = req.params;
+
+    if (!isValidOrgId(organizationId) || !mongoose.Types.ObjectId.isValid(String(documentId))) {
+      return res.status(400).json({ message: "Invalid organization ID or document ID" });
+    }
+
+    const payload = await createComplianceDocumentAccessUrl({
+      documentId,
+      organizationId,
+    });
+
+    return res.status(200).json({ data: payload });
+  } catch (error) {
+    return handleError(res, error, "Failed to generate compliance document URL");
   }
 };

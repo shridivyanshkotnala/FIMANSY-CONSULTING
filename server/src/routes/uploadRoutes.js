@@ -11,6 +11,10 @@ import {
   getOrganizationFinancialReportAccessUrl,
   listOrganizationFinancialReports,
 } from "../controllers/financialReportsController.js";
+import {
+  getOrganizationComplianceLogs,
+  getOrganizationComplianceLogAccessUrl,
+} from "../controllers/accountant/complianceReportController.js";
 
 const router = express.Router();
 
@@ -21,5 +25,7 @@ router.post("/company-documents/complete-upload", protectRoute, orgMiddleware, c
 router.get("/company-documents", protectRoute, orgMiddleware, listOrganizationCompanyDocuments);
 router.get("/financial-reports", protectRoute, orgMiddleware, listOrganizationFinancialReports);
 router.get("/financial-reports/:reportId/view-url", protectRoute, orgMiddleware, getOrganizationFinancialReportAccessUrl);
+router.get("/compliance-logs", protectRoute, orgMiddleware, getOrganizationComplianceLogs);
+router.get("/compliance-logs/:documentId/view-url", protectRoute, orgMiddleware, getOrganizationComplianceLogAccessUrl);
 
 export default router;

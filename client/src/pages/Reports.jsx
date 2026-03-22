@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { format, subMonths } from "date-fns";
 import {
   BarChart3,
   CalendarIcon,
   Download,
-  FileSpreadsheet,
   Landmark,
   MessageSquare,
   Shield,
@@ -15,7 +14,6 @@ import { PillarLayout } from "@/components/layout/PillarLayout";
 import { QueryResolutionHub } from "@/components/transparency/QueryResolutionHub";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -31,6 +29,10 @@ import {
   useGetFinancialReportsQuery,
   useLazyGetFinancialReportViewUrlQuery,
 } from "@/Redux/Slices/api/financialApi";
+import {
+  useGetComplianceLogsQuery,
+  useLazyGetComplianceLogViewUrlQuery,
+} from "@/Redux/Slices/api/complianceApi";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -111,6 +113,35 @@ const REPORT_TYPE_LABELS = {
   other: "Other / Custom",
 };
 
+const COMPLIANCE_RECURRENCE_OPTIONS = [
+  { value: "all", label: "All Frequencies" },
+  { value: "annual", label: "Yearly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "monthly", label: "Monthly" },
+];
+
+const COMPLIANCE_MONTH_OPTIONS = [
+  { value: "april", label: "April" },
+  { value: "may", label: "May" },
+  { value: "june", label: "June" },
+  { value: "july", label: "July" },
+  { value: "august", label: "August" },
+  { value: "september", label: "September" },
+  { value: "october", label: "October" },
+  { value: "november", label: "November" },
+  { value: "december", label: "December" },
+  { value: "january", label: "January" },
+  { value: "february", label: "February" },
+  { value: "march", label: "March" },
+];
+
+const COMPLIANCE_QUARTER_OPTIONS = [
+  { value: "q1", label: "Q1 (Apr-Jun)" },
+  { value: "q2", label: "Q2 (Jul-Sep)" },
+  { value: "q3", label: "Q3 (Oct-Dec)" },
+  { value: "q4", label: "Q4 (Jan-Mar)" },
+];
+
 function createLocalId(prefix) {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() || Date.now()}`;
 }
@@ -120,6 +151,15 @@ function formatReportDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return format(date, "dd MMM yyyy");
+}
+
+function getCurrentFinancialYearLabel() {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const startYear = month <= 3 ? year - 1 : year;
+  const endYear = startYear + 1;
+  return `${startYear}-${String(endYear).slice(-2)}`;
 }
 
 function toApiDate(value) {
@@ -281,6 +321,38 @@ function ReportRow({ report, onView }) {
   );
 }
 
+function ComplianceLogRow({ document, onView }) {
+  return (
+    <div className="rounded-[18px] border border-white/10 bg-[#151517] p-3.5 md:p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-medium text-white md:text-[14px]">{document.display_file_name || document.original_file_name}</p>
+            <Badge className="border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/85 hover:bg-white/5">
+              {document.recurrence_label || "Compliance"}
+            </Badge>
+            {document.compliance_category_label ? (
+              <Badge className="border border-orange-500/20 bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-300 hover:bg-orange-500/10">
+                {document.compliance_category_label}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-1.5 text-xs text-white/55 md:text-[13px]">{document.compliance_obligation_name || "Verified compliance document"}</p>
+          <p className="mt-1 text-xs text-white/40 md:text-[13px]">
+            Due on {formatReportDate(document.due_date)} • FY {document.financial_year_label || document.financial_year}
+          </p>
+          <p className="mt-1 text-xs text-white/40 md:text-[13px]">
+            {document.month_label || "-"}{document.quarter_label ? ` • ${document.quarter_label}` : ""}
+          </p>
+        </div>
+        <Button className="h-9 bg-orange-500 px-4 text-sm text-white hover:bg-orange-400" onClick={() => onView(document._id)}>
+          View Document
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function PaginationBar({ page, totalPages, total, onPageChange, tone = "dark" }) {
   const dark = tone === "dark";
 
@@ -323,10 +395,16 @@ export default function Reports() {
   const [selectedFinancialType, setSelectedFinancialType] = useState("profit_and_loss");
   const [financialPage, setFinancialPage] = useState(1);
   const [otherPage, setOtherPage] = useState(1);
+  const [compliancePage, setCompliancePage] = useState(1);
   const [quickWindow, setQuickWindow] = useState(initialWindow);
   const [financialFilters, setFinancialFilters] = useState(initialWindow);
   const [otherFilters, setOtherFilters] = useState(initialWindow);
   const [exportFormat, setExportFormat] = useState("excel");
+  const [selectedComplianceFY, setSelectedComplianceFY] = useState(getCurrentFinancialYearLabel());
+  const [selectedComplianceRecurrence, setSelectedComplianceRecurrence] = useState("all");
+  const [selectedComplianceMonth, setSelectedComplianceMonth] = useState("all");
+  const [selectedComplianceQuarter, setSelectedComplianceQuarter] = useState("all");
+  const [selectedComplianceTag, setSelectedComplianceTag] = useState("all");
   const [localQueries, setLocalQueries] = useState(MOCK_QUERIES);
   const [localComments, setLocalComments] = useState(MOCK_COMMENTS);
 
@@ -354,7 +432,27 @@ export default function Reports() {
     limit: 20,
   });
 
+  const {
+    data: complianceLogsResponse,
+    isFetching: complianceLoading,
+  } = useGetComplianceLogsQuery({
+    financial_year: selectedComplianceFY || undefined,
+    recurrence_type: selectedComplianceRecurrence !== "all" ? selectedComplianceRecurrence : undefined,
+    month:
+      selectedComplianceRecurrence === "monthly" && selectedComplianceMonth !== "all"
+        ? selectedComplianceMonth
+        : undefined,
+    quarter:
+      selectedComplianceRecurrence === "quarterly" && selectedComplianceQuarter !== "all"
+        ? selectedComplianceQuarter
+        : undefined,
+    obligation_tag: selectedComplianceTag !== "all" ? selectedComplianceTag : undefined,
+    page: compliancePage,
+    limit: 20,
+  });
+
   const [fetchFinancialViewUrl] = useLazyGetFinancialReportViewUrlQuery();
+  const [fetchComplianceLogViewUrl] = useLazyGetComplianceLogViewUrlQuery();
 
   const {
     queries: backendQueries,
@@ -366,12 +464,34 @@ export default function Reports() {
 
   const liveQueries = backendQueries.length ? backendQueries : localQueries;
   const urgentQueryCount = liveQueries.filter((query) => ["open", "awaiting_response", "escalated"].includes(query.status)).length;
+  const complianceFilterOptions = complianceLogsResponse?.filter_options || {
+    financial_years: [],
+    obligation_tags: [],
+  };
   const financialSummary = selectedFinancialResponse?.summary || {
     profit_and_loss: 0,
     balance_sheet: 0,
     cashflow_statement: 0,
     other: 0,
   };
+
+  useEffect(() => {
+    if (selectedComplianceRecurrence !== "monthly" && selectedComplianceMonth !== "all") {
+      setSelectedComplianceMonth("all");
+    }
+    if (selectedComplianceRecurrence !== "quarterly" && selectedComplianceQuarter !== "all") {
+      setSelectedComplianceQuarter("all");
+    }
+    setCompliancePage(1);
+  }, [selectedComplianceRecurrence]);
+
+  useEffect(() => {
+    if (!complianceFilterOptions.financial_years.length) return;
+    const hasSelectedYear = complianceFilterOptions.financial_years.some((item) => item.value === selectedComplianceFY);
+    if (!hasSelectedYear) {
+      setSelectedComplianceFY(complianceFilterOptions.financial_years[0].value);
+    }
+  }, [complianceFilterOptions.financial_years, selectedComplianceFY]);
 
   const handleOpenReport = async (reportId) => {
     try {
@@ -381,6 +501,17 @@ export default function Reports() {
       }
     } catch (error) {
       toast.error(error?.data?.message || error?.message || "Could not open the report");
+    }
+  };
+
+  const handleOpenComplianceLog = async (documentId) => {
+    try {
+      const payload = await fetchComplianceLogViewUrl(documentId).unwrap();
+      if (payload?.signedUrl) {
+        window.open(payload.signedUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      toast.error(error?.data?.message || error?.message || "Could not open the compliance document");
     }
   };
 
@@ -602,7 +733,7 @@ export default function Reports() {
                       <p className="text-center text-xs md:text-sm text-white/50">Loading financial reports...</p>
                     ) : (selectedFinancialResponse?.data || []).length === 0 ? (
                       <div className="flex min-h-[140px] items-center justify-center text-center text-sm text-white/45">
-                        No reports matched the current period or upload-date filters.
+                        No reports matched the current period filters.
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -676,33 +807,164 @@ export default function Reports() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="compliance">
-                <Card className="border-white/10 bg-[#171719] text-white">
-                  <CardContent className="grid gap-3 p-4 md:grid-cols-3">
-                    {[
-                      {
-                        title: "GST Working Papers",
-                        description: "Invoice mapping complete and ready for filing.",
-                      },
-                      {
-                        title: "Board Reporting Checklist",
-                        description: "One payroll approval note is still pending before final issue.",
-                      },
-                      {
-                        title: "Audit Support Folder",
-                        description: "Supporting evidence attached and ready for reviewer access.",
-                      },
-                    ].map((item) => (
-                      <div key={item.title} className="rounded-[20px] border border-white/10 bg-[#121214] p-4">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
-                          <FileSpreadsheet className="h-4 w-4" />
-                        </div>
-                        <h3 className="mt-4 text-lg font-semibold text-white">{item.title}</h3>
-                        <p className="mt-1.5 text-sm leading-5 text-white/55">{item.description}</p>
+              <TabsContent value="compliance" className="space-y-3">
+                <div className="rounded-[22px] border border-white/10 bg-[#171719] p-4 md:p-5">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white md:text-[1.18rem]">Compliance Logs</h2>
+                      <p className="mt-1 text-xs md:text-sm text-white/50">
+                        Final verified compliance documents grouped by financial year, recurrence, and obligation tag.
+                      </p>
+                    </div>
+                    <Badge className="border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white hover:bg-white/5">
+                      {complianceLogsResponse?.total || 0} verified docs
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+                    <Select
+                      value={selectedComplianceFY}
+                      onValueChange={(value) => {
+                        setSelectedComplianceFY(value);
+                        setCompliancePage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-9 rounded-lg border-white/10 bg-[#111113] text-xs md:text-sm text-white">
+                        <SelectValue placeholder="Financial year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(complianceFilterOptions.financial_years || []).length ? (
+                          (complianceFilterOptions.financial_years || []).map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value={selectedComplianceFY}>{selectedComplianceFY}</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={selectedComplianceRecurrence}
+                      onValueChange={(value) => {
+                        setSelectedComplianceRecurrence(value);
+                        setCompliancePage(1);
+                      }}
+                      disabled={!selectedComplianceFY}
+                    >
+                      <SelectTrigger className="h-9 rounded-lg border-white/10 bg-[#111113] text-xs md:text-sm text-white">
+                        <SelectValue placeholder="Frequency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COMPLIANCE_RECURRENCE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {selectedComplianceRecurrence === "monthly" ? (
+                      <Select
+                        value={selectedComplianceMonth}
+                        onValueChange={(value) => {
+                          setSelectedComplianceMonth(value);
+                          setCompliancePage(1);
+                        }}
+                      >
+                        <SelectTrigger className="h-9 rounded-lg border-white/10 bg-[#111113] text-xs md:text-sm text-white">
+                          <SelectValue placeholder="Month" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Months</SelectItem>
+                          {COMPLIANCE_MONTH_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : selectedComplianceRecurrence === "quarterly" ? (
+                      <Select
+                        value={selectedComplianceQuarter}
+                        onValueChange={(value) => {
+                          setSelectedComplianceQuarter(value);
+                          setCompliancePage(1);
+                        }}
+                      >
+                        <SelectTrigger className="h-9 rounded-lg border-white/10 bg-[#111113] text-xs md:text-sm text-white">
+                          <SelectValue placeholder="Quarter" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Quarters</SelectItem>
+                          {COMPLIANCE_QUARTER_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="flex h-9 items-center rounded-lg border border-white/10 bg-[#111113] px-3 text-xs text-white/45 md:text-sm">
+                        {selectedComplianceRecurrence === "annual" ? "Yearly compliances selected" : "Select a frequency"}
                       </div>
-                    ))}
-                  </CardContent>
-                </Card>
+                    )}
+
+                    <Select
+                      value={selectedComplianceTag}
+                      onValueChange={(value) => {
+                        setSelectedComplianceTag(value);
+                        setCompliancePage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-9 rounded-lg border-white/10 bg-[#111113] text-xs md:text-sm text-white">
+                        <SelectValue placeholder="Main tag" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Main Tags</SelectItem>
+                        {(complianceFilterOptions.obligation_tags || []).map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-lg border-white/10 bg-transparent px-3 text-xs text-white/75 hover:bg-white/5 hover:text-white md:text-sm"
+                      onClick={() => {
+                        const resetFinancialYear = complianceFilterOptions.financial_years?.[0]?.value || getCurrentFinancialYearLabel();
+                        setSelectedComplianceFY(resetFinancialYear);
+                        setSelectedComplianceRecurrence("all");
+                        setSelectedComplianceMonth("all");
+                        setSelectedComplianceQuarter("all");
+                        setSelectedComplianceTag("all");
+                        setCompliancePage(1);
+                      }}
+                    >
+                      Reset Filters
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 rounded-[20px] border border-dashed border-white/10 bg-[#121214] p-3.5">
+                    {complianceLoading ? (
+                      <p className="text-center text-xs md:text-sm text-white/50">Loading compliance logs...</p>
+                    ) : (complianceLogsResponse?.data || []).length === 0 ? (
+                      <div className="flex min-h-[140px] items-center justify-center text-center text-sm text-white/45">
+                        No final verified compliance documents matched the current filters.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {(complianceLogsResponse?.data || []).map((document) => (
+                          <ComplianceLogRow key={document._id} document={document} onView={handleOpenComplianceLog} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <PaginationBar
+                      page={complianceLogsResponse?.page || 1}
+                      totalPages={complianceLogsResponse?.total_pages || 1}
+                      total={complianceLogsResponse?.total || 0}
+                      onPageChange={setCompliancePage}
+                      tone="dark"
+                    />
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="queries">
