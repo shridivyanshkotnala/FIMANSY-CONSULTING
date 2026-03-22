@@ -11,6 +11,19 @@ const extractGstStateCode = (gstin) => {
   return m ? m[1] : undefined;
 };
 
+const inferTaxModeFromAmounts = (expenseData = {}) => {
+  const cgst = Number(expenseData.cgst || 0);
+  const sgst = Number(expenseData.sgst || 0);
+  const igst = Number(expenseData.igst || 0);
+
+  const hasIntra = cgst > 0 || sgst > 0;
+  const hasInter = igst > 0;
+
+  if (hasInter && !hasIntra) return "interstate";
+  if (hasIntra && !hasInter) return "intrastate";
+  return null;
+};
+
 const GST_STATE_CODE_TO_POS = {
   "01": "JK",
   "02": "HP",
@@ -199,7 +212,7 @@ async function resolvePaidThroughAccountId(zohoClient, paymentMode) {
 }
 
 async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
-  const mode = options?.mode || "auto"; // auto | interstate
+  const mode = options?.mode || "auto"; // auto | interstate | intrastate
   const taxableAmount = Number(expenseData.taxable_amount || 0);
   const totalGst = Number(expenseData.total_gst || 0);
 
@@ -243,6 +256,32 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
     return isInterstateLabel(obj.tax_name || obj.tax_group_name || "");
   };
 
+  const isIntrastateTaxObject = (obj = {}) => {
+    const specificType = normalizeText(obj.tax_specific_type || obj.tax_type_name || obj.tax_type || "");
+    if (specificType.includes("igst") || specificType.includes("interstate") || specificType.includes("inter state")) {
+      return false;
+    }
+
+    const label = normalizeText(obj.tax_name || obj.tax_group_name || "");
+    if (!label) return true;
+    if (label.includes("igst") || label.includes("interstate") || label.includes("inter state")) {
+      return false;
+    }
+
+    // Prefer CGST/SGST/local style names when present.
+    if (
+      label.includes("cgst") ||
+      label.includes("sgst") ||
+      label.includes("intrastate") ||
+      label.includes("intra state") ||
+      label.includes("local")
+    ) {
+      return true;
+    }
+
+    return true;
+  };
+
   const isPurchaseTaxObject = (obj = {}) => {
     const source = normalizeText(
       [
@@ -271,7 +310,11 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
       raw: g,
       diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
     }))
-    .filter((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : true))
+    .filter((x) => {
+      if (mode === "interstate") return isInterstateTaxObject(x.raw);
+      if (mode === "intrastate") return isIntrastateTaxObject(x.raw);
+      return true;
+    })
     .filter((x) => isPurchaseTaxObject(x.raw))
     .filter((x) => x.id)
     .sort(byRateAsc);
@@ -287,7 +330,11 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
       raw: t,
       diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
     }))
-    .filter((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : true))
+    .filter((x) => {
+      if (mode === "interstate") return isInterstateTaxObject(x.raw);
+      if (mode === "intrastate") return isIntrastateTaxObject(x.raw);
+      return true;
+    })
     .filter((x) => isPurchaseTaxObject(x.raw))
     .filter((x) => x.id)
     .sort(byRateAsc);
@@ -304,12 +351,18 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
   const gstNo = String(expenseData.vendor_gstin || "").replace(/\s+/g, "").toUpperCase();
   const vendorGstState = extractGstStateCode(gstNo);
   const posNumericState = placeOfSupply?.numeric;
-  const isInterstate = Boolean(vendorGstState && posNumericState && vendorGstState !== posNumericState);
+  const isInterstateByState = Boolean(vendorGstState && posNumericState && vendorGstState !== posNumericState);
+  const amountBasedMode = inferTaxModeFromAmounts(expenseData);
+
+  const taxMode = amountBasedMode || (isInterstateByState ? "interstate" : "auto");
+  const vendorSourceOfSupply = vendorGstState ? GST_STATE_CODE_TO_POS[vendorGstState] : undefined;
+  const destinationOfSupply = placeOfSupply?.alpha || undefined;
+  const sourceOfSupply = vendorSourceOfSupply || destinationOfSupply;
 
   const accountId = await resolveExpenseAccountId(zohoClient, expenseData.expense_account);
   const paidThroughAccountId = await resolvePaidThroughAccountId(zohoClient, expenseData.payment_mode);
   const taxId = await resolveExpenseTaxId(zohoClient, expenseData, {
-    mode: isInterstate ? "interstate" : "auto",
+    mode: taxMode,
   });
 
   const amount = Number(expenseData.total_with_gst || expenseData.taxable_amount || 0);
@@ -328,8 +381,15 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
     is_inclusive_tax: true,
     ...(taxId ? { tax_id: taxId } : {}),
     ...(paidThroughAccountId ? { paid_through_account_id: paidThroughAccountId } : {}),
-    ...(gstNo ? { gst_no: gstNo, gst_treatment: "business_gst" } : {}),
-    ...(placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
+    ...(gstNo
+      ? {
+          gst_no: gstNo,
+          gst_treatment: "business_gst",
+          ...(sourceOfSupply ? { source_of_supply: sourceOfSupply } : {}),
+          ...(destinationOfSupply ? { destination_of_supply: destinationOfSupply } : {}),
+        }
+      : {}),
+    ...(!gstNo && placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
   };
 
   const idempotencyKey = `expense-${expenseData.invoice_number || Date.now()}`;
@@ -339,6 +399,9 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
   } catch (error) {
     const message = String(error?.message || "").toLowerCase();
     const invalidPos = message.includes("invalid element place_of_supply");
+    const invalidSupplyFields =
+      message.includes("invalid element source_of_supply") ||
+      message.includes("invalid element destination_of_supply");
     const interstateTaxError =
       message.includes("igst has to be applied") ||
       message.includes("interstate transaction");
@@ -347,7 +410,20 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
       message.includes("tax exemption") ||
       message.includes("reverse charge");
 
-    if (!invalidPos && !missingTaxMeta && !interstateTaxError) {
+    if (interstateTaxError) {
+      console.warn("[ZOHO_EXPENSE][IGST_MISMATCH]", {
+        invoice_number: expenseData.invoice_number,
+        taxMode,
+        amountBasedMode,
+        source_of_supply: payload.source_of_supply,
+        destination_of_supply: payload.destination_of_supply,
+        place_of_supply: payload.place_of_supply,
+        gst_no: payload.gst_no,
+        tax_id: payload.tax_id,
+      });
+    }
+
+    if (!invalidPos && !invalidSupplyFields && !missingTaxMeta && !interstateTaxError) {
       throw error;
     }
 
@@ -358,9 +434,6 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
 
       const interstatePayload = { ...payload };
       delete interstatePayload.tax_id;
-
-      // Let Zoho infer transaction context from org setup if explicit POS causes mismatch.
-      delete interstatePayload.place_of_supply;
 
       if (interstateTaxId) {
         interstatePayload.tax_id = interstateTaxId;
@@ -380,7 +453,15 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
 
         // Last-resort fallback to avoid complete failure for strict org GST mappings.
         // Expense gets posted; GST can be adjusted in Zoho if needed.
-        const { gst_no, gst_treatment, tax_id, place_of_supply, ...minimalInterstatePayload } = interstatePayload;
+        const {
+          gst_no,
+          gst_treatment,
+          tax_id,
+          place_of_supply,
+          source_of_supply,
+          destination_of_supply,
+          ...minimalInterstatePayload
+        } = interstatePayload;
 
         return await zohoClient.post(
           "/expenses",
@@ -401,6 +482,8 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
         gst_treatment,
         tax_id,
         place_of_supply,
+        source_of_supply,
+        destination_of_supply,
         ...minimalPayload
       } = payload;
 
@@ -412,6 +495,15 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
         },
         idempotencyKey
       );
+    }
+
+    if (invalidSupplyFields) {
+      const {
+        source_of_supply,
+        destination_of_supply,
+        ...payloadWithoutSupply
+      } = payload;
+      return await zohoClient.post("/expenses", payloadWithoutSupply, idempotencyKey);
     }
 
     // Fallback 1: try numeric GST state code if available (e.g., 27).
