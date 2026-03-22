@@ -186,6 +186,20 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
 
   let zohoTaxesCache = null;
 
+  const extractGstStateCode = (gstin) => {
+    const cleaned = String(gstin || "").replace(/\s+/g, "").toUpperCase();
+    const m = cleaned.match(/^(\d{2})[0-9A-Z]{13}$/);
+    return m ? m[1] : undefined;
+  };
+
+  const GST_STATE_CODE_TO_POS = {
+    "01": "JK", "02": "HP", "03": "PB", "04": "CH", "05": "UK", "06": "HR", "07": "DL", "08": "RJ",
+    "09": "UP", "10": "BR", "11": "SK", "12": "AR", "13": "NL", "14": "MN", "15": "MZ", "16": "TR",
+    "17": "ML", "18": "AS", "19": "WB", "20": "JH", "21": "OD", "22": "CG", "23": "MP", "24": "GJ",
+    "26": "DN", "27": "MH", "29": "KA", "30": "GA", "31": "LD", "32": "KL", "33": "TN", "34": "PY",
+    "35": "AN", "36": "TS", "37": "AP", "38": "LA",
+  };
+
   const getZohoTaxesCache = async () => {
     if (!zohoTaxesCache) {
       zohoTaxesCache = await req.zoho.get("/settings/taxes", { page: 1, per_page: 200 });
@@ -199,6 +213,85 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
       .replace(/[^a-z0-9 ]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+
+  const isInterstateTaxObject = (obj = {}) => {
+    const hay = normalize(
+      [
+        obj?.tax_name,
+        obj?.tax_group_name,
+        obj?.tax_type,
+        obj?.tax_type_name,
+        obj?.tax_specific_type,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+    return hay.includes("igst") || hay.includes("interstate") || hay.includes("inter state");
+  };
+
+  const getTaxCatalog = async () => {
+    await getZohoTaxesCache();
+    const groups = (zohoTaxesCache?.tax_groups || []).map((g) => ({
+      id: String(g.tax_group_id),
+      rate: Number(g.tax_group_percentage || 0),
+      name: g.tax_group_name || "",
+      raw: g,
+    }));
+    const taxes = (zohoTaxesCache?.taxes || []).map((t) => ({
+      id: String(t.tax_id),
+      rate: Number(t.tax_percentage || 0),
+      name: t.tax_name || "",
+      raw: t,
+    }));
+    return [...groups, ...taxes];
+  };
+
+  const resolveOrganizationStateAlpha = async () => {
+    try {
+      const data = await req.zoho.get("/organizations", { page: 1, per_page: 200 });
+      const organizations = data?.organizations || [];
+      const currentOrgId = String(req.zoho?.organizationId || "");
+      const org =
+        organizations.find((o) => String(o?.organization_id || "") === currentOrgId) ||
+        organizations.find((o) => o?.is_default_org) ||
+        organizations[0];
+
+      const gstState = extractGstStateCode(org?.gst_no || org?.gstin || "");
+      return gstState ? GST_STATE_CODE_TO_POS[gstState] : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const resolveTaxIdByMode = async (incomingTaxId, mode, fallbackRate = 0) => {
+    const id = String(incomingTaxId || "").trim();
+    if (!id || mode === "auto") return id;
+
+    const catalog = await getTaxCatalog();
+
+    const selected = catalog.find((x) => x.id === id);
+    if (selected) {
+      const selectedIsInterstate = isInterstateTaxObject(selected.raw);
+      if ((mode === "interstate" && selectedIsInterstate) || (mode === "intrastate" && !selectedIsInterstate)) {
+        return id;
+      }
+
+      const target = catalog
+        .filter((x) => Math.abs(Number(x.rate || 0) - Number(selected.rate || 0)) <= 0.05)
+        .find((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : !isInterstateTaxObject(x.raw)));
+
+      if (target?.id) return target.id;
+      return id;
+    }
+
+    // For preset tokens or name-like values, resolve by rate+mode.
+    const desiredRate = Number(fallbackRate || 0);
+    if (!(desiredRate >= 0)) return id;
+
+    const candidates = catalog.filter((x) => Math.abs(Number(x.rate || 0) - desiredRate) <= 0.05);
+    const target = candidates.find((x) => (mode === "interstate" ? isInterstateTaxObject(x.raw) : !isInterstateTaxObject(x.raw)));
+    return target?.id || id;
+  };
 
   const resolvePresetTaxId = async (presetId) => {
     if (!presetTaxToName[presetId]) return presetId;
@@ -252,6 +345,13 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     throw new ApiError(400, `Unable to resolve tax exemption for ${specialTaxLabels[specialId] || specialId}. Configure tax exemptions in Zoho and retry.`);
   };
 
+  const orgStateAlpha = await resolveOrganizationStateAlpha();
+  const destinationStateAlpha = String(placeOfSupply || "").trim().toUpperCase();
+  const transactionMode =
+    orgStateAlpha && destinationStateAlpha
+      ? (orgStateAlpha === destinationStateAlpha ? "intrastate" : "interstate")
+      : "auto";
+
   const items = [];
   for (const row of lineItems) {
     const description = String(row?.description || "").trim();
@@ -267,6 +367,9 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
 
     const isSpecialTax = Object.prototype.hasOwnProperty.call(specialTaxLabels, taxId);
     const resolvedTaxId = isSpecialTax ? taxId : await resolvePresetTaxId(taxId);
+    const modeAdjustedTaxId = isSpecialTax
+      ? null
+      : await resolveTaxIdByMode(resolvedTaxId, transactionMode, Number(row?.taxPercentage || 0));
     const specialTaxExemption = isSpecialTax ? await resolveSpecialTaxExemption(taxId) : null;
 
     const itemId = await getOrCreateZohoItem(req.zoho, {
@@ -280,7 +383,7 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
       description: isSpecialTax ? `${description} (${specialTaxLabels[taxId]})` : description,
       quantity,
       rate,
-      ...(isSpecialTax ? specialTaxExemption : { tax_id: resolvedTaxId }),
+      ...(isSpecialTax ? specialTaxExemption : { tax_id: modeAdjustedTaxId || resolvedTaxId }),
       ...(discount != null && !Number.isNaN(discount) ? { discount } : {}),
     });
   }
@@ -293,11 +396,37 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     ...(subject ? { subject: String(subject).trim() } : {}),
   };
 
-  const result = await req.zoho.post(
-    "/invoices",
-    payload,
-    `manual-sales-invoice-${customerId}-${Date.now()}`
-  );
+  const idempotencyKey = `manual-sales-invoice-${customerId}-${Date.now()}`;
+  let result;
+
+  try {
+    result = await req.zoho.post("/invoices", payload, idempotencyKey);
+  } catch (error) {
+    const message = String(error?.message || "").toLowerCase();
+    const interstateTaxError =
+      message.includes("igst has to be applied") ||
+      message.includes("interstate transaction");
+
+    if (!interstateTaxError) throw error;
+
+    // Retry once by force-mapping all taxable line items to interstate variants.
+    const retryItems = await Promise.all(
+      items.map(async (item) => {
+        if (!item?.tax_id) return item;
+        const forceInterstateTaxId = await resolveTaxIdByMode(item.tax_id, "interstate", 0);
+        return { ...item, tax_id: forceInterstateTaxId || item.tax_id };
+      })
+    );
+
+    result = await req.zoho.post(
+      "/invoices",
+      {
+        ...payload,
+        line_items: retryItems,
+      },
+      idempotencyKey
+    );
+  }
 
   res.status(201).json({ success: true, invoice: result?.invoice || result });
 });
