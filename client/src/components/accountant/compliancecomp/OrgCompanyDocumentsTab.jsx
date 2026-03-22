@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
+import { FileText, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { uploadFileToSignedUrl } from "@/lib/r2Upload";
 import {
@@ -9,7 +11,7 @@ import {
   useGetAccountantCompanyDocumentsQuery,
   useInitAccountantCompanyDocumentUploadMutation,
 } from "@/Redux/Slices/api/companyDocumentsApi";
-import { FileText, Loader2, Upload } from "lucide-react";
+import { OrgFinancialReportsTab } from "./OrgFinancialReportsTab";
 
 const DOC_TYPES = [
   { value: "loan", label: "Loan" },
@@ -26,23 +28,20 @@ const formatFileSize = (bytes) => {
 };
 
 const formatDateTime = (dateString) => {
-  if (!dateString) return "—";
+  if (!dateString) return "-";
   const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
 };
 
-export function OrgCompanyDocumentsTab({ orgId }) {
+function OrganizationDocsPane({ orgId }) {
   const fileInputRef = useRef(null);
   const { toast } = useToast();
   const [filterType, setFilterType] = useState("all");
   const [uploadType, setUploadType] = useState("loan");
   const [uploading, setUploading] = useState(false);
 
-  const {
-    data: documents = [],
-    isFetching,
-  } = useGetAccountantCompanyDocumentsQuery(
+  const { data: documents = [], isFetching } = useGetAccountantCompanyDocumentsQuery(
     {
       orgId,
       documentType: filterType === "all" ? undefined : filterType,
@@ -53,9 +52,7 @@ export function OrgCompanyDocumentsTab({ orgId }) {
   const [initUpload] = useInitAccountantCompanyDocumentUploadMutation();
   const [completeUpload] = useCompleteAccountantCompanyDocumentUploadMutation();
 
-  const openFilePicker = () => {
-    fileInputRef.current?.click();
-  };
+  const openFilePicker = () => fileInputRef.current?.click();
 
   const handleSelectFile = async (event) => {
     const file = event.target.files?.[0];
@@ -112,93 +109,110 @@ export function OrgCompanyDocumentsTab({ orgId }) {
   };
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Company Documents</CardTitle>
-          <CardDescription>
-            Upload or review Loan, Equity, and Other documents shared by client or accountant.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Select value={uploadType} onValueChange={setUploadType}>
-              <SelectTrigger className="h-8 w-36 text-xs">
-                <SelectValue placeholder="Upload type" />
-              </SelectTrigger>
-              <SelectContent>
-                {DOC_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+    <Card>
+      <CardHeader>
+        <CardTitle>Organization Documents</CardTitle>
+        <CardDescription>
+          Upload or review Loan, Equity, and Other documents shared by client or accountant.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={uploadType} onValueChange={setUploadType}>
+            <SelectTrigger className="h-8 w-36 text-xs">
+              <SelectValue placeholder="Upload type" />
+            </SelectTrigger>
+            <SelectContent>
+              {DOC_TYPES.map((type) => (
+                <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf"
-              className="absolute -z-10 h-px w-px opacity-0 pointer-events-none"
-              onChange={handleSelectFile}
-            />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf"
+            className="absolute -z-10 h-px w-px opacity-0 pointer-events-none"
+            onChange={handleSelectFile}
+          />
 
-            <Button size="sm" className="h-8 gap-1.5" onClick={openFilePicker} disabled={uploading}>
-              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-              {uploading ? "Uploading..." : "Upload Document"}
-            </Button>
+          <Button size="sm" className="h-8 gap-1.5" onClick={openFilePicker} disabled={uploading}>
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            {uploading ? "Uploading..." : "Upload Document"}
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue placeholder="Filter" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              {DOC_TYPES.map((type) => (
+                <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {isFetching ? (
+          <p className="text-sm text-muted-foreground">Loading documents...</p>
+        ) : documents.length === 0 ? (
+          <div className="text-center py-8 border rounded-md">
+            <FileText className="h-9 w-9 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm font-medium">No company documents uploaded yet</p>
           </div>
+        ) : (
+          <div className="space-y-2">
+            {documents.map((doc) => {
+              const uploadedByRole = doc?.uploaded_by_role === "accountant" || doc?.uploaded_by_role === "admin"
+                ? "Accountant"
+                : "Client";
 
-          <div className="flex items-center gap-2">
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="h-8 w-40 text-xs">
-                <SelectValue placeholder="Filter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {DOC_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {isFetching ? (
-            <p className="text-sm text-muted-foreground">Loading documents...</p>
-          ) : documents.length === 0 ? (
-            <div className="text-center py-8 border rounded-md">
-              <FileText className="h-9 w-9 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm font-medium">No company documents uploaded yet</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {documents.map((doc) => {
-                const uploadedByRole = doc?.uploaded_by_role === "accountant" || doc?.uploaded_by_role === "admin"
-                  ? "Accountant"
-                  : "Client";
-
-                return (
-                  <div key={doc._id} className="rounded-md border p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{doc.display_file_name || doc.original_file_name || "Document"}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {(doc.document_type || "other").toUpperCase()} • {formatFileSize(doc.file_size)} • {uploadedByRole} • {formatDateTime(doc.createdAt)}
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(doc.url, "_blank", "noopener,noreferrer")}
-                      >
-                        View
-                      </Button>
+              return (
+                <div key={doc._id} className="rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{doc.display_file_name || doc.original_file_name || "Document"}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {(doc.document_type || "other").toUpperCase()} • {formatFileSize(doc.file_size)} • {uploadedByRole} • {formatDateTime(doc.createdAt)}
+                      </p>
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(doc.url, "_blank", "noopener,noreferrer")}
+                    >
+                      View
+                    </Button>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function OrgCompanyDocumentsTab({ orgId }) {
+  return (
+    <Tabs defaultValue="organization_docs" className="space-y-4">
+      <TabsList className="grid w-full grid-cols-2">
+        <TabsTrigger value="organization_docs">Organization Docs</TabsTrigger>
+        <TabsTrigger value="financial_docs">Financial Docs</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="organization_docs">
+        <OrganizationDocsPane orgId={orgId} />
+      </TabsContent>
+
+      <TabsContent value="financial_docs">
+        <OrgFinancialReportsTab orgId={orgId} />
+      </TabsContent>
+    </Tabs>
   );
 }

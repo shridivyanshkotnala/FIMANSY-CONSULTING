@@ -125,6 +125,7 @@ export const baseApi = createApi({
     "TicketDocument",
     "CompanyDocument",
     "OrgReconciliationQuery",
+    "FinancialReport",
   ],
   endpoints: () => ({}),
 });
