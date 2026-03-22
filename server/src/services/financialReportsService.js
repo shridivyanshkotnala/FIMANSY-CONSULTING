@@ -251,9 +251,10 @@ export const listFinancialReports = async ({
   const endDate = periodEnd ? normalizeDate(periodEnd) : null;
 
   if (startDate || endDate) {
-    baseMatch.period_start = {};
-    if (startDate) baseMatch.period_start.$gte = startDate;
-    if (endDate) baseMatch.period_start.$lte = endDate;
+    baseMatch.$and = [];
+    if (startDate) baseMatch.$and.push({ period_end: { $gte: startDate } });
+    if (endDate) baseMatch.$and.push({ period_start: { $lte: endDate } });
+    if (baseMatch.$and.length === 0) delete baseMatch.$and;
   }
 
   if (search) {
