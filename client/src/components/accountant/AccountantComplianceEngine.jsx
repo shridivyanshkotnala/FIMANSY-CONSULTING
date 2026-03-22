@@ -165,6 +165,8 @@ export function AccountantComplianceEngine() {
   // Local state — org drill-down sub-filters (scoped to org detail view only, not persisted in Redux)
   const [orgDetailCategoryFilter, setOrgDetailCategoryFilter] = useState("all");
   const [orgDetailStatusFilter, setOrgDetailStatusFilter] = useState("all");
+  const [ongoingPage, setOngoingPage] = useState(1);
+  const [closedPage, setClosedPage] = useState(1);
 
   // Local state — create ticket modal
   const [createTicketOpen, setCreateTicketOpen] = useState(false);
@@ -305,10 +307,26 @@ export function AccountantComplianceEngine() {
     sort_by:             ticketView.sortBy,
     page:                ticketView.page,
     limit:               ticketView.limit,
+  }, {
+    pollingInterval: 15000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  // Dedicated lightweight query for real-time "Client Updates" badge count.
+  // Uses server-side total count with `client_updates_only=true`, independent of current page data.
+  const { data: clientUpdatesCountData } = useGetComplianceRequestsQuery({
+    client_updates_only: true,
+    page: 1,
+    limit: 1,
+  }, {
+    pollingInterval: 15000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
   });
   // Normalize backend field names → UI component expected names
   const openTickets = (ticketCurrentData?.data || []).map(normalizeTicket);
-  const clientUpdatesCount = openTickets.filter((t) => t.has_client_update).length;
+  const clientUpdatesCount = clientUpdatesCountData?.total ?? 0;
 
   // === SELECTED ORG: use the object cached at click-time ===
   // Replaces: const selectedOrg = selectedOrgId ? orgSummaries.find(...) : null;
@@ -348,6 +366,23 @@ export function AccountantComplianceEngine() {
   let selectedOrgTickets = orgTicketsRaw;
   if (orgDetailCategoryFilter !== "all") selectedOrgTickets = selectedOrgTickets.filter((t) => t.primary_tag === orgDetailCategoryFilter);
   if (orgDetailStatusFilter   !== "all") selectedOrgTickets = selectedOrgTickets.filter((t) => t.status     === orgDetailStatusFilter);
+
+  // Org detail local pagination
+  const ORG_DETAIL_PAGE_SIZE = 5;
+  const ongoingTickets = selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status));
+  const closedTickets = selectedOrgTickets.filter((t) => CLOSED_STATUSES.includes(t.status));
+  const ongoingTotalPages = Math.max(1, Math.ceil(ongoingTickets.length / ORG_DETAIL_PAGE_SIZE));
+  const closedTotalPages = Math.max(1, Math.ceil(closedTickets.length / ORG_DETAIL_PAGE_SIZE));
+  const safeOngoingPage = Math.min(ongoingPage, ongoingTotalPages);
+  const safeClosedPage = Math.min(closedPage, closedTotalPages);
+  const paginatedOngoingTickets = ongoingTickets.slice(
+    (safeOngoingPage - 1) * ORG_DETAIL_PAGE_SIZE,
+    safeOngoingPage * ORG_DETAIL_PAGE_SIZE
+  );
+  const paginatedClosedTickets = closedTickets.slice(
+    (safeClosedPage - 1) * ORG_DETAIL_PAGE_SIZE,
+    safeClosedPage * ORG_DETAIL_PAGE_SIZE
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -407,6 +442,8 @@ export function AccountantComplianceEngine() {
                     setSelectedOrgData(null);       // clear cached org object
                     setOrgDetailCategoryFilter("all");
                     setOrgDetailStatusFilter("all");
+                    setOngoingPage(1);
+                    setClosedPage(1);
                   }}
                   className="gap-1.5"
                 >
@@ -450,11 +487,11 @@ export function AccountantComplianceEngine() {
                 <TabsList className="grid w-full grid-cols-6 text-xs">
                   <TabsTrigger value="ongoing">
                     <Timer className="h-3 w-3 mr-1" />
-                    Ongoing ({selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).length})
+                    Ongoing ({ongoingTickets.length})
                   </TabsTrigger>
                   <TabsTrigger value="closed">
                     <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Closed ({selectedOrgTickets.filter((t) => CLOSED_STATUSES.includes(t.status)).length})
+                    Closed ({closedTickets.length})
                   </TabsTrigger>
                   <TabsTrigger value="company">
                     <Building2 className="h-3 w-3 mr-1" />
@@ -476,7 +513,14 @@ export function AccountantComplianceEngine() {
 
                 {/* Org detail filters */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Select value={orgDetailCategoryFilter} onValueChange={setOrgDetailCategoryFilter}>
+                  <Select
+                    value={orgDetailCategoryFilter}
+                    onValueChange={(value) => {
+                      setOrgDetailCategoryFilter(value);
+                      setOngoingPage(1);
+                      setClosedPage(1);
+                    }}
+                  >
                     <SelectTrigger className="h-8 w-32 text-xs">
                       <SelectValue placeholder="Category" />
                     </SelectTrigger>
@@ -488,7 +532,14 @@ export function AccountantComplianceEngine() {
                     </SelectContent>
                   </Select>
 
-                  <Select value={orgDetailStatusFilter} onValueChange={setOrgDetailStatusFilter}>
+                  <Select
+                    value={orgDetailStatusFilter}
+                    onValueChange={(value) => {
+                      setOrgDetailStatusFilter(value);
+                      setOngoingPage(1);
+                      setClosedPage(1);
+                    }}
+                  >
                     <SelectTrigger className="h-8 w-32 text-xs">
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
@@ -508,10 +559,10 @@ export function AccountantComplianceEngine() {
                         <Skeleton key={i} className="h-20 w-full rounded-xl" />
                       ))}
                     </div>
-                  ) : selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).length === 0 ? (
+                  ) : ongoingTickets.length === 0 ? (
                     <EmptyState message="No ongoing tickets" />
                   ) : (
-                    selectedOrgTickets.filter((t) => ONGOING_STATUSES.includes(t.status)).map((t) => (
+                    paginatedOngoingTickets.map((t) => (
                       <TicketRow
                         key={t.id}
                         ticket={t}
@@ -523,6 +574,43 @@ export function AccountantComplianceEngine() {
                       />
                     ))
                   )}
+
+                  {ongoingTotalPages > 1 && (
+                    <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                      <p className="text-xs text-muted-foreground">
+                        Page {safeOngoingPage} of {ongoingTotalPages} &middot; {ongoingTickets.length} ticket{ongoingTickets.length !== 1 ? "s" : ""}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline" size="sm" className="h-7 px-2.5 text-xs"
+                          disabled={safeOngoingPage <= 1}
+                          onClick={() => setOngoingPage(safeOngoingPage - 1)}
+                        >
+                          &larr; Prev
+                        </Button>
+                        {Array.from({ length: ongoingTotalPages }, (_, i) => i + 1)
+                          .filter((p) => Math.abs(p - safeOngoingPage) <= 2)
+                          .map((p) => (
+                            <Button
+                              key={p}
+                              variant={p === safeOngoingPage ? "default" : "outline"}
+                              size="sm"
+                              className="h-7 w-7 p-0 text-xs"
+                              onClick={() => setOngoingPage(p)}
+                            >
+                              {p}
+                            </Button>
+                          ))}
+                        <Button
+                          variant="outline" size="sm" className="h-7 px-2.5 text-xs"
+                          disabled={safeOngoingPage >= ongoingTotalPages}
+                          onClick={() => setOngoingPage(safeOngoingPage + 1)}
+                        >
+                          Next &rarr;
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="closed" className="space-y-2">
@@ -532,10 +620,10 @@ export function AccountantComplianceEngine() {
                         <Skeleton key={i} className="h-20 w-full rounded-xl" />
                       ))}
                     </div>
-                  ) : selectedOrgTickets.filter((t) => CLOSED_STATUSES.includes(t.status)).length === 0 ? (
+                  ) : closedTickets.length === 0 ? (
                     <EmptyState message="No closed tickets" />
                   ) : (
-                    selectedOrgTickets.filter((t) => CLOSED_STATUSES.includes(t.status)).map((t) => (
+                    paginatedClosedTickets.map((t) => (
                       <TicketRow
                         key={t.id}
                         ticket={t}
@@ -546,6 +634,43 @@ export function AccountantComplianceEngine() {
                         }}
                       />
                     ))
+                  )}
+
+                  {closedTotalPages > 1 && (
+                    <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                      <p className="text-xs text-muted-foreground">
+                        Page {safeClosedPage} of {closedTotalPages} &middot; {closedTickets.length} ticket{closedTickets.length !== 1 ? "s" : ""}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline" size="sm" className="h-7 px-2.5 text-xs"
+                          disabled={safeClosedPage <= 1}
+                          onClick={() => setClosedPage(safeClosedPage - 1)}
+                        >
+                          &larr; Prev
+                        </Button>
+                        {Array.from({ length: closedTotalPages }, (_, i) => i + 1)
+                          .filter((p) => Math.abs(p - safeClosedPage) <= 2)
+                          .map((p) => (
+                            <Button
+                              key={p}
+                              variant={p === safeClosedPage ? "default" : "outline"}
+                              size="sm"
+                              className="h-7 w-7 p-0 text-xs"
+                              onClick={() => setClosedPage(p)}
+                            >
+                              {p}
+                            </Button>
+                          ))}
+                        <Button
+                          variant="outline" size="sm" className="h-7 px-2.5 text-xs"
+                          disabled={safeClosedPage >= closedTotalPages}
+                          onClick={() => setClosedPage(safeClosedPage + 1)}
+                        >
+                          Next &rarr;
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </TabsContent>
 
@@ -628,6 +753,10 @@ export function AccountantComplianceEngine() {
                       onClick={() => {
                         dispatch(setSelectedOrg(org.organization_id)); // update Redux
                         setSelectedOrgData(org);                       // cache org object for detail header
+                        setOrgDetailCategoryFilter("all");
+                        setOrgDetailStatusFilter("all");
+                        setOngoingPage(1);
+                        setClosedPage(1);
                       }}
                     />
                   ))}

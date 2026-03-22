@@ -40,6 +40,8 @@ function OrganizationDocsPane({ orgId }) {
   const [filterType, setFilterType] = useState("all");
   const [uploadType, setUploadType] = useState("loan");
   const [uploading, setUploading] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 5;
 
   const { data: documents = [], isFetching } = useGetAccountantCompanyDocumentsQuery(
     {
@@ -144,7 +146,13 @@ function OrganizationDocsPane({ orgId }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Select value={filterType} onValueChange={setFilterType}>
+          <Select
+            value={filterType}
+            onValueChange={(value) => {
+              setFilterType(value);
+              setPage(1);
+            }}
+          >
             <SelectTrigger className="h-8 w-40 text-xs">
               <SelectValue placeholder="Filter" />
             </SelectTrigger>
@@ -166,31 +174,82 @@ function OrganizationDocsPane({ orgId }) {
           </div>
         ) : (
           <div className="space-y-2">
-            {documents.map((doc) => {
-              const uploadedByRole = doc?.uploaded_by_role === "accountant" || doc?.uploaded_by_role === "admin"
-                ? "Accountant"
-                : "Client";
+            {(() => {
+              const totalPages = Math.max(1, Math.ceil(documents.length / PAGE_SIZE));
+              const safePage = Math.min(page, totalPages);
+              const paginatedDocuments = documents.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
               return (
-                <div key={doc._id} className="rounded-md border p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{doc.display_file_name || doc.original_file_name || "Document"}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {(doc.document_type || "other").toUpperCase()} • {formatFileSize(doc.file_size)} • {uploadedByRole} • {formatDateTime(doc.createdAt)}
+                <>
+                  {paginatedDocuments.map((doc) => {
+                    const uploadedByRole = doc?.uploaded_by_role === "accountant" || doc?.uploaded_by_role === "admin"
+                      ? "Accountant"
+                      : "Client";
+
+                    return (
+                      <div key={doc._id} className="rounded-md border p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{doc.display_file_name || doc.original_file_name || "Document"}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {(doc.document_type || "other").toUpperCase()} • {formatFileSize(doc.file_size)} • {uploadedByRole} • {formatDateTime(doc.createdAt)}
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(doc.url, "_blank", "noopener,noreferrer")}
+                          >
+                            View
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                      <p className="text-xs text-muted-foreground">
+                        Page {safePage} of {totalPages} &middot; {documents.length} document{documents.length !== 1 ? "s" : ""}
                       </p>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2.5 text-xs"
+                          disabled={safePage <= 1}
+                          onClick={() => setPage(safePage - 1)}
+                        >
+                          &larr; Prev
+                        </Button>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                          .filter((p) => Math.abs(p - safePage) <= 2)
+                          .map((p) => (
+                            <Button
+                              key={p}
+                              variant={p === safePage ? "default" : "outline"}
+                              size="sm"
+                              className="h-7 w-7 p-0 text-xs"
+                              onClick={() => setPage(p)}
+                            >
+                              {p}
+                            </Button>
+                          ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2.5 text-xs"
+                          disabled={safePage >= totalPages}
+                          onClick={() => setPage(safePage + 1)}
+                        >
+                          Next &rarr;
+                        </Button>
+                      </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => window.open(doc.url, "_blank", "noopener,noreferrer")}
-                    >
-                      View
-                    </Button>
-                  </div>
-                </div>
+                  )}
+                </>
               );
-            })}
+            })()}
           </div>
         )}
       </CardContent>

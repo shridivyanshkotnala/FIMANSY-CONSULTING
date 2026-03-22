@@ -306,6 +306,8 @@ export function OrgReconciliationQueriesTab({ orgId }) {
     pollingInterval: 20000,
   });
   const [resolveQuery] = useResolveOrgReconciliationQueryMutation();
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 5;
 
   const [open, setOpen] = useState(false);
   const [selectedQuery, setSelectedQuery] = useState(null);
@@ -315,6 +317,10 @@ export function OrgReconciliationQueriesTab({ orgId }) {
     () => [...queries].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     [queries]
   );
+
+  const totalPages = Math.max(1, Math.ceil(sortedQueries.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedQueries = sortedQueries.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const handleView = (query) => {
     setSelectedQuery(query);
@@ -363,7 +369,7 @@ export function OrgReconciliationQueriesTab({ orgId }) {
               </TableHeader>
 
               <TableBody>
-                {sortedQueries.map((q) => {
+                {paginatedQueries.map((q) => {
                   const details = q.transactionDetails || {};
                   return (
                     <TableRow key={q._id}>
@@ -389,6 +395,47 @@ export function OrgReconciliationQueriesTab({ orgId }) {
                 })}
               </TableBody>
             </Table>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/40">
+                <p className="text-xs text-muted-foreground">
+                  Page {safePage} of {totalPages} &middot; {sortedQueries.length} quer{sortedQueries.length !== 1 ? "ies" : "y"}
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage(safePage - 1)}
+                  >
+                    &larr; Prev
+                  </Button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => Math.abs(p - safePage) <= 2)
+                    .map((p) => (
+                      <Button
+                        key={p}
+                        variant={p === safePage ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 w-7 p-0 text-xs"
+                        onClick={() => setPage(p)}
+                      >
+                        {p}
+                      </Button>
+                    ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage(safePage + 1)}
+                  >
+                    Next &rarr;
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

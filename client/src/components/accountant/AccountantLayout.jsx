@@ -4,11 +4,9 @@ import { Button } from "@/components/ui/button";
 import {
   Shield,
   ListChecks,
-  Landmark,
   MessageSquare,
   LogOut,
   ChevronLeft,
-  Bell,
   Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,7 +22,6 @@ import { useToast } from "@/hooks/use-toast";
 
 const NAV_ITEMS = [
   { path: "/accountant/dashboard", label: "Compliance", icon: ListChecks },
-  { path: "/accountant/reconciliation", label: "Bank Recon", icon: Landmark },
   { path: "/accountant/queries", label: "Query Hub", icon: MessageSquare },
 ];
 
@@ -160,19 +157,6 @@ export function AccountantLayout({ children }) {
           <div />
 
           <div className="flex items-center gap-2">
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="relative"
-            >
-              <Bell className="h-4 w-4" />
-
-              <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-destructive text-[8px] text-destructive-foreground flex items-center justify-center">
-                3
-              </span>
-            </Button>
-
             <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
               A
             </div>
