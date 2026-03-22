@@ -11,7 +11,7 @@ export const financialApi = baseApi.injectEndpoints({
     }),
 
     getFinancialReports: builder.query({
-      query: ({ reportType, customTag, search, periodStart, periodEnd, page = 1, limit = 20 } = {}) => ({
+      query: ({ reportType, customTag, search, periodStart, periodEnd, uploadedStart, uploadedEnd, page = 1, limit = 20 } = {}) => ({
         url: "/upload/financial-reports",
         method: "GET",
         params: {
@@ -20,6 +20,8 @@ export const financialApi = baseApi.injectEndpoints({
           ...(search ? { search } : {}),
           ...(periodStart ? { period_start: periodStart } : {}),
           ...(periodEnd ? { period_end: periodEnd } : {}),
+          ...(uploadedStart ? { uploaded_start: uploadedStart } : {}),
+          ...(uploadedEnd ? { uploaded_end: uploadedEnd } : {}),
           page,
           limit,
         },
@@ -39,7 +41,7 @@ export const financialApi = baseApi.injectEndpoints({
     }),
 
     getAccountantFinancialReports: builder.query({
-      query: ({ orgId, reportType, customTag, search, periodStart, periodEnd, page = 1, limit = 20 } = {}) => ({
+      query: ({ orgId, reportType, customTag, search, periodStart, periodEnd, uploadedStart, uploadedEnd, page = 1, limit = 20 } = {}) => ({
         url: `/accountant/organizations/${orgId}/financial-reports`,
         method: "GET",
         params: {
@@ -48,6 +50,8 @@ export const financialApi = baseApi.injectEndpoints({
           ...(search ? { search } : {}),
           ...(periodStart ? { period_start: periodStart } : {}),
           ...(periodEnd ? { period_end: periodEnd } : {}),
+          ...(uploadedStart ? { uploaded_start: uploadedStart } : {}),
+          ...(uploadedEnd ? { uploaded_end: uploadedEnd } : {}),
           page,
           limit,
         },

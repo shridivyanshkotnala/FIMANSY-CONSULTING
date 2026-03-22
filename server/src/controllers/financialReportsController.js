@@ -22,6 +22,8 @@ const readListParams = (req) => ({
   search: String(req.query?.search || "").trim() || undefined,
   periodStart: String(req.query?.period_start || "").trim() || undefined,
   periodEnd: String(req.query?.period_end || "").trim() || undefined,
+  uploadedStart: String(req.query?.uploaded_start || "").trim() || undefined,
+  uploadedEnd: String(req.query?.uploaded_end || "").trim() || undefined,
   page: req.query?.page,
   limit: req.query?.limit,
 });

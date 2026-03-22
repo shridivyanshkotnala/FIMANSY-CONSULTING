@@ -235,6 +235,8 @@ export const listFinancialReports = async ({
   search,
   periodStart,
   periodEnd,
+  uploadedStart,
+  uploadedEnd,
   page = 1,
   limit = DEFAULT_LIMIT,
 }) => {
@@ -249,12 +251,20 @@ export const listFinancialReports = async ({
 
   const startDate = periodStart ? normalizeDate(periodStart) : null;
   const endDate = periodEnd ? normalizeDate(periodEnd) : null;
+  const uploadedStartDate = uploadedStart ? normalizeDate(uploadedStart) : null;
+  const uploadedEndDate = uploadedEnd ? normalizeDate(uploadedEnd) : null;
 
   if (startDate || endDate) {
     baseMatch.$and = [];
     if (startDate) baseMatch.$and.push({ period_end: { $gte: startDate } });
     if (endDate) baseMatch.$and.push({ period_start: { $lte: endDate } });
     if (baseMatch.$and.length === 0) delete baseMatch.$and;
+  }
+
+  if (uploadedStartDate || uploadedEndDate) {
+    baseMatch.uploaded_at = {};
+    if (uploadedStartDate) baseMatch.uploaded_at.$gte = uploadedStartDate;
+    if (uploadedEndDate) baseMatch.uploaded_at.$lte = uploadedEndDate;
   }
 
   if (search) {

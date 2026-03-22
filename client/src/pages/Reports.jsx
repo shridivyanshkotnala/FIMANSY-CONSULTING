@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Shield,
   WalletCards,
+  X,
 } from "lucide-react";
 import { PillarLayout } from "@/components/layout/PillarLayout";
 import { QueryResolutionHub } from "@/components/transparency/QueryResolutionHub";
@@ -121,6 +122,85 @@ function formatReportDate(value) {
   return format(date, "dd MMM yyyy");
 }
 
+function toApiDate(value) {
+  if (!value) return undefined;
+  return format(value, "yyyy-MM-dd");
+}
+
+function formatDateRangeLabel(range, fallback) {
+  if (!range?.from || !range?.to) return fallback;
+  return `${format(range.from, "dd MMM yyyy")} - ${format(range.to, "dd MMM yyyy")}`;
+}
+
+function CompactDateRangeFilter({ label, range, onChange, fallback = "Select range" }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          className="h-9 justify-start gap-2 rounded-lg border-white/10 bg-[#111113] px-3 text-xs text-white/80 hover:bg-white/5 hover:text-white"
+        >
+          <CalendarIcon className="h-3.5 w-3.5 text-white/60" />
+          <span className="text-white/55">{label}</span>
+          <span className="truncate text-white">{formatDateRangeLabel(range, fallback)}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="range"
+          selected={{ from: range?.from, to: range?.to }}
+          onSelect={(nextRange) => {
+            if (nextRange?.from && nextRange?.to) {
+              onChange({ from: nextRange.from, to: nextRange.to });
+            }
+          }}
+          numberOfMonths={2}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ReportFilterBar({
+  reportLabel,
+  filters,
+  onPeriodChange,
+  onUploadChange,
+  onReset,
+}) {
+  return (
+    <div className="mt-4 flex flex-col gap-2 rounded-[18px] border border-white/10 bg-[#111113] p-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Filters</p>
+        <p className="mt-1 text-sm font-medium text-white/88">{reportLabel}</p>
+      </div>
+      <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
+        <CompactDateRangeFilter
+          label="Period"
+          range={filters.period}
+          onChange={onPeriodChange}
+          fallback="All periods"
+        />
+        <CompactDateRangeFilter
+          label="Uploaded"
+          range={filters.uploaded}
+          onChange={onUploadChange}
+          fallback="All uploads"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 gap-2 rounded-lg border-white/10 bg-transparent px-3 text-xs text-white/75 hover:bg-white/5 hover:text-white"
+          onClick={onReset}
+        >
+          <X className="h-3.5 w-3.5" />
+          Reset
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ReportTypeCard({ type, selected, count, onSelect }) {
   const meta = REPORT_CARD_META[type];
   const Icon = meta.icon;
@@ -129,24 +209,24 @@ function ReportTypeCard({ type, selected, count, onSelect }) {
     <button type="button" onClick={() => onSelect(type)} className="text-left">
       <div
         className={cn(
-          "rounded-[24px] border px-5 py-5 transition-all",
+          "rounded-[20px] border px-4 py-4 transition-all",
           selected
-            ? "border-orange-400/50 bg-[#1b1b1d] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
+            ? "border-orange-400/45 bg-[#1b1b1d] shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
             : "border-white/10 bg-[#18181a] hover:border-white/20"
         )}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[18px] bg-orange-500/15 text-orange-400">
-            <Icon className="h-4.5 w-4.5" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-[16px] bg-orange-500/15 text-orange-400">
+            <Icon className="h-4 w-4" />
           </div>
-          <Badge className="border border-white/10 bg-white/5 text-white hover:bg-white/5">
+          <Badge className="border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white hover:bg-white/5">
             {count > 0 ? "Ready" : "No Reports"}
           </Badge>
         </div>
-        <div className="mt-6">
-          <h3 className="text-xl md:text-[1.7rem] font-semibold text-white">{meta.title}</h3>
-          <p className="mt-1.5 text-sm md:text-[15px] leading-6 text-white/55">{meta.description}</p>
-          <p className="mt-4 text-sm text-white/45">{count} report{count === 1 ? "" : "s"} available</p>
+        <div className="mt-5">
+          <h3 className="text-base font-semibold text-white md:text-[1.3rem] md:leading-none">{meta.title}</h3>
+          <p className="mt-2 text-xs leading-5 text-white/52 md:text-[12px]">{meta.description}</p>
+          <p className="mt-4 text-xs text-white/42">{count} report{count === 1 ? "" : "s"} available</p>
         </div>
       </div>
     </button>
@@ -155,28 +235,28 @@ function ReportTypeCard({ type, selected, count, onSelect }) {
 
 function ReportRow({ report, onView }) {
   return (
-    <div className="rounded-[20px] border border-white/10 bg-[#151517] p-4">
+    <div className="rounded-[18px] border border-white/10 bg-[#151517] p-3.5 md:p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-sm md:text-[15px] font-medium text-white">{report.display_file_name || report.original_file_name}</p>
-            <Badge className="border border-white/10 bg-white/5 text-white/85 hover:bg-white/5">
+            <p className="truncate text-sm font-medium text-white md:text-[14px]">{report.display_file_name || report.original_file_name}</p>
+            <Badge className="border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/85 hover:bg-white/5">
               {REPORT_TYPE_LABELS[report.report_type] || "Report"}
             </Badge>
             {report.custom_tags?.map((tag) => (
-              <Badge key={tag} className="border border-orange-500/20 bg-orange-500/10 text-orange-300 hover:bg-orange-500/10">
+              <Badge key={tag} className="border border-orange-500/20 bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-300 hover:bg-orange-500/10">
                 {tag}
               </Badge>
             ))}
           </div>
-          <p className="mt-1.5 text-xs md:text-sm text-white/55">
+          <p className="mt-1.5 text-xs text-white/55 md:text-[13px]">
             Period: {formatReportDate(report.period_start)} - {formatReportDate(report.period_end)}
           </p>
-          <p className="mt-1 text-xs md:text-sm text-white/40">
+          <p className="mt-1 text-xs text-white/40 md:text-[13px]">
             Uploaded on {formatReportDate(report.uploaded_at || report.createdAt)}
           </p>
         </div>
-        <Button className="bg-orange-500 text-white hover:bg-orange-400 h-9 px-4 text-sm" onClick={() => onView(report._id)}>
+        <Button className="h-9 bg-orange-500 px-4 text-sm text-white hover:bg-orange-400" onClick={() => onView(report._id)}>
           View Report
         </Button>
       </div>
@@ -188,7 +268,7 @@ function PaginationBar({ page, totalPages, total, onPageChange, tone = "dark" })
   const dark = tone === "dark";
 
   return (
-    <div className="flex flex-col gap-2 border-t border-white/10 pt-3 text-xs md:text-sm md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-2 border-t border-white/10 pt-3 text-xs md:flex-row md:items-center md:justify-between">
       <span className={dark ? "text-white/50" : "text-muted-foreground"}>
         Page {page} of {totalPages} • {total} items
       </span>
@@ -217,29 +297,39 @@ function PaginationBar({ page, totalPages, total, onPageChange, tone = "dark" })
 }
 
 export default function Reports() {
+  const initialWindow = {
+    from: subMonths(new Date(), 3),
+    to: new Date(),
+  };
+
   const [activeTab, setActiveTab] = useState("financials");
   const [selectedFinancialType, setSelectedFinancialType] = useState("profit_and_loss");
   const [financialPage, setFinancialPage] = useState(1);
   const [otherPage, setOtherPage] = useState(1);
-  const [dateRange, setDateRange] = useState({
-    from: subMonths(new Date(), 3),
-    to: new Date(),
+  const [quickWindow, setQuickWindow] = useState(initialWindow);
+  const [financialFilters, setFinancialFilters] = useState({
+    period: initialWindow,
+    uploaded: { from: null, to: null },
+  });
+  const [otherFilters, setOtherFilters] = useState({
+    period: initialWindow,
+    uploaded: { from: null, to: null },
   });
   const [exportFormat, setExportFormat] = useState("excel");
   const [localQueries, setLocalQueries] = useState(MOCK_QUERIES);
   const [localComments, setLocalComments] = useState(MOCK_COMMENTS);
 
-  const periodStart = format(dateRange.from, "yyyy-MM-dd");
-  const periodEnd = format(dateRange.to, "yyyy-MM-dd");
-  const periodLabel = `${format(dateRange.from, "dd MMM yyyy")} - ${format(dateRange.to, "dd MMM yyyy")}`;
+  const quickWindowLabel = formatDateRangeLabel(quickWindow, "Select reporting window");
 
   const {
     data: selectedFinancialResponse,
     isFetching: financialLoading,
   } = useGetFinancialReportsQuery({
     reportType: selectedFinancialType,
-    periodStart,
-    periodEnd,
+    periodStart: toApiDate(financialFilters.period?.from),
+    periodEnd: toApiDate(financialFilters.period?.to),
+    uploadedStart: toApiDate(financialFilters.uploaded?.from),
+    uploadedEnd: toApiDate(financialFilters.uploaded?.to),
     page: financialPage,
     limit: 20,
   });
@@ -249,8 +339,10 @@ export default function Reports() {
     isFetching: otherLoading,
   } = useGetFinancialReportsQuery({
     reportType: "other",
-    periodStart,
-    periodEnd,
+    periodStart: toApiDate(otherFilters.period?.from),
+    periodEnd: toApiDate(otherFilters.period?.to),
+    uploadedStart: toApiDate(otherFilters.uploaded?.from),
+    uploadedEnd: toApiDate(otherFilters.uploaded?.to),
     page: otherPage,
     limit: 20,
   });
@@ -388,40 +480,46 @@ export default function Reports() {
 
   return (
     <PillarLayout>
-      <div className="min-h-screen bg-[#0a0a0b] px-3 py-4 text-white md:px-6">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="rounded-[28px] border border-white/10 bg-[#0f0f11] p-4 md:p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <div className="min-h-screen bg-[#0a0a0b] px-2 py-3 text-white md:px-5">
+        <div className="mx-auto max-w-7xl space-y-3">
+          <div className="rounded-[26px] border border-white/10 bg-[#0f0f11] p-3.5 shadow-[0_18px_55px_rgba(0,0,0,0.32)] md:p-5">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex items-start gap-3">
-                <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-orange-500 text-white">
-                  <BarChart3 className="h-7 w-7" />
+                <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-orange-500 text-white">
+                  <BarChart3 className="h-6 w-6" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2.5">
-                    <h1 className="text-3xl md:text-[2rem] font-semibold tracking-tight">Reports</h1>
-                    <Badge className="border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/10">
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-xl font-semibold tracking-tight md:text-[1.55rem]">Reports</h1>
+                    <Badge className="border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-300 hover:bg-orange-500/10">
                       Live
                     </Badge>
                   </div>
-                  <p className="mt-0.5 text-base text-white/55">Insights & Output Layer</p>
+                  <p className="mt-0.5 text-sm text-white/55">Insights & Output Layer</p>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2.5 md:flex-row md:items-center">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="justify-start gap-2 rounded-xl border-white/10 bg-transparent px-4 py-4 text-white hover:bg-white/5 hover:text-white">
-                      <CalendarIcon className="h-4 w-4 text-white/70" />
-                      {periodLabel}
+                    <Button
+                      variant="outline"
+                      className="h-9 justify-start gap-2 rounded-xl border-white/10 bg-transparent px-3 text-xs md:text-sm text-white hover:bg-white/5 hover:text-white"
+                    >
+                      <CalendarIcon className="h-3.5 w-3.5 text-white/70" />
+                      {quickWindowLabel}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="end">
                     <Calendar
                       mode="range"
-                      selected={{ from: dateRange.from, to: dateRange.to }}
+                      selected={{ from: quickWindow.from, to: quickWindow.to }}
                       onSelect={(range) => {
                         if (range?.from && range?.to) {
-                          setDateRange({ from: range.from, to: range.to });
+                          const nextWindow = { from: range.from, to: range.to };
+                          setQuickWindow(nextWindow);
+                          setFinancialFilters((current) => ({ ...current, period: nextWindow }));
+                          setOtherFilters((current) => ({ ...current, period: nextWindow }));
                           setFinancialPage(1);
                           setOtherPage(1);
                         }
@@ -432,7 +530,7 @@ export default function Reports() {
                 </Popover>
 
                 <Select value={exportFormat} onValueChange={setExportFormat}>
-                  <SelectTrigger className="w-[128px] rounded-xl border-white/10 bg-transparent text-white h-11">
+                  <SelectTrigger className="h-9 w-[110px] rounded-xl border-white/10 bg-transparent text-xs md:text-sm text-white">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -441,31 +539,31 @@ export default function Reports() {
                   </SelectContent>
                 </Select>
 
-                <Button className="rounded-xl bg-orange-500 px-5 py-4 text-sm md:text-base text-white hover:bg-orange-400" onClick={handleExport}>
-                  <Download className="mr-2 h-4 w-4" />
+                <Button className="h-9 rounded-xl bg-orange-500 px-4 text-xs md:text-sm text-white hover:bg-orange-400" onClick={handleExport}>
+                  <Download className="mr-2 h-3.5 w-3.5" />
                   Export
                 </Button>
               </div>
             </div>
 
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6 space-y-4">
-              <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-[20px] bg-white/8 p-1.5 md:grid-cols-3">
-                <TabsTrigger value="financials" className="rounded-xl px-3 py-3 text-sm md:text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-5 space-y-3">
+              <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-[18px] bg-white/8 p-1.5 md:grid-cols-3">
+                <TabsTrigger value="financials" className="rounded-lg px-3 py-2.5 text-sm data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
                   <BarChart3 className="mr-2 h-4 w-4" />
                   Financials
                 </TabsTrigger>
-                <TabsTrigger value="compliance" className="rounded-xl px-3 py-3 text-sm md:text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
+                <TabsTrigger value="compliance" className="rounded-lg px-3 py-2.5 text-sm data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
                   <Shield className="mr-2 h-4 w-4" />
                   Compliance Logs
                 </TabsTrigger>
-                <TabsTrigger value="queries" className="rounded-xl px-3 py-3 text-sm md:text-base data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
+                <TabsTrigger value="queries" className="rounded-lg px-3 py-2.5 text-sm data-[state=active]:bg-[#0d0d0f] data-[state=active]:text-white data-[state=active]:shadow-none">
                   <MessageSquare className="mr-2 h-4 w-4" />
                   Query Hub
-                  <Badge className="ml-2 border border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/10">{urgentQueryCount}</Badge>
+                  <Badge className="ml-2 border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-300 hover:bg-orange-500/10">{urgentQueryCount}</Badge>
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="financials" className="space-y-4">
+              <TabsContent value="financials" className="space-y-3">
                 <div className="grid gap-3 xl:grid-cols-3">
                   {Object.keys(REPORT_CARD_META).map((type) => (
                     <ReportTypeCard
@@ -481,28 +579,48 @@ export default function Reports() {
                   ))}
                 </div>
 
-                <div className="rounded-[24px] border border-white/10 bg-[#171719] p-4 md:p-5">
+                <div className="rounded-[22px] border border-white/10 bg-[#171719] p-4 md:p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-2xl md:text-[2rem] font-semibold text-white">Financial Summary</h2>
-                      <p className="mt-1.5 text-sm md:text-[15px] text-white/50">
+                      <h2 className="text-lg font-semibold text-white md:text-[1.18rem]">Financial Summary</h2>
+                      <p className="mt-1 text-xs md:text-sm text-white/50">
                         {REPORT_TYPE_LABELS[selectedFinancialType]} documents for the selected reporting window.
                       </p>
                     </div>
-                    <div className="hidden rounded-xl border border-white/10 bg-[#111113] px-3 py-1.5 text-xs text-white/50 md:block">
+                    <div className="hidden rounded-lg border border-white/10 bg-[#111113] px-3 py-1.5 text-[11px] text-white/50 md:block">
                       Limit 20 per page
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-[22px] border border-dashed border-white/10 bg-[#121214] p-4">
+                  <ReportFilterBar
+                    reportLabel={REPORT_TYPE_LABELS[selectedFinancialType]}
+                    filters={financialFilters}
+                    onPeriodChange={(nextRange) => {
+                      setFinancialFilters((current) => ({ ...current, period: nextRange }));
+                      setFinancialPage(1);
+                    }}
+                    onUploadChange={(nextRange) => {
+                      setFinancialFilters((current) => ({ ...current, uploaded: nextRange }));
+                      setFinancialPage(1);
+                    }}
+                    onReset={() => {
+                      setFinancialFilters({
+                        period: quickWindow,
+                        uploaded: { from: null, to: null },
+                      });
+                      setFinancialPage(1);
+                    }}
+                  />
+
+                  <div className="mt-3 rounded-[20px] border border-dashed border-white/10 bg-[#121214] p-3.5">
                     {financialLoading ? (
-                      <p className="text-center text-white/50">Loading financial reports...</p>
+                      <p className="text-center text-xs md:text-sm text-white/50">Loading financial reports...</p>
                     ) : (selectedFinancialResponse?.data || []).length === 0 ? (
-                      <div className="flex min-h-[180px] items-center justify-center text-center text-white/45">
-                        Select a report window with uploaded documents to view details here.
+                      <div className="flex min-h-[140px] items-center justify-center text-center text-sm text-white/45">
+                        No reports matched the current period or upload-date filters.
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         {(selectedFinancialResponse?.data || []).map((report) => (
                           <ReportRow key={report._id} report={report} onView={handleOpenReport} />
                         ))}
@@ -510,7 +628,7 @@ export default function Reports() {
                     )}
                   </div>
 
-                  <div className="mt-4">
+                  <div className="mt-3">
                     <PaginationBar
                       page={selectedFinancialResponse?.page || 1}
                       totalPages={selectedFinancialResponse?.total_pages || 1}
@@ -521,25 +639,45 @@ export default function Reports() {
                   </div>
                 </div>
 
-                <div className="rounded-[24px] border border-white/10 bg-[#171719] p-4 md:p-5">
+                <div className="rounded-[22px] border border-white/10 bg-[#171719] p-4 md:p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-xl md:text-[1.7rem] font-semibold text-white">Other Reports / Custom Reports</h2>
-                      <p className="mt-1.5 text-sm md:text-[15px] text-white/50">
+                      <h2 className="text-base font-semibold text-white md:text-[1.08rem]">Other Reports / Custom Reports</h2>
+                      <p className="mt-1 text-xs md:text-sm text-white/50">
                         Reports tagged as other plus accountant-defined custom financial packs.
                       </p>
                     </div>
-                    <Badge className="border border-white/10 bg-white/5 text-white hover:bg-white/5">
+                    <Badge className="border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white hover:bg-white/5">
                       {otherFinancialResponse?.total || 0} total
                     </Badge>
                   </div>
 
-                  <div className="mt-6 space-y-4">
+                  <ReportFilterBar
+                    reportLabel={REPORT_TYPE_LABELS.other}
+                    filters={otherFilters}
+                    onPeriodChange={(nextRange) => {
+                      setOtherFilters((current) => ({ ...current, period: nextRange }));
+                      setOtherPage(1);
+                    }}
+                    onUploadChange={(nextRange) => {
+                      setOtherFilters((current) => ({ ...current, uploaded: nextRange }));
+                      setOtherPage(1);
+                    }}
+                    onReset={() => {
+                      setOtherFilters({
+                        period: quickWindow,
+                        uploaded: { from: null, to: null },
+                      });
+                      setOtherPage(1);
+                    }}
+                  />
+
+                  <div className="mt-3 space-y-3">
                     {otherLoading ? (
-                      <p className="text-white/50">Loading other reports...</p>
+                      <p className="text-xs md:text-sm text-white/50">Loading other reports...</p>
                     ) : (otherFinancialResponse?.data || []).length === 0 ? (
-                      <div className="rounded-[24px] border border-dashed border-white/10 bg-[#121214] p-10 text-center text-white/45">
-                        No custom or other financial reports found in this period.
+                      <div className="rounded-[20px] border border-dashed border-white/10 bg-[#121214] p-8 text-center text-sm text-white/45">
+                        No custom or other reports matched the current filters.
                       </div>
                     ) : (
                       (otherFinancialResponse?.data || []).map((report) => (
@@ -548,7 +686,7 @@ export default function Reports() {
                     )}
                   </div>
 
-                  <div className="mt-4">
+                  <div className="mt-3">
                     <PaginationBar
                       page={otherFinancialResponse?.page || 1}
                       totalPages={otherFinancialResponse?.total_pages || 1}
@@ -562,7 +700,7 @@ export default function Reports() {
 
               <TabsContent value="compliance">
                 <Card className="border-white/10 bg-[#171719] text-white">
-                  <CardContent className="grid gap-4 p-6 md:grid-cols-3">
+                  <CardContent className="grid gap-3 p-4 md:grid-cols-3">
                     {[
                       {
                         title: "GST Working Papers",
@@ -577,12 +715,12 @@ export default function Reports() {
                         description: "Supporting evidence attached and ready for reviewer access.",
                       },
                     ].map((item) => (
-                      <div key={item.title} className="rounded-[24px] border border-white/10 bg-[#121214] p-5">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
-                          <FileSpreadsheet className="h-5 w-5" />
+                      <div key={item.title} className="rounded-[20px] border border-white/10 bg-[#121214] p-4">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
+                          <FileSpreadsheet className="h-4 w-4" />
                         </div>
-                        <h3 className="mt-5 text-xl font-semibold text-white">{item.title}</h3>
-                        <p className="mt-2 text-sm leading-6 text-white/55">{item.description}</p>
+                        <h3 className="mt-4 text-lg font-semibold text-white">{item.title}</h3>
+                        <p className="mt-1.5 text-sm leading-5 text-white/55">{item.description}</p>
                       </div>
                     ))}
                   </CardContent>
@@ -590,7 +728,7 @@ export default function Reports() {
               </TabsContent>
 
               <TabsContent value="queries">
-                <div className="rounded-[30px] border border-white/10 bg-white p-4 text-black">
+                <div className="rounded-[26px] border border-white/10 bg-white p-4 text-black">
                   <QueryResolutionHub
                     queries={liveQueries}
                     onCreateQuery={handleCreateQuery}
