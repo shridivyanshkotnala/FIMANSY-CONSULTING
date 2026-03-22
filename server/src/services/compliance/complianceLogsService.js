@@ -175,7 +175,7 @@ const getFiscalQuarterKey = (dateLike) => {
 
 const buildComplianceLogMatch = ({ organizationId, financialYear }) => {
   const match = {
-    is_active: true,
+    is_active: { $ne: false },
     is_final_verified: true,
   };
 
@@ -380,7 +380,7 @@ export const createComplianceDocumentAccessUrl = async ({ documentId, organizati
   const document = await ComplianceDocument.findOne({
     _id: documentId,
     ...(organizationId ? { organization_id: organizationId } : {}),
-    is_active: true,
+    is_active: { $ne: false },
     is_final_verified: true,
   }).lean();
 
