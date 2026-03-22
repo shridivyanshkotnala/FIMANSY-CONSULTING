@@ -49,7 +49,7 @@ function Pagination({ page, totalPages, onPageChange }) {
 }
 
 export function AccountantQueryHub() {
-  const { getStats, getTickets, getTicketDetail, getComments, addComment, getDocuments, uploadDocument, updateStatus } = useQueryHub({ isAccountant: true });
+  const { getStats, getTickets, getTicketDetail, getComments, addComment, getDocuments, uploadDocument, updateStatus, getOrganizationCompany } = useQueryHub({ isAccountant: true });
 
   const [stats, setStats] = useState({ open_queries: 0, resolved_this_month: 0, avg_resolution_hours: 0 });
   const [openTickets, setOpenTickets] = useState([]);
@@ -105,7 +105,29 @@ export function AccountantQueryHub() {
         getComments(ticketId),
         getDocuments(ticketId),
       ]);
-      setTicketDetail(detail);
+
+      const orgId =
+        detail?.ticket?.organization_id ||
+        ticket?.organization_id?._id ||
+        ticket?.organization_id ||
+        null;
+
+      let profileDetails = null;
+      if (orgId) {
+        try {
+          profileDetails = await getOrganizationCompany(orgId);
+        } catch {
+          profileDetails = null;
+        }
+      }
+
+      setTicketDetail({
+        ...detail,
+        organization: {
+          ...(detail?.organization || {}),
+          ...(profileDetails || {}),
+        },
+      });
       setComments(Array.isArray(ticketComments) ? ticketComments : []);
       setDocuments(Array.isArray(ticketDocuments) ? ticketDocuments : []);
     } catch (error) {
@@ -169,50 +191,6 @@ export function AccountantQueryHub() {
       setClosing(false);
     }
   };
-
-  const accountantUpdates = useMemo(() => {
-    const commentUpdates = comments
-      .filter((item) => item.role === "accountant" || item.author_role === "accountant")
-      .map((item) => ({
-        id: item._id || item.id,
-        type: "comment",
-        text: item.message,
-        at: item.createdAt || item.created_at,
-      }));
-
-    const docUpdates = documents
-      .filter((item) => item.uploaded_by_role === "accountant")
-      .map((item) => ({
-        id: item._id || item.key,
-        type: "document",
-        text: `Uploaded ${item.display_file_name || item.original_file_name || "document"}`,
-        at: item.createdAt || item.created_at,
-      }));
-
-    return [...commentUpdates, ...docUpdates].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-  }, [comments, documents]);
-
-  const clientUpdates = useMemo(() => {
-    const commentUpdates = comments
-      .filter((item) => item.role === "client" || item.author_role === "client")
-      .map((item) => ({
-        id: item._id || item.id,
-        type: "message",
-        text: item.message,
-        at: item.createdAt || item.created_at,
-      }));
-
-    const docUpdates = documents
-      .filter((item) => item.uploaded_by_role === "client")
-      .map((item) => ({
-        id: item._id || item.key,
-        type: "document",
-        text: `Uploaded ${item.display_file_name || item.original_file_name || "document"}`,
-        at: item.createdAt || item.created_at,
-      }));
-
-    return [...commentUpdates, ...docUpdates].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-  }, [comments, documents]);
 
   const clientUpdatesPending = useMemo(
     () => openTickets.filter((ticket) => Boolean(ticket.has_unread_client_update)).length,
@@ -278,6 +256,7 @@ export function AccountantQueryHub() {
                 <Badge variant="outline">{ticket.query_number}</Badge>
                 <Badge className="bg-emerald-500/10 text-emerald-600">Closed</Badge>
                 <Badge variant="secondary">{ticket.organization_id?.name || "Organization"}</Badge>
+                {ticket.has_unread_client_update ? <Badge className="bg-blue-500/10 text-blue-600">Client Update</Badge> : null}
               </div>
               <p className="mt-2 text-sm font-semibold">{ticket.subject}</p>
               <p className="mt-1 text-xs text-muted-foreground">Closed {formatDateTime(ticket.closed_at)}</p>
@@ -332,11 +311,9 @@ export function AccountantQueryHub() {
               </div>
 
               <Tabs defaultValue="thread" className="mt-4">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="thread">Thread</TabsTrigger>
                   <TabsTrigger value="documents">Documents</TabsTrigger>
-                  <TabsTrigger value="client_updates">Client Updates</TabsTrigger>
-                  <TabsTrigger value="updates">Accountant Updates</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="thread" className="space-y-3 pt-3">
@@ -376,34 +353,6 @@ export function AccountantQueryHub() {
                       <Input type="file" className="hidden" disabled={uploadingDoc} onChange={handleUploadDocument} />
                     </label>
                   ) : null}
-                </TabsContent>
-
-                <TabsContent value="updates" className="space-y-3 pt-3">
-                  {accountantUpdates.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">No accountant updates yet.</div>
-                  ) : accountantUpdates.map((item) => (
-                    <div key={item.id} className="rounded-lg border p-3">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="outline">{item.type === "document" ? "Document" : "Message"}</Badge>
-                        <span>{formatDateTime(item.at)}</span>
-                      </div>
-                      <p className="mt-1.5 text-sm">{item.text}</p>
-                    </div>
-                  ))}
-                </TabsContent>
-
-                <TabsContent value="client_updates" className="space-y-3 pt-3">
-                  {clientUpdates.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">No client updates yet.</div>
-                  ) : clientUpdates.map((item) => (
-                    <div key={item.id} className="rounded-lg border p-3">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="outline">{item.type === "document" ? "Document" : "Message"}</Badge>
-                        <span>{formatDateTime(item.at)}</span>
-                      </div>
-                      <p className="mt-1.5 text-sm">{item.text}</p>
-                    </div>
-                  ))}
                 </TabsContent>
               </Tabs>
             </>

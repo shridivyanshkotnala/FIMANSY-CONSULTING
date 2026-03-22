@@ -149,6 +149,14 @@ export function useQueryHub({ isAccountant = false } = {}) {
     });
   }, [ticketPath, isAccountant]);
 
+  const getOrganizationCompany = useCallback((organizationId) => {
+    if (!isAccountant) throw new Error("Only accountant can fetch organization company profile");
+    return request(`/accountant/organizations/${organizationId}/company`, {
+      includeOrg: false,
+      unwrapData: true,
+    });
+  }, [isAccountant]);
+
   return {
     getStats,
     getTickets,
@@ -159,5 +167,6 @@ export function useQueryHub({ isAccountant = false } = {}) {
     getDocuments,
     uploadDocument,
     updateStatus,
+    getOrganizationCompany,
   };
 }
