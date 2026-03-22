@@ -289,31 +289,49 @@ export const listFinalVerifiedComplianceLogs = async ({
             ],
           },
         compliance_category: {
-            $toLower: {
-              $ifNull: [
-                "$obligation.compliance_category",
-                {
-                  $ifNull: [
-                    "$obligation.category_tag",
-                    {
-                      $ifNull: [
-                        "$template.compliance_category",
-                        {
-                          $ifNull: [
-                            "$template.category_tag",
-                            {
-                              $ifNull: [
-                                "$ticket_template.compliance_category",
-                                "$ticket_template.category_tag",
-                              ],
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                  ],
+            $let: {
+              vars: {
+                rawCategory: {
+                  $toLower: {
+                    $ifNull: [
+                      "$obligation.compliance_category",
+                      {
+                        $ifNull: [
+                          "$obligation.category_tag",
+                          {
+                            $ifNull: [
+                              "$template.compliance_category",
+                              {
+                                $ifNull: [
+                                  "$template.category_tag",
+                                  {
+                                    $ifNull: [
+                                      "$ticket_template.compliance_category",
+                                      "$ticket_template.category_tag",
+                                    ],
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
                 },
-              ],
+              },
+              in: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ["$$rawCategory", "other"] },
+                      { $regexMatch: { input: "$$rawCategory", regex: /^mca/i } },
+                    ],
+                  },
+                  "mca",
+                  "$$rawCategory",
+                ],
+              },
             },
         },
         due_month_num: { $month: "$due_date" },
