@@ -195,13 +195,27 @@ async function resolveExpenseAccountId(zohoClient, preferredName) {
 async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
   const mode = options?.mode || "auto"; // auto | interstate | intrastate
   const taxableAmount = Number(expenseData.taxable_amount || 0);
-  const totalGst = Number(expenseData.total_gst || 0);
+  const igst = Number(expenseData.igst || 0);
+  const cgst = Number(expenseData.cgst || 0);
+  const sgst = Number(expenseData.sgst || 0);
+  const totalGst = Number(expenseData.total_gst || (igst + cgst + sgst) || 0);
 
   if (!(taxableAmount > 0) || !(totalGst > 0)) {
     return null;
   }
 
-  const effectiveRate = (totalGst / taxableAmount) * 100;
+  // Root fix:
+  // - interstate must map using IGST rate only
+  // - intrastate must map using CGST+SGST rate
+  // - auto falls back to total GST
+  const modeWiseTaxAmount =
+    mode === "interstate"
+      ? (igst > 0 ? igst : totalGst)
+      : mode === "intrastate"
+        ? ((cgst + sgst) > 0 ? (cgst + sgst) : totalGst)
+        : totalGst;
+
+  const effectiveRate = (modeWiseTaxAmount / taxableAmount) * 100;
   if (!Number.isFinite(effectiveRate) || effectiveRate <= 0) {
     return null;
   }
@@ -451,11 +465,34 @@ export const pushBillToZoho = async (zohoClient, bill) => {
         ...payload,
         line_items: (payload.line_items || []).map((item) => ({
           ...item,
-          ...(interstateTaxId ? { tax_id: interstateTaxId } : {}),
+          ...(interstateTaxId ? { tax_id: interstateTaxId } : item?.tax_id ? { tax_id: item.tax_id } : {}),
         })),
       };
 
-      return await zohoClient.post("/bills", patched, idempotencyKey);
+      try {
+        return await zohoClient.post("/bills", patched, idempotencyKey);
+      } catch (retryError) {
+        const retryMessage = String(retryError?.message || "").toLowerCase();
+        const stillInterstateIssue =
+          retryMessage.includes("igst has to be applied") ||
+          retryMessage.includes("interstate transaction");
+
+        if (!stillInterstateIssue) {
+          throw retryError;
+        }
+
+        // Last resort to avoid hard failure when tax mapping is strict in Zoho org.
+        const minimal = {
+          ...patched,
+          line_items: (patched.line_items || []).map((item) => {
+            const { tax_id, ...rest } = item;
+            return rest;
+          }),
+          is_inclusive_tax: false,
+        };
+
+        return await zohoClient.post("/bills", minimal, idempotencyKey);
+      }
     }
 
     const withoutSupply = { ...payload };
