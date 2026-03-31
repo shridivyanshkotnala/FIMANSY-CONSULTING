@@ -204,23 +204,24 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
     return null;
   }
 
-  // Root fix:
-  // - interstate must map using IGST rate only
-  // - intrastate must map using CGST+SGST rate
-  // - auto falls back to total GST
-  const modeWiseTaxAmount =
+  const rateFromAmount = (amount) => {
+    const n = Number(amount || 0);
+    if (!(n > 0)) return null;
+    const pct = (n / taxableAmount) * 100;
+    if (!Number.isFinite(pct) || !(pct > 0)) return null;
+    return Number(pct.toFixed(2));
+  };
+
+  const intraAmount = cgst + sgst;
+  const desiredRatesRaw =
     mode === "interstate"
-      ? (igst > 0 ? igst : totalGst)
+      ? [rateFromAmount(igst), rateFromAmount(intraAmount), rateFromAmount(totalGst)]
       : mode === "intrastate"
-        ? ((cgst + sgst) > 0 ? (cgst + sgst) : totalGst)
-        : totalGst;
+        ? [rateFromAmount(intraAmount), rateFromAmount(igst), rateFromAmount(totalGst)]
+        : [rateFromAmount(totalGst), rateFromAmount(intraAmount), rateFromAmount(igst)];
 
-  const effectiveRate = (modeWiseTaxAmount / taxableAmount) * 100;
-  if (!Number.isFinite(effectiveRate) || effectiveRate <= 0) {
-    return null;
-  }
-
-  const desiredRate = Number(effectiveRate.toFixed(2));
+  const desiredRates = [...new Set(desiredRatesRaw.filter((r) => Number.isFinite(r) && r > 0))];
+  if (!desiredRates.length) return null;
 
   let taxData;
   try {
@@ -253,44 +254,51 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
     return true;
   };
 
-  const byRateAsc = (a, b) => a.diff - b.diff;
   const taxGroups = taxData?.tax_groups || [];
   const taxes = taxData?.taxes || [];
 
-  const groupCandidates = taxGroups
-    .map((g) => ({
-      id: g.tax_group_id,
-      raw: g,
-      diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
-    }))
-    .filter((x) => {
-      if (mode === "interstate") return isInterstateTaxObject(x.raw);
-      if (mode === "intrastate") return !isInterstateTaxObject(x.raw);
-      return true;
-    })
-    .filter((x) => isPurchaseTaxObject(x.raw))
-    .filter((x) => x.id)
-    .sort(byRateAsc);
+  const matchesMode = (obj = {}) => {
+    if (mode === "interstate") return isInterstateTaxObject(obj);
+    if (mode === "intrastate") return !isInterstateTaxObject(obj);
+    return true;
+  };
 
-  if (groupCandidates[0]?.diff <= 0.05) return groupCandidates[0].id;
+  const filteredGroups = taxGroups.filter((g) => g?.tax_group_id && matchesMode(g) && isPurchaseTaxObject(g));
+  const filteredTaxes = taxes.filter((t) => t?.tax_id && matchesMode(t) && isPurchaseTaxObject(t));
 
-  const taxCandidates = taxes
-    .map((t) => ({
-      id: t.tax_id,
-      raw: t,
-      diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
-    }))
-    .filter((x) => {
-      if (mode === "interstate") return isInterstateTaxObject(x.raw);
-      if (mode === "intrastate") return !isInterstateTaxObject(x.raw);
-      return true;
-    })
-    .filter((x) => isPurchaseTaxObject(x.raw))
-    .filter((x) => x.id)
-    .sort(byRateAsc);
+  const buildSortedCandidates = (desiredRate) => {
+    const groupCandidates = filteredGroups
+      .map((g) => ({
+        id: g.tax_group_id,
+        diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
+      }))
+      .sort((a, b) => a.diff - b.diff);
 
-  if (taxCandidates[0]?.diff <= 0.05) return taxCandidates[0].id;
-  return groupCandidates[0]?.id || taxCandidates[0]?.id || null;
+    const taxCandidates = filteredTaxes
+      .map((t) => ({
+        id: t.tax_id,
+        diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
+      }))
+      .sort((a, b) => a.diff - b.diff);
+
+    return { groupCandidates, taxCandidates };
+  };
+
+  // First pass: strict match for any likely desired rate.
+  for (const desiredRate of desiredRates) {
+    const { groupCandidates, taxCandidates } = buildSortedCandidates(desiredRate);
+    if (groupCandidates[0]?.diff <= 0.05) return groupCandidates[0].id;
+    if (taxCandidates[0]?.diff <= 0.05) return taxCandidates[0].id;
+  }
+
+  // Second pass: pick nearest candidate, preserving desired rate priority.
+  for (const desiredRate of desiredRates) {
+    const { groupCandidates, taxCandidates } = buildSortedCandidates(desiredRate);
+    if (groupCandidates[0]?.id) return groupCandidates[0].id;
+    if (taxCandidates[0]?.id) return taxCandidates[0].id;
+  }
+
+  return null;
 }
 
 const pickDefined = (obj = {}, keys = []) => {
@@ -465,9 +473,17 @@ export const pushBillToZoho = async (zohoClient, bill) => {
         ...payload,
         line_items: (payload.line_items || []).map((item) => ({
           ...item,
-          ...(interstateTaxId ? { tax_id: interstateTaxId } : item?.tax_id ? { tax_id: item.tax_id } : {}),
+          ...(interstateTaxId ? { tax_id: interstateTaxId } : {}),
         })),
       };
+
+      if (!interstateTaxId) {
+        patched.line_items = (patched.line_items || []).map((item) => {
+          const { tax_id, ...rest } = item;
+          return rest;
+        });
+        delete patched.taxes;
+      }
 
       try {
         return await zohoClient.post("/bills", patched, idempotencyKey);
