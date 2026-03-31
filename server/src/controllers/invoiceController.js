@@ -1,5 +1,5 @@
 import { pushInvoiceToZoho } from "../services/zohoInvoiceService.js";
-import { pushExpenseToZoho } from "../services/zohoExpenseService.js";
+import { pushBillToZoho } from "../services/zohoBillService.js";
 import { getOrCreateZohoItem } from "../services/zohoItemService.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { r2 } from "../services/r2Client.js";
@@ -29,7 +29,7 @@ export const syncInvoiceToZoho = asynchandler(async (req, res) => {
 
   let result;
   if (isExpenseLike) {
-    result = await pushExpenseToZoho(req.zoho, invoice);
+    result = await pushBillToZoho(req.zoho, invoice);
   } else {
     result = await pushInvoiceToZoho(req.zoho, invoice);
   }
@@ -39,7 +39,8 @@ export const syncInvoiceToZoho = asynchandler(async (req, res) => {
 
   res.json({
     success: true,
-    zohoInvoiceId: result.invoice_id || result.expense?.expense_id || result.expense_id,
+    zohoInvoiceId: result.invoice_id || result.bill?.bill_id || result.bill_id,
+    zohoBillId: result.bill?.bill_id || result.bill_id || null,
     deletedSourceFile,
   });
 });
