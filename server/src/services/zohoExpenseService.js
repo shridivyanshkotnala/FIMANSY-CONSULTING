@@ -1,3 +1,5 @@
+import * as zohoGst from "../utils/zohoGstState.js";
+
 const normalizeText = (value = "") =>
   String(value || "")
     .toLowerCase()
@@ -415,29 +417,40 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
 }
 
 export async function pushExpenseToZoho(zohoClient, expenseData) {
-  const placeOfSupply = normalizePlaceOfSupply(expenseData.place_of_supply);
+  const placeOfSupply = zohoGst.normalizePlaceOfSupply(expenseData.place_of_supply);
+  const explicitSourceOfSupply = zohoGst.normalizePlaceOfSupply(expenseData.source_of_supply);
+  const explicitDestinationOfSupply = zohoGst.normalizePlaceOfSupply(expenseData.destination_of_supply);
+  const normalizedSourceOfSupply = explicitSourceOfSupply.alpha || undefined;
+  const normalizedDestinationOfSupply = explicitDestinationOfSupply.alpha || undefined;
   const gstNo = String(expenseData.vendor_gstin || "").replace(/\s+/g, "").toUpperCase();
 
-  const orgGstState = await resolveOrganizationGstStateCode(zohoClient);
-  const vendorGstState = extractGstStateCode(gstNo);
-  const posNumericState = placeOfSupply?.numeric;
-  const destinationNumericState = orgGstState || posNumericState;
+  const orgGstState = await zohoGst.resolveOrganizationGstStateCode(zohoClient);
+  const vendorGstState = zohoGst.extractGstStateCode(gstNo);
+  const sourceNumericState =
+    explicitSourceOfSupply.numeric ||
+    vendorGstState ||
+    placeOfSupply.numeric;
+  const destinationNumericState =
+    explicitDestinationOfSupply.numeric ||
+    orgGstState;
   const isInterstateByState = Boolean(
-    vendorGstState && destinationNumericState && vendorGstState !== destinationNumericState
+    sourceNumericState && destinationNumericState && sourceNumericState !== destinationNumericState
   );
   const amountBasedMode = inferTaxModeFromAmounts(expenseData);
 
   const taxMode =
-    vendorGstState && destinationNumericState
+    sourceNumericState && destinationNumericState
       ? (isInterstateByState ? "interstate" : "intrastate")
       : amountBasedMode || "auto";
 
-  const vendorSourceOfSupply = vendorGstState ? GST_STATE_CODE_TO_POS[vendorGstState] : undefined;
-  const destinationOfSupply =
-    (destinationNumericState && GST_STATE_CODE_TO_POS[destinationNumericState]) ||
-    placeOfSupply?.alpha ||
+  const sourceOfSupply =
+    normalizedSourceOfSupply ||
+    (sourceNumericState && zohoGst.GST_STATE_CODE_TO_POS[sourceNumericState]) ||
     undefined;
-  const sourceOfSupply = vendorSourceOfSupply || destinationOfSupply;
+  const destinationOfSupply =
+    normalizedDestinationOfSupply ||
+    (destinationNumericState && zohoGst.GST_STATE_CODE_TO_POS[destinationNumericState]) ||
+    undefined;
 
   const accountId = await resolveExpenseAccountId(zohoClient, expenseData.expense_account);
   const paidThroughAccountId = await resolvePaidThroughAccountId(zohoClient, expenseData.payment_mode);
