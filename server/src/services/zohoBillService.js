@@ -1,4 +1,5 @@
 import { getOrCreateZohoVendor } from "./zohoContactService.js";
+import { pushExpenseToZoho } from "./zohoExpenseService.js";
 
 const normalizeText = (value = "") =>
   String(value || "")
@@ -289,15 +290,21 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
   const filteredGroups = taxGroups.filter((g) => g?.tax_group_id && matchesMode(g) && isPurchaseTaxObject(g));
   const filteredTaxes = taxes.filter((t) => t?.tax_id && matchesMode(t) && isPurchaseTaxObject(t));
 
-  const buildSortedCandidates = (desiredRate) => {
-    const groupCandidates = filteredGroups
+  const modeOnlyGroups = taxGroups.filter((g) => g?.tax_group_id && matchesMode(g));
+  const modeOnlyTaxes = taxes.filter((t) => t?.tax_id && matchesMode(t));
+
+  const anyGroups = taxGroups.filter((g) => g?.tax_group_id);
+  const anyTaxes = taxes.filter((t) => t?.tax_id);
+
+  const buildSortedCandidates = (desiredRate, groups, items) => {
+    const groupCandidates = groups
       .map((g) => ({
         id: g.tax_group_id,
         diff: Math.abs(Number(g.tax_group_percentage || 0) - desiredRate),
       }))
       .sort((a, b) => a.diff - b.diff);
 
-    const taxCandidates = filteredTaxes
+    const taxCandidates = items
       .map((t) => ({
         id: t.tax_id,
         diff: Math.abs(Number(t.tax_percentage || 0) - desiredRate),
@@ -307,19 +314,35 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
     return { groupCandidates, taxCandidates };
   };
 
-  // First pass: strict match for any likely desired rate.
-  for (const desiredRate of desiredRates) {
-    const { groupCandidates, taxCandidates } = buildSortedCandidates(desiredRate);
-    if (groupCandidates[0]?.diff <= 0.05) return groupCandidates[0].id;
-    if (taxCandidates[0]?.diff <= 0.05) return taxCandidates[0].id;
-  }
+  const pickFromPools = (groups, items) => {
+    // First pass: strict rate match.
+    for (const desiredRate of desiredRates) {
+      const { groupCandidates, taxCandidates } = buildSortedCandidates(desiredRate, groups, items);
+      if (groupCandidates[0]?.diff <= 0.05) return groupCandidates[0].id;
+      if (taxCandidates[0]?.diff <= 0.05) return taxCandidates[0].id;
+    }
 
-  // Second pass: pick nearest candidate, preserving desired rate priority.
-  for (const desiredRate of desiredRates) {
-    const { groupCandidates, taxCandidates } = buildSortedCandidates(desiredRate);
-    if (groupCandidates[0]?.id) return groupCandidates[0].id;
-    if (taxCandidates[0]?.id) return taxCandidates[0].id;
-  }
+    // Second pass: nearest rate.
+    for (const desiredRate of desiredRates) {
+      const { groupCandidates, taxCandidates } = buildSortedCandidates(desiredRate, groups, items);
+      if (groupCandidates[0]?.id) return groupCandidates[0].id;
+      if (taxCandidates[0]?.id) return taxCandidates[0].id;
+    }
+
+    return null;
+  };
+
+  // Pool 1: mode + purchase
+  const fromStrict = pickFromPools(filteredGroups, filteredTaxes);
+  if (fromStrict) return fromStrict;
+
+  // Pool 2: mode only (ignore purchase/sales label quality issues)
+  const fromModeOnly = pickFromPools(modeOnlyGroups, modeOnlyTaxes);
+  if (fromModeOnly) return fromModeOnly;
+
+  // Pool 3: any tax object (last fallback)
+  const fromAny = pickFromPools(anyGroups, anyTaxes);
+  if (fromAny) return fromAny;
 
   return null;
 }
@@ -549,7 +572,21 @@ export const pushBillToZoho = async (zohoClient, bill) => {
         delete minimal.source_of_supply;
         delete minimal.destination_of_supply;
 
-        return await zohoClient.post("/bills", minimal, idempotencyKey);
+        try {
+          return await zohoClient.post("/bills", minimal, idempotencyKey);
+        } catch (lastBillError) {
+          const finalMessage = String(lastBillError?.message || "").toLowerCase();
+          const stillInterstateHardFail =
+            finalMessage.includes("igst has to be applied") ||
+            finalMessage.includes("interstate transaction");
+
+          if (!stillInterstateHardFail) {
+            throw lastBillError;
+          }
+
+          // Ultimate fallback: create as expense so user flow is not blocked by strict bill GST constraints.
+          return await pushExpenseToZoho(zohoClient, bill);
+        }
       }
     }
 

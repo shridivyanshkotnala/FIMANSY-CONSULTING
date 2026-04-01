@@ -41,6 +41,7 @@ export const syncInvoiceToZoho = asynchandler(async (req, res) => {
     success: true,
     zohoInvoiceId: result.invoice_id || result.bill?.bill_id || result.bill_id,
     zohoBillId: result.bill?.bill_id || result.bill_id || null,
+    zohoExpenseId: result.expense?.expense_id || result.expense_id || null,
     deletedSourceFile,
   });
 });
