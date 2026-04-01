@@ -508,6 +508,8 @@ export const pushBillToZoho = async (zohoClient, bill) => {
         })),
       };
 
+      delete patched.taxes;
+
       if (!interstateTaxId) {
         patched.line_items = (patched.line_items || []).map((item) => {
           const { tax_id, ...rest } = item;
@@ -529,6 +531,7 @@ export const pushBillToZoho = async (zohoClient, bill) => {
         }
 
         // Last resort to avoid hard failure when tax mapping is strict in Zoho org.
+        // Convert to non-GST bill payload so creation never blocks on tax mapping.
         const minimal = {
           ...patched,
           line_items: (patched.line_items || []).map((item) => {
@@ -538,6 +541,10 @@ export const pushBillToZoho = async (zohoClient, bill) => {
           is_inclusive_tax: false,
         };
 
+        delete minimal.gst_no;
+        delete minimal.gst_treatment;
+        delete minimal.tax_treatment;
+        delete minimal.taxes;
         delete minimal.place_of_supply;
         delete minimal.source_of_supply;
         delete minimal.destination_of_supply;
