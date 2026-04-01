@@ -233,7 +233,32 @@ async function resolveExpenseTaxId(zohoClient, expenseData, options = {}) {
   const mode = options?.mode || "auto"; // auto | interstate | intrastate
   const itcMode = options?.itcMode || "auto"; // auto | ineligible_others
   const taxableAmount = Number(expenseData.taxable_amount || 0);
-  const totalGst = Number(expenseData.total_gst || 0);
+  const igst = Number(expenseData.igst || 0);
+  const cgst = Number(expenseData.cgst || 0);
+  const sgst = Number(expenseData.sgst || 0);
+  const providedTotalGst = Number(expenseData.total_gst || 0);
+  const intraAmount = cgst + sgst;
+
+  const resolveEffectiveTotalGst = () => {
+    if (igst > 0 && intraAmount > 0) {
+      const dominant = Math.max(igst, intraAmount);
+      const looksDoubleCounted = providedTotalGst > dominant * 1.35;
+      if (looksDoubleCounted || !(providedTotalGst > 0)) return dominant;
+      return providedTotalGst;
+    }
+
+    if (mode === "interstate") {
+      return igst > 0 ? igst : (providedTotalGst > 0 ? providedTotalGst : intraAmount);
+    }
+
+    if (mode === "intrastate") {
+      return intraAmount > 0 ? intraAmount : (providedTotalGst > 0 ? providedTotalGst : igst);
+    }
+
+    return providedTotalGst > 0 ? providedTotalGst : (igst + intraAmount);
+  };
+
+  const totalGst = resolveEffectiveTotalGst();
 
   if (!(taxableAmount > 0) || !(totalGst > 0)) {
     return null;

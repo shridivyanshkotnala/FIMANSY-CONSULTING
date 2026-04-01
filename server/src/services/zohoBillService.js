@@ -198,7 +198,31 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
   const igst = Number(expenseData.igst || 0);
   const cgst = Number(expenseData.cgst || 0);
   const sgst = Number(expenseData.sgst || 0);
-  const totalGst = Number(expenseData.total_gst || (igst + cgst + sgst) || 0);
+  const providedTotalGst = Number(expenseData.total_gst || 0);
+  const intraAmount = cgst + sgst;
+
+  const resolveEffectiveTotalGst = () => {
+    // Common OCR issue: CGST, SGST and IGST all populated for the same bill.
+    // In that case, `total_gst` is often double-counted and causes wrong GST slab selection.
+    if (igst > 0 && intraAmount > 0) {
+      const dominant = Math.max(igst, intraAmount);
+      const looksDoubleCounted = providedTotalGst > dominant * 1.35;
+      if (looksDoubleCounted || !(providedTotalGst > 0)) return dominant;
+      return providedTotalGst;
+    }
+
+    if (mode === "interstate") {
+      return igst > 0 ? igst : (providedTotalGst > 0 ? providedTotalGst : intraAmount);
+    }
+
+    if (mode === "intrastate") {
+      return intraAmount > 0 ? intraAmount : (providedTotalGst > 0 ? providedTotalGst : igst);
+    }
+
+    return providedTotalGst > 0 ? providedTotalGst : (igst + intraAmount);
+  };
+
+  const totalGst = resolveEffectiveTotalGst();
 
   if (!(taxableAmount > 0) || !(totalGst > 0)) {
     return null;
@@ -212,12 +236,11 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
     return Number(pct.toFixed(2));
   };
 
-  const intraAmount = cgst + sgst;
   const desiredRatesRaw =
     mode === "interstate"
-      ? [rateFromAmount(igst), rateFromAmount(intraAmount), rateFromAmount(totalGst)]
+      ? [rateFromAmount(totalGst), rateFromAmount(intraAmount), rateFromAmount(igst)]
       : mode === "intrastate"
-        ? [rateFromAmount(intraAmount), rateFromAmount(igst), rateFromAmount(totalGst)]
+        ? [rateFromAmount(totalGst), rateFromAmount(intraAmount), rateFromAmount(igst)]
         : [rateFromAmount(totalGst), rateFromAmount(intraAmount), rateFromAmount(igst)];
 
   const desiredRates = [...new Set(desiredRatesRaw.filter((r) => Number.isFinite(r) && r > 0))];
@@ -337,6 +360,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     (destinationNumericState && GST_STATE_CODE_TO_POS[destinationNumericState]) ||
     placeOfSupply?.alpha ||
     undefined;
+  const normalizedPlaceOfSupply = destinationOfSupply || placeOfSupply?.alpha || billData.place_of_supply;
 
   const accountId = await resolveExpenseAccountId(zohoClient, billData.expense_account);
   const taxId = await resolveBillTaxId(zohoClient, billData, { mode: taxMode });
@@ -372,7 +396,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     documents: billData.documents,
     source_of_supply: billData.source_of_supply || sourceOfSupply,
     destination_of_supply: billData.destination_of_supply || destinationOfSupply,
-    place_of_supply: billData.place_of_supply || placeOfSupply?.alpha,
+    place_of_supply: normalizedPlaceOfSupply,
     permit_number: billData.permit_number,
     gst_treatment: billData.gst_treatment || (gstNo ? "business_gst" : undefined),
     tax_treatment: billData.tax_treatment,
@@ -469,9 +493,16 @@ export const pushBillToZoho = async (zohoClient, bill) => {
 
     if (interstateTaxError) {
       const interstateTaxId = await resolveBillTaxId(zohoClient, bill, { mode: "interstate" });
-      const patched = {
+      const alignedInterstatePayload = {
         ...payload,
-        line_items: (payload.line_items || []).map((item) => ({
+        ...(payload.source_of_supply ? { source_of_supply: payload.source_of_supply } : {}),
+        ...(payload.destination_of_supply ? { destination_of_supply: payload.destination_of_supply } : {}),
+        ...(payload.destination_of_supply ? { place_of_supply: payload.destination_of_supply } : {}),
+      };
+
+      const patched = {
+        ...alignedInterstatePayload,
+        line_items: (alignedInterstatePayload.line_items || []).map((item) => ({
           ...item,
           ...(interstateTaxId ? { tax_id: interstateTaxId } : {}),
         })),
@@ -506,6 +537,10 @@ export const pushBillToZoho = async (zohoClient, bill) => {
           }),
           is_inclusive_tax: false,
         };
+
+        delete minimal.place_of_supply;
+        delete minimal.source_of_supply;
+        delete minimal.destination_of_supply;
 
         return await zohoClient.post("/bills", minimal, idempotencyKey);
       }
