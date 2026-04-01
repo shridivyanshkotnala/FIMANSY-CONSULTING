@@ -562,10 +562,10 @@ export const pushBillToZoho = async (zohoClient, bill) => {
             return rest;
           }),
           is_inclusive_tax: false,
+          gst_treatment: "business_none",
         };
 
         delete minimal.gst_no;
-        delete minimal.gst_treatment;
         delete minimal.tax_treatment;
         delete minimal.taxes;
         delete minimal.place_of_supply;

@@ -528,7 +528,6 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
         // Hard fallback: post non-tax payload so expense creation is not blocked.
         const {
           gst_no,
-          gst_treatment,
           tax_id,
           place_of_supply,
           source_of_supply,
@@ -541,6 +540,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
           {
             ...minimalPayload,
             is_inclusive_tax: false,
+            gst_treatment: "out_of_scope",
           },
           idempotencyKey
         );
@@ -575,7 +575,6 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
         // Expense gets posted; GST can be adjusted in Zoho if needed.
         const {
           gst_no,
-          gst_treatment,
           tax_id,
           place_of_supply,
           source_of_supply,
@@ -588,6 +587,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
           {
             ...minimalInterstatePayload,
             is_inclusive_tax: false,
+            gst_treatment: "out_of_scope",
           },
           idempotencyKey
         );
