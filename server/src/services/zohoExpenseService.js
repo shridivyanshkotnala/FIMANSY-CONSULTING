@@ -472,10 +472,10 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
     ...(!gstNo && placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
   };
 
-  const idempotencyKey = `expense-${expenseData.invoice_number || Date.now()}`;
+  const idempotencyBaseKey = `expense-${expenseData.invoice_number || Date.now()}`;
 
   try {
-    return await zohoClient.post("/expenses", payload, idempotencyKey);
+    return await zohoClient.post("/expenses", payload, idempotencyBaseKey);
   } catch (error) {
     const message = String(error?.message || "").toLowerCase();
     const invalidPos = message.includes("invalid element place_of_supply");
@@ -523,7 +523,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
       }
 
       try {
-        return await zohoClient.post("/expenses", itcPayload, idempotencyKey);
+        return await zohoClient.post("/expenses", itcPayload, `${idempotencyBaseKey}-itc-ineligible`);
       } catch {
         // Hard fallback: post non-tax payload so expense creation is not blocked.
         const {
@@ -542,7 +542,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
             is_inclusive_tax: false,
             gst_treatment: "out_of_scope",
           },
-          idempotencyKey
+          `${idempotencyBaseKey}-itc-minimal`
         );
       }
     }
@@ -560,7 +560,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
       }
 
       try {
-        return await zohoClient.post("/expenses", interstatePayload, idempotencyKey);
+        return await zohoClient.post("/expenses", interstatePayload, `${idempotencyBaseKey}-interstate`);
       } catch (thirdError) {
         const thirdMessage = String(thirdError?.message || "").toLowerCase();
         const stillInterstateIssue =
@@ -589,7 +589,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
             is_inclusive_tax: false,
             gst_treatment: "out_of_scope",
           },
-          idempotencyKey
+          `${idempotencyBaseKey}-interstate-minimal`
         );
       }
     }
@@ -613,7 +613,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
           ...minimalPayload,
           is_inclusive_tax: false,
         },
-        idempotencyKey
+        `${idempotencyBaseKey}-tax-meta-minimal`
       );
     }
 
@@ -623,7 +623,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
         destination_of_supply,
         ...payloadWithoutSupply
       } = payload;
-      return await zohoClient.post("/expenses", payloadWithoutSupply, idempotencyKey);
+      return await zohoClient.post("/expenses", payloadWithoutSupply, `${idempotencyBaseKey}-no-supply`);
     }
 
     // Fallback 1: try numeric GST state code if available (e.g., 27).
@@ -633,7 +633,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
         place_of_supply: placeOfSupply.numeric,
       };
       try {
-        return await zohoClient.post("/expenses", numericPayload, idempotencyKey);
+        return await zohoClient.post("/expenses", numericPayload, `${idempotencyBaseKey}-numeric-pos`);
       } catch (secondError) {
         const secondMessage = String(secondError?.message || "").toLowerCase();
         if (!secondMessage.includes("invalid element place_of_supply")) {
@@ -644,6 +644,6 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
 
     // Fallback 2: omit place_of_supply entirely when Zoho rejects it.
     const { place_of_supply, ...payloadWithoutPos } = payload;
-    return await zohoClient.post("/expenses", payloadWithoutPos, idempotencyKey);
+    return await zohoClient.post("/expenses", payloadWithoutPos, `${idempotencyBaseKey}-no-pos`);
   }
 }

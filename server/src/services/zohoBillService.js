@@ -496,10 +496,10 @@ export const pushBillToZoho = async (zohoClient, bill) => {
     vendor_id: vendorId,
   });
 
-  const idempotencyKey = `bill-${bill.invoice_number || bill.bill_number || bill._id || Date.now()}`;
+  const idempotencyBaseKey = `bill-${bill.invoice_number || bill.bill_number || bill._id || Date.now()}`;
 
   try {
-    return await zohoClient.post("/bills", payload, idempotencyKey);
+    return await zohoClient.post("/bills", payload, idempotencyBaseKey);
   } catch (error) {
     const message = String(error?.message || "").toLowerCase();
     const interstateTaxError =
@@ -542,7 +542,7 @@ export const pushBillToZoho = async (zohoClient, bill) => {
       }
 
       try {
-        return await zohoClient.post("/bills", patched, idempotencyKey);
+        return await zohoClient.post("/bills", patched, `${idempotencyBaseKey}-interstate`);
       } catch (retryError) {
         const retryMessage = String(retryError?.message || "").toLowerCase();
         const stillInterstateIssue =
@@ -573,7 +573,7 @@ export const pushBillToZoho = async (zohoClient, bill) => {
         delete minimal.destination_of_supply;
 
         try {
-          return await zohoClient.post("/bills", minimal, idempotencyKey);
+          return await zohoClient.post("/bills", minimal, `${idempotencyBaseKey}-minimal-nogst`);
         } catch (lastBillError) {
           const finalMessage = String(lastBillError?.message || "").toLowerCase();
           const stillInterstateHardFail =
@@ -595,6 +595,6 @@ export const pushBillToZoho = async (zohoClient, bill) => {
     delete withoutSupply.destination_of_supply;
     if (invalidPos) delete withoutSupply.place_of_supply;
 
-    return await zohoClient.post("/bills", withoutSupply, idempotencyKey);
+    return await zohoClient.post("/bills", withoutSupply, `${idempotencyBaseKey}-no-supply`);
   }
 };
