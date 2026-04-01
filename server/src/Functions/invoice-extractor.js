@@ -237,7 +237,7 @@ async function callGroq({ buffer, mimeType }) {
    CLEAN JSON RESPONSE
 ========================= */
 function parseAIJSON(content) {
-  let cleanContent = content.trim();
+  let cleanContent = String(content || "").trim();
 
   if (cleanContent.startsWith("```json")) cleanContent = cleanContent.slice(7);
   else if (cleanContent.startsWith("```")) cleanContent = cleanContent.slice(3);
@@ -246,9 +246,50 @@ function parseAIJSON(content) {
   cleanContent = cleanContent.trim();
 
   const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("No valid JSON found");
+  if (!jsonMatch) throw new Error("No valid JSON object found in AI response");
 
-  return JSON.parse(jsonMatch[0]);
+  const rawJSON = jsonMatch[0]
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+
+  return JSON.parse(rawJSON);
+}
+
+async function repairAIJSON(content) {
+  const groq = getGroqClient();
+  const candidateModels = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+
+  for (const model of candidateModels) {
+    try {
+      const response = await groq.chat.completions.create({
+        model,
+        temperature: 0,
+        max_tokens: 2200,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You repair malformed JSON. Return only one valid JSON object. Use strict JSON with double-quoted keys and string values.",
+          },
+          {
+            role: "user",
+            content: `Fix this malformed JSON and return only valid JSON:\n\n${String(content || "")}`,
+          },
+        ],
+      });
+
+      const repairedText = String(response?.choices?.[0]?.message?.content || "").trim();
+      if (!repairedText) continue;
+
+      return parseAIJSON(repairedText);
+    } catch {
+      // try next model
+    }
+  }
+
+  throw new ApiError(502, "AI returned malformed JSON and automatic repair failed");
 }
 
 
@@ -268,7 +309,12 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
   const aiContent = await callGroq({ buffer, mimeType: mime });
 
   // 3️⃣ Parse AI JSON
-  const extractedData = parseAIJSON(aiContent);
+  let extractedData;
+  try {
+    extractedData = parseAIJSON(aiContent);
+  } catch {
+    extractedData = await repairAIJSON(aiContent);
+  }
 
   const validCategories = ['expense', 'revenue', 'asset', 'liability'];
   const documentCategory = validCategories.includes((extractedData.document_category || '').toLowerCase())
