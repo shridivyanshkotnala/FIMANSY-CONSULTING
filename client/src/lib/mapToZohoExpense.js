@@ -76,6 +76,7 @@ export function mapToZohoExpense(aiInvoice) {
     tds_nature: aiInvoice.tds_nature,
     tds_section: aiInvoice.tds_section,
     tds_rate: aiInvoice.tds_rate == null ? null : Number(aiInvoice.tds_rate),
+    tds_amount: aiInvoice.tds_amount || 0,
     tds_tax_name: aiInvoice.tds_tax_name,
     tds_tax_id: aiInvoice.tds_tax_id || null,
     tds_reasoning: aiInvoice.tds_reasoning,

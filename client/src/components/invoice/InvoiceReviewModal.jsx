@@ -391,6 +391,19 @@ export function InvoiceReviewModal({
                   <span className="text-muted-foreground">Total GST</span>
                   <span className="font-medium">{formatCurrency(invoice.total_gst)}</span>
                 </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">TDS Amount</span>
+                  <div className="w-1/3">
+                    <Input
+                      id="tds_amount"
+                      type="number"
+                      step="0.01"
+                      className="text-right h-8"
+                      value={invoice.tds_amount ?? 0}
+                      onChange={(event) => handleNumberChange("tds_amount", event.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="flex items-center justify-between text-lg font-bold">
                   <span>Total Amount</span>
                   <span className="text-primary">{formatCurrency(invoice.total_with_gst)}</span>

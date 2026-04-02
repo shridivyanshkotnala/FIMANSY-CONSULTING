@@ -57,9 +57,10 @@ Then extract these fields:
 21. expense_account_group: "expense" or "cost_of_goods_sold"
 22. payment_mode: "Cash", "Bank Transfer", "Credit Card", "UPI", "Cheque"
 23. tds_nature: One of "commission_brokerage", "professional_fees", "technical_services", "rent", "contractor", "interest_other_than_securities", or "none"
-24. tds_reasoning: Explain the TDS treatment
-25. gst_reasoning: Explain the GST treatment
-26. confidence: Your confidence score from 0 to 100
+24. tds_amount: Provide the exact TDS amount deducted on this invoice if explicitly visible on the document. If no TDS amount is shown, provide 0.
+25. tds_reasoning: Explain the TDS treatment (Assume the vendor/customer always has a PAN card, so do not apply the 20% rate. Only apply normal category rates like 2% or 10%).
+26. gst_reasoning: Explain the GST treatment
+27. confidence: Your confidence score from 0 to 100
 
 Vendor tax rules:
 - vendor_gstin must only contain the seller/vendor's Indian 15-character GSTIN.
@@ -382,6 +383,7 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     expense_account_group: normalizedAccount.accountGroup,
     payment_mode: extractedData.payment_mode || null,
     is_tds_applicable: normalizedTds.isTdsApplicable,
+    tds_amount: Number(extractedData.tds_amount) || 0,
     tds_nature: normalizedTds.tdsNature,
     tds_section: normalizedTds.tdsSection,
     tds_rate: normalizedTds.tdsRate,
