@@ -2,6 +2,7 @@ import { getOrCreateZohoVendor } from "./zohoContactService.js";
 import { pushExpenseToZoho } from "./zohoExpenseService.js";
 import { resolveOrCreateZohoBillAccount } from "./zohoAccountService.js";
 import * as zohoGst from "../utils/zohoGstState.js";
+import { pickMatchingZohoTds, resolveSuggestedBillTds } from "../utils/zohoTds.js";
 
 const normalizeText = (value = "") =>
   String(value || "")
@@ -195,6 +196,17 @@ async function resolveExpenseAccountId(zohoClient, preferredName) {
   return (matched || accounts[0]).account_id;
 }
 
+async function getZohoTaxesData(zohoClient) {
+  try {
+    return await zohoClient.get("/settings/taxes", {
+      page: 1,
+      per_page: 200,
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
   const mode = options?.mode || "auto"; // auto | interstate | intrastate
   const taxableAmount = Number(expenseData.taxable_amount || 0);
@@ -249,13 +261,8 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
   const desiredRates = [...new Set(desiredRatesRaw.filter((r) => Number.isFinite(r) && r > 0))];
   if (!desiredRates.length) return null;
 
-  let taxData;
-  try {
-    taxData = await zohoClient.get("/settings/taxes", {
-      page: 1,
-      per_page: 200,
-    });
-  } catch {
+  const taxData = options?.taxData || await getZohoTaxesData(zohoClient);
+  if (!taxData) {
     return null;
   }
 
@@ -349,6 +356,75 @@ async function resolveBillTaxId(zohoClient, expenseData, options = {}) {
   return null;
 }
 
+async function resolveBillTdsSelection(zohoClient, billData, options = {}) {
+  const description = Array.isArray(billData.line_items)
+    ? billData.line_items
+        .map((item) => item?.description || item?.name)
+        .filter(Boolean)
+        .join(" | ")
+    : (billData.notes || billData.gst_reasoning || "");
+
+  const resolvedTds = resolveSuggestedBillTds({
+    tdsNature: billData.tds_nature,
+    tdsReasoning: billData.tds_reasoning,
+    expenseAccount: billData.expense_account,
+    expenseAccountGroup: billData.expense_account_group,
+    taxableAmount: billData.taxable_amount,
+    totalAmount: billData.total_with_gst,
+    description,
+    vendorName: billData.vendor_name,
+    tdsApplicable: typeof billData.is_tds_applicable === "boolean" ? billData.is_tds_applicable : undefined,
+    tdsTaxName: billData.tds_tax_name,
+    tdsTaxId: billData.tds_tax_id,
+    manualOverride: Boolean(billData.tds_manual_override || billData.tds_tax_id),
+  });
+
+  if (!resolvedTds.isTdsApplicable) {
+    return resolvedTds;
+  }
+
+  if (resolvedTds.tdsTaxId) {
+    return resolvedTds;
+  }
+
+  const taxData = options?.taxData || await getZohoTaxesData(zohoClient);
+  if (!taxData) {
+    throw new Error(`Unable to fetch Zoho taxes to resolve TDS for ${resolvedTds.tdsTaxName || resolvedTds.tdsNature || "this bill"}.`);
+  }
+
+  const catalog = [
+    ...(taxData?.tax_groups || []).map((group) => ({
+      ...group,
+      id: group.tax_group_id,
+      name: group.tax_group_name,
+      percentage: Number(group.tax_group_percentage || 0),
+    })),
+    ...(taxData?.taxes || []).map((tax) => ({
+      ...tax,
+      id: tax.tax_id,
+      name: tax.tax_name,
+      percentage: Number(tax.tax_percentage || 0),
+    })),
+  ];
+
+  const matchedTds = pickMatchingZohoTds(catalog, resolvedTds);
+  if (!matchedTds) {
+    throw new Error(
+      `No matching Zoho TDS tax found for ${resolvedTds.tdsTaxName || resolvedTds.tdsNature || "the detected bill nature"}. Configure it in Zoho Manage TDS or choose a different TDS in review.`
+    );
+  }
+
+  return {
+    ...resolvedTds,
+    tdsTaxId: matchedTds.tax_id || matchedTds.tax_group_id || matchedTds.id || null,
+    tdsTaxName:
+      matchedTds.tax_name ||
+      matchedTds.tax_group_name ||
+      matchedTds.name ||
+      resolvedTds.tdsTaxName,
+  };
+}
+
 const pickDefined = (obj = {}, keys = []) => {
   const out = {};
   keys.forEach((key) => {
@@ -415,7 +491,9 @@ export async function buildZohoBillPayload(zohoClient, billData) {
   });
   const accountId = resolvedAccount.accountId;
   const accountName = resolvedAccount.accountName;
-  const taxId = await resolveBillTaxId(zohoClient, billData, { mode: taxMode });
+  const taxData = await getZohoTaxesData(zohoClient);
+  const taxId = await resolveBillTaxId(zohoClient, billData, { mode: taxMode, taxData });
+  const tdsSelection = await resolveBillTdsSelection(zohoClient, billData, { taxData });
 
   const taxableAmount = Number(billData.taxable_amount || 0);
   const grossAmount = Number(billData.total_with_gst || billData.taxable_amount || 0);
@@ -424,7 +502,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     throw new Error("Bill amount must be greater than zero");
   }
 
-  const lineItems = Array.isArray(billData.line_items) && billData.line_items.length
+  const baseLineItems = Array.isArray(billData.line_items) && billData.line_items.length
     ? billData.line_items
     : [
         {
@@ -432,12 +510,32 @@ export async function buildZohoBillPayload(zohoClient, billData) {
           name: String(accountName || billData.expense_account || "Imported Expense").trim(),
           description:
             billData.gst_reasoning ||
+            billData.tds_reasoning ||
             `${billData.vendor_name || "Vendor"} - ${billData.invoice_number || "Bill"}`,
           quantity: 1,
           rate: isInclusiveTax ? grossAmount : (taxableAmount > 0 ? taxableAmount : grossAmount),
           ...(taxId ? { tax_id: taxId } : {}),
         },
       ];
+
+  const lineItems = baseLineItems.map((item) => {
+    const nextItem = { ...item };
+
+    if (tdsSelection.isTdsApplicable && tdsSelection.tdsTaxId) {
+      nextItem.tds_tax_id = tdsSelection.tdsTaxId;
+    } else {
+      delete nextItem.tds_tax_id;
+    }
+
+    return nextItem;
+  });
+
+  const autoNotes = [
+    billData.gst_reasoning,
+    tdsSelection.isTdsApplicable ? tdsSelection.tdsReasoning : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const payload = {
     vendor_id: billData.vendor_id,
@@ -453,6 +551,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     gst_treatment: vendorTaxProfile.gstTreatment,
     tax_treatment: billData.tax_treatment,
     gst_no: gstNo || undefined,
+    is_tds_applied: tdsSelection.isTdsApplicable || undefined,
     pricebook_id: billData.pricebook_id,
     reference_number: billData.reference_number || billData.invoice_number,
     date: toDateString(billData.date || billData.date_of_issue),
@@ -470,7 +569,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     tags: billData.tags,
     line_items: lineItems,
     taxes: billData.taxes,
-    notes: billData.notes || billData.gst_reasoning || "Imported via OCR",
+    notes: billData.notes || autoNotes || "Imported via OCR",
     terms: billData.terms,
     approvers: billData.approvers,
   };
@@ -489,6 +588,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     "gst_treatment",
     "tax_treatment",
     "gst_no",
+    "is_tds_applied",
     "pricebook_id",
     "reference_number",
     "date",
@@ -628,6 +728,16 @@ export const pushBillToZoho = async (zohoClient, bill) => {
 
           if (!stillInterstateHardFail) {
             throw lastBillError;
+          }
+
+          const hasTdsApplied = Boolean(
+            payload.is_tds_applied || (payload.line_items || []).some((item) => item?.tds_tax_id)
+          );
+
+          if (hasTdsApplied) {
+            throw new Error(
+              `Zoho bill creation failed after GST/TDS retries, and the bill will not be downgraded to an expense because TDS must remain attached. ${lastBillError?.message || ""}`.trim()
+            );
           }
 
           // Ultimate fallback: create as expense so user flow is not blocked by strict bill GST constraints.

@@ -7,6 +7,7 @@ import {
   resolveSuggestedExpenseAccount,
 } from "../utils/zohoExpenseAccountCatalog.js";
 import { normalizeIndianGstin } from "../utils/zohoGstState.js";
+import { buildTdsPromptText, resolveSuggestedBillTds } from "../utils/zohoTds.js";
 
 /* =========================
    GROQ INIT
@@ -55,8 +56,10 @@ Then extract these fields:
 20. expense_account: Exact Zoho account name for the bill
 21. expense_account_group: "expense" or "cost_of_goods_sold"
 22. payment_mode: "Cash", "Bank Transfer", "Credit Card", "UPI", "Cheque"
-23. gst_reasoning: Explain the GST treatment
-24. confidence: Your confidence score from 0 to 100
+23. tds_nature: One of "commission_brokerage", "professional_fees", "technical_services", "rent", "contractor", "interest_other_than_securities", or "none"
+24. tds_reasoning: Explain the TDS treatment
+25. gst_reasoning: Explain the GST treatment
+26. confidence: Your confidence score from 0 to 100
 
 Vendor tax rules:
 - vendor_gstin must only contain the seller/vendor's Indian 15-character GSTIN.
@@ -64,6 +67,8 @@ Vendor tax rules:
 - If the vendor is outside India or the document shows a foreign registration number like UEN, VAT ID, or TAX ID, set vendor_gstin to null and fill vendor_country.
 
 ${buildExpenseAccountPromptText()}
+
+${buildTdsPromptText()}
 
 Return ONLY valid JSON with all fields, no other text or markdown.`;
 
@@ -340,6 +345,15 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     expenseAccountGroup: extractedData.expense_account_group,
     documentCategory,
   });
+  const normalizedTds = resolveSuggestedBillTds({
+    tdsNature: extractedData.tds_nature,
+    tdsReasoning: extractedData.tds_reasoning,
+    expenseAccount: normalizedAccount.accountName,
+    expenseAccountGroup: normalizedAccount.accountGroup,
+    taxableAmount: extractedData.taxable_amount,
+    totalAmount: extractedData.total_with_gst,
+    vendorName: extractedData.vendor_name,
+  });
 
   const invoice = {
     organization: orgId,
@@ -367,6 +381,12 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     expense_account: normalizedAccount.accountName,
     expense_account_group: normalizedAccount.accountGroup,
     payment_mode: extractedData.payment_mode || null,
+    is_tds_applicable: normalizedTds.isTdsApplicable,
+    tds_nature: normalizedTds.tdsNature,
+    tds_section: normalizedTds.tdsSection,
+    tds_rate: normalizedTds.tdsRate,
+    tds_tax_name: normalizedTds.tdsTaxName,
+    tds_reasoning: normalizedTds.tdsReasoning,
     gst_reasoning: extractedData.gst_reasoning || null,
     confidence: Number(extractedData.confidence) || 50,
     source_file: fileUrl
