@@ -35,6 +35,16 @@ const DOCUMENT_CATEGORIES = [
   { value: "liability", label: "Liability", color: "bg-purple-100 text-purple-800" },
 ];
 
+const CUSTOM_TDS_OPTIONS = [
+  { value: "commission_brokerage_2", name: "TDS on Commission and Brokerage 2%", nature: "commission_brokerage", percentage: 2, section: "194H" },
+  { value: "professional_fees_10", name: "TDS on Professional Fees 10%", nature: "professional_fees", percentage: 10, section: "194J" },
+  { value: "technical_services_2", name: "TDS on Technical Fees 2%", nature: "technical_services", percentage: 2, section: "194J" },
+  { value: "rent_10", name: "TDS on Rent or Furniture 10%", nature: "rent", percentage: 10, section: "194I" },
+  { value: "contractor_1", name: "TDS on Payment to Contractor (HUF/Indiv) 1%", nature: "contractor", percentage: 1, section: "194C" },
+  { value: "contractor_2", name: "TDS on Payment to Contractor Others 2%", nature: "contractor", percentage: 2, section: "194C" },
+  { value: "interest_other_than_securities_10", name: "TDS on Interest Other than Interest on Securities 10%", nature: "interest_other_than_securities", percentage: 10, section: "194A" },
+];
+
 export function InvoiceReviewModal({
   open,
   onClose,
@@ -307,32 +317,90 @@ export function InvoiceReviewModal({
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="tds_tax">TDS</Label>
-                <Select value={selectedTdsValue} onValueChange={handleTdsChange}>
-                  <SelectTrigger id="tds_tax">
-                    <SelectValue placeholder="Select TDS" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tdsGroups.map((group, index) => (
-                      <SelectGroup key={group.label}>
-                        <SelectLabel>{group.label}</SelectLabel>
-                        {group.options.map((option) => (
-                          <SelectItem key={`${group.label}-${option.value}`} value={option.value}>
-                            {option.label}
+              <div className="space-y-4">
+                <div className="space-y-1.5 flex flex-col">
+                  <Label className="text-sm pb-1">TDS Applicability</Label>
+                  <Select
+                    value={invoice.is_tds_applicable ? "apply" : "none"}
+                    onValueChange={(val) => {
+                      if (val === "none") {
+                        setInvoice((prev) => {
+                          if (!prev) return null;
+                          return {
+                            ...prev,
+                            is_tds_applicable: false,
+                            tds_nature: "none",
+                            tds_section: null,
+                            tds_rate: null,
+                            tds_tax_name: "No TDS",
+                            tds_tax_id: null,
+                            tds_amount: 0,
+                            tds_manual_override: true,
+                          };
+                        });
+                      } else {
+                        // Default selection when setting Apply TDS
+                        const def = CUSTOM_TDS_OPTIONS[0];
+                        setInvoice((prev) => {
+                          if (!prev) return null;
+                          return {
+                            ...prev,
+                            is_tds_applicable: true,
+                            tds_nature: def.nature,
+                            tds_section: def.section,
+                            tds_rate: def.percentage,
+                            tds_tax_name: def.name,
+                            tds_tax_id: null,
+                            tds_manual_override: true,
+                          };
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="tds_appl">
+                      <SelectValue placeholder="Apply TDS?" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Do Not Apply TDS</SelectItem>
+                      <SelectItem value="apply">Apply TDS</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {invoice.is_tds_applicable && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="tds_tax_rate">TDS Rate Category</Label>
+                    <Select
+                      value={invoice.tds_tax_name || ""}
+                      onValueChange={(val) => {
+                        const sel = CUSTOM_TDS_OPTIONS.find(o => o.name === val) || CUSTOM_TDS_OPTIONS[0];
+                        setInvoice((prev) => {
+                          if (!prev) return null;
+                          return {
+                            ...prev,
+                            tds_nature: sel.nature,
+                            tds_section: sel.section,
+                            tds_rate: sel.percentage,
+                            tds_tax_name: sel.name,
+                            tds_tax_id: null,
+                            tds_manual_override: true,
+                          };
+                        });
+                      }}
+                    >
+                      <SelectTrigger id="tds_tax_rate">
+                        <SelectValue placeholder="Select TDS Rate Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CUSTOM_TDS_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.name}>
+                            {opt.name}
                           </SelectItem>
                         ))}
-                        {index < tdsGroups.length - 1 ? <SelectSeparator /> : null}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {(invoice.tds_section || invoice.tds_rate) ? (
-                  <p className="text-xs text-muted-foreground">
-                    {invoice.tds_section ? `Section ${invoice.tds_section}` : "TDS"}
-                    {invoice.tds_rate != null ? ` • ${Number(invoice.tds_rate)}%` : ""}
-                  </p>
-                ) : null}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             </div>
           </div>
