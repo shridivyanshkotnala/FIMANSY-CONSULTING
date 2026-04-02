@@ -410,12 +410,12 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
 //       : 'expense';
 
 //     const normalizedAccount = resolveSuggestedExpenseAccount({
-    expenseAccount: extractedData.expense_account,
-    expenseAccountGroup: extractedData.expense_account_group,
-    documentCategory,
-  });
+//       expenseAccount: extractedData.expense_account,
+//       expenseAccountGroup: extractedData.expense_account_group,
+//       documentCategory,
+//     });
 
-  const invoice = {
+//     const invoice = {
 //       document_category: documentCategory,
 //       invoice_number: extractedData.invoice_number || 'UNKNOWN',
 //       date_of_issue: extractedData.date_of_issue || new Date().toISOString().split('T')[0],
