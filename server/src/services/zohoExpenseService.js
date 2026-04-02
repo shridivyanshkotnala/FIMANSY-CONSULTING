@@ -1,3 +1,4 @@
+import { resolveOrCreateZohoBillAccount } from "./zohoAccountService.js";
 import * as zohoGst from "../utils/zohoGstState.js";
 
 const normalizeText = (value = "") =>
@@ -452,7 +453,12 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
     (destinationNumericState && zohoGst.GST_STATE_CODE_TO_POS[destinationNumericState]) ||
     undefined;
 
-  const accountId = await resolveExpenseAccountId(zohoClient, expenseData.expense_account);
+  const resolvedAccount = await resolveOrCreateZohoBillAccount(zohoClient, {
+    expenseAccount: expenseData.expense_account,
+    expenseAccountGroup: expenseData.expense_account_group,
+    documentCategory: expenseData.document_category,
+  });
+  const accountId = resolvedAccount.accountId;
   const paidThroughAccountId = await resolvePaidThroughAccountId(zohoClient, expenseData.payment_mode);
   const taxId = await resolveExpenseTaxId(zohoClient, expenseData, {
     mode: taxMode,

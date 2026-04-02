@@ -68,6 +68,7 @@ export function mapToZohoExpense(aiInvoice) {
     total_gst: Number(aiInvoice.total_gst) || 0,
     total_with_gst: Number(aiInvoice.total_with_gst) || 0,
     expense_account: aiInvoice.expense_account,
+    expense_account_group: aiInvoice.expense_account_group,
     payment_mode: aiInvoice.payment_mode,
     gst_reasoning: aiInvoice.gst_reasoning,
     confidence: aiInvoice.confidence,

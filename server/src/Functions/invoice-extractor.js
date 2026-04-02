@@ -2,6 +2,10 @@ import axios from "axios";
 import Groq from "groq-sdk";
 import pdf from "pdf-parse/lib/pdf-parse.js";
 import { ApiError } from "../utils/ApiError.js";
+import {
+  buildExpenseAccountPromptText,
+  resolveSuggestedExpenseAccount,
+} from "../utils/zohoExpenseAccountCatalog.js";
 
 /* =========================
    GROQ INIT
@@ -46,10 +50,13 @@ Then extract these fields:
 16. igst: Integrated GST amount (number, 0 if intra-state)
 17. total_gst: Sum of all GST components (number)
 18. total_with_gst: Final invoice amount including GST (number)
-19. expense_account: Suggested category
-20. payment_mode: "Cash", "Bank Transfer", "Credit Card", "UPI", "Cheque"
-21. gst_reasoning: Explain the GST treatment
-22. confidence: Your confidence score from 0 to 100
+19. expense_account: Exact Zoho account name for the bill
+20. expense_account_group: "expense" or "cost_of_goods_sold"
+21. payment_mode: "Cash", "Bank Transfer", "Credit Card", "UPI", "Cheque"
+22. gst_reasoning: Explain the GST treatment
+23. confidence: Your confidence score from 0 to 100
+
+${buildExpenseAccountPromptText()}
 
 Return ONLY valid JSON with all fields, no other text or markdown.`;
 
@@ -321,6 +328,12 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     ? extractedData.document_category.toLowerCase()
     : 'expense';
 
+  const normalizedAccount = resolveSuggestedExpenseAccount({
+    expenseAccount: extractedData.expense_account,
+    expenseAccountGroup: extractedData.expense_account_group,
+    documentCategory,
+  });
+
   const invoice = {
     organization: orgId,
     uploadedBy: userId,
@@ -343,7 +356,8 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     igst: Number(extractedData.igst) || 0,
     total_gst: Number(extractedData.total_gst) || 0,
     total_with_gst: Number(extractedData.total_with_gst) || 0,
-    expense_account: extractedData.expense_account || 'Miscellaneous',
+    expense_account: normalizedAccount.accountName,
+    expense_account_group: normalizedAccount.accountGroup,
     payment_mode: extractedData.payment_mode || null,
     gst_reasoning: extractedData.gst_reasoning || null,
     confidence: Number(extractedData.confidence) || 50,
@@ -395,7 +409,13 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
 //       ? extractedData.document_category.toLowerCase()
 //       : 'expense';
 
-//     const invoice = {
+//     const normalizedAccount = resolveSuggestedExpenseAccount({
+    expenseAccount: extractedData.expense_account,
+    expenseAccountGroup: extractedData.expense_account_group,
+    documentCategory,
+  });
+
+  const invoice = {
 //       document_category: documentCategory,
 //       invoice_number: extractedData.invoice_number || 'UNKNOWN',
 //       date_of_issue: extractedData.date_of_issue || new Date().toISOString().split('T')[0],

@@ -3,15 +3,22 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CheckCircle2, AlertTriangle, FileText, IndianRupee } from "lucide-react";
+import { getZohoAccountGroupByName, getZohoAccountSelectGroups } from "@/lib/zohoExpenseAccounts";
 
 // ---------------- CONSTANT LISTS ----------------
-const EXPENSE_ACCOUNTS = [
-  'Office Supplies','Professional Services','Travel & Conveyance','Utilities','Software & Subscriptions','Equipment','Marketing & Advertising','Rent','Insurance','Maintenance','Sales Revenue','Services Income','Fixed Assets','Inventory','Miscellaneous',
-];
 
 const PAYMENT_MODES = ['Cash','Bank Transfer','Credit Card','UPI','Cheque','NEFT','RTGS','IMPS'];
 
@@ -44,6 +51,18 @@ export function InvoiceReviewModal({ open,onClose,invoice: initialInvoice,pdfUrl
 
   const handleFieldChange = (field, value) => setInvoice(prev => prev ? { ...prev, [field]: value } : null);
 
+  const handleExpenseAccountChange = (value) => {
+    const inferredGroup = getZohoAccountGroupByName(value);
+    setInvoice((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        expense_account: value,
+        ...(inferredGroup ? { expense_account_group: inferredGroup } : {}),
+      };
+    });
+  };
+
   // Recalculate GST totals when numeric fields change
   const handleNumberChange = (field, value) => {
     const numValue = parseFloat(value) || 0;
@@ -61,6 +80,7 @@ export function InvoiceReviewModal({ open,onClose,invoice: initialInvoice,pdfUrl
   // ---------------- DERIVED STATE ----------------
   const isValidTotal = invoice.total_with_gst > 0;
   const confidenceColor = invoice.confidence >= 80 ? 'text-green-600' : invoice.confidence >= 50 ? 'text-yellow-600' : 'text-red-600';
+  const accountGroups = getZohoAccountSelectGroups(invoice.expense_account);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -153,10 +173,20 @@ export function InvoiceReviewModal({ open,onClose,invoice: initialInvoice,pdfUrl
               <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Categorization</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="expense_account">Expense Account</Label>
-                  <Select value={invoice.expense_account||''} onValueChange={(value)=>handleFieldChange('expense_account',value)}>
+                  <Label htmlFor="expense_account">Zoho Account</Label>
+                  <Select value={invoice.expense_account||''} onValueChange={handleExpenseAccountChange}>
                     <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
-                    <SelectContent>{EXPENSE_ACCOUNTS.map(acc=>(<SelectItem key={acc} value={acc}>{acc}</SelectItem>))}</SelectContent>
+                    <SelectContent>
+                      {accountGroups.map((group, index) => (
+                        <SelectGroup key={group.label}>
+                          <SelectLabel>{group.label}</SelectLabel>
+                          {group.options.map((acc) => (
+                            <SelectItem key={`${group.label}-${acc}`} value={acc}>{acc}</SelectItem>
+                          ))}
+                          {index < accountGroups.length - 1 ? <SelectSeparator /> : null}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">

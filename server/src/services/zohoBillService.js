@@ -1,5 +1,6 @@
 import { getOrCreateZohoVendor } from "./zohoContactService.js";
 import { pushExpenseToZoho } from "./zohoExpenseService.js";
+import { resolveOrCreateZohoBillAccount } from "./zohoAccountService.js";
 import * as zohoGst from "../utils/zohoGstState.js";
 
 const normalizeText = (value = "") =>
@@ -396,7 +397,13 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     (destinationNumericState && zohoGst.GST_STATE_CODE_TO_POS[destinationNumericState]) ||
     undefined;
 
-  const accountId = await resolveExpenseAccountId(zohoClient, billData.expense_account);
+  const resolvedAccount = await resolveOrCreateZohoBillAccount(zohoClient, {
+    expenseAccount: billData.expense_account,
+    expenseAccountGroup: billData.expense_account_group,
+    documentCategory: billData.document_category,
+  });
+  const accountId = resolvedAccount.accountId;
+  const accountName = resolvedAccount.accountName;
   const taxId = await resolveBillTaxId(zohoClient, billData, { mode: taxMode });
 
   const taxableAmount = Number(billData.taxable_amount || 0);
@@ -411,7 +418,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     : [
         {
           account_id: accountId,
-          name: String(billData.expense_account || "Imported Expense").trim(),
+          name: String(accountName || billData.expense_account || "Imported Expense").trim(),
           description:
             billData.gst_reasoning ||
             `${billData.vendor_name || "Vendor"} - ${billData.invoice_number || "Bill"}`,
