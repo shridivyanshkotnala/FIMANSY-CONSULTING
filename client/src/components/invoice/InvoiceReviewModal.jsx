@@ -36,13 +36,14 @@ const DOCUMENT_CATEGORIES = [
 ];
 
 const CUSTOM_TDS_OPTIONS = [
-  { value: "commission_brokerage_2", name: "TDS on Commission and Brokerage 2%", nature: "commission_brokerage", percentage: 2, section: "194H" },
-  { value: "professional_fees_10", name: "TDS on Professional Fees 10%", nature: "professional_fees", percentage: 10, section: "194J" },
-  { value: "technical_services_2", name: "TDS on Technical Fees 2%", nature: "technical_services", percentage: 2, section: "194J" },
-  { value: "rent_10", name: "TDS on Rent or Furniture 10%", nature: "rent", percentage: 10, section: "194I" },
+  { value: "commission_brokerage", name: "TDS on Commission and Brokerage 5%", nature: "commission_brokerage", percentage: 5, section: "194H" },
+  { value: "professional_fees", name: "TDS on Professional Fees 10%", nature: "professional_fees", percentage: 10, section: "194J" },
   { value: "contractor_1", name: "TDS on Payment to Contractor (HUF/Indiv) 1%", nature: "contractor", percentage: 1, section: "194C" },
   { value: "contractor_2", name: "TDS on Payment to Contractor Others 2%", nature: "contractor", percentage: 2, section: "194C" },
-  { value: "interest_other_than_securities_10", name: "TDS on Interest Other than Interest on Securities 10%", nature: "interest_other_than_securities", percentage: 10, section: "194A" },
+  { value: "rent_machinery", name: "TDS on Rent for machinery/equipment 2%", nature: "rent", percentage: 2, section: "194I" },
+  { value: "rent_land", name: "TDS on Rent on land/building 10%", nature: "rent", percentage: 10, section: "194I" },
+  { value: "technical_services", name: "TDS on Technical Fees 2%", nature: "technical_services", percentage: 2, section: "194J" },
+  { value: "interest_other_than_securities", name: "TDS on Interest Other than Interest on Securities 10%", nature: "interest_other_than_securities", percentage: 10, section: "194A" },
 ];
 
 export function InvoiceReviewModal({
@@ -89,10 +90,15 @@ export function InvoiceReviewModal({
     const numValue = parseFloat(value) || 0;
     setInvoice((prev) => {
       if (!prev) return null;
-      const updated = { ...prev, [field]: numValue };
-      if (["taxable_amount", "cgst", "sgst", "igst"].includes(field)) {
+      let updated = { ...prev, [field]: numValue };
+      if (["taxable_amount", "cgst", "sgst", "igst", "tds_amount"].includes(field)) {
         updated.total_gst = Number(updated.cgst || 0) + Number(updated.sgst || 0) + Number(updated.igst || 0);
-        updated.total_with_gst = Number(updated.taxable_amount || 0) + Number(updated.total_gst || 0);
+        
+        if (field === "taxable_amount" && updated.is_tds_applicable && updated.tds_rate) {
+          updated.tds_amount = Number((updated.taxable_amount * (updated.tds_rate / 100)).toFixed(2));
+        }
+
+        updated.total_with_gst = Number(updated.taxable_amount || 0) + Number(updated.total_gst || 0) - Number(updated.tds_amount || 0);
       }
       return updated;
     });
@@ -326,7 +332,7 @@ export function InvoiceReviewModal({
                       if (val === "none") {
                         setInvoice((prev) => {
                           if (!prev) return null;
-                          return {
+                          const updated = {
                             ...prev,
                             is_tds_applicable: false,
                             tds_nature: "none",
@@ -337,13 +343,15 @@ export function InvoiceReviewModal({
                             tds_amount: 0,
                             tds_manual_override: true,
                           };
+                          updated.total_with_gst = Number(updated.taxable_amount || 0) + Number(updated.total_gst || 0);
+                          return updated;
                         });
                       } else {
-                        // Default selection when setting Apply TDS
                         const def = CUSTOM_TDS_OPTIONS[0];
                         setInvoice((prev) => {
                           if (!prev) return null;
-                          return {
+                          const calculatedTds = Number(((prev.taxable_amount || 0) * (def.percentage / 100)).toFixed(2));
+                          const updated = {
                             ...prev,
                             is_tds_applicable: true,
                             tds_nature: def.nature,
@@ -351,8 +359,11 @@ export function InvoiceReviewModal({
                             tds_rate: def.percentage,
                             tds_tax_name: def.name,
                             tds_tax_id: null,
+                            tds_amount: calculatedTds,
                             tds_manual_override: true,
                           };
+                          updated.total_with_gst = Number(updated.taxable_amount || 0) + Number(updated.total_gst || 0) - calculatedTds;
+                          return updated;
                         });
                       }
                     }}
@@ -376,15 +387,19 @@ export function InvoiceReviewModal({
                         const sel = CUSTOM_TDS_OPTIONS.find(o => o.name === val) || CUSTOM_TDS_OPTIONS[0];
                         setInvoice((prev) => {
                           if (!prev) return null;
-                          return {
+                          const calculatedTds = Number(((prev.taxable_amount || 0) * (sel.percentage / 100)).toFixed(2));
+                          const updated = {
                             ...prev,
                             tds_nature: sel.nature,
                             tds_section: sel.section,
                             tds_rate: sel.percentage,
                             tds_tax_name: sel.name,
                             tds_tax_id: null,
+                            tds_amount: calculatedTds,
                             tds_manual_override: true,
                           };
+                          updated.total_with_gst = Number(updated.taxable_amount || 0) + Number(updated.total_gst || 0) - calculatedTds;
+                          return updated;
                         });
                       }}
                     >

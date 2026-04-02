@@ -73,6 +73,7 @@ export function mapToZohoExpense(aiInvoice) {
     expense_account_group: aiInvoice.expense_account_group,
     payment_mode: aiInvoice.payment_mode,
     is_tds_applicable: Boolean(aiInvoice.is_tds_applicable),
+    is_inclusive_tax: false,
     tds_nature: aiInvoice.tds_nature,
     tds_section: aiInvoice.tds_section,
     tds_rate: aiInvoice.tds_rate == null ? null : Number(aiInvoice.tds_rate),
