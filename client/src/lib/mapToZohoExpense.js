@@ -60,6 +60,8 @@ export function mapToZohoExpense(aiInvoice) {
     due_date: aiInvoice.due_date,
     vendor_name: aiInvoice.vendor_name,
     vendor_gstin: aiInvoice.vendor_gstin,
+    vendor_city: aiInvoice.vendor_city,
+    vendor_country: aiInvoice.vendor_country,
     place_of_supply: placeOfSupplyCode,
     taxable_amount: Number(aiInvoice.taxable_amount) || 0,
     cgst: Number(aiInvoice.cgst) || 0,

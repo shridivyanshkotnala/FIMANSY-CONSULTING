@@ -6,6 +6,7 @@ import {
   buildExpenseAccountPromptText,
   resolveSuggestedExpenseAccount,
 } from "../utils/zohoExpenseAccountCatalog.js";
+import { normalizeIndianGstin } from "../utils/zohoGstState.js";
 
 /* =========================
    GROQ INIT
@@ -37,24 +38,30 @@ Then extract these fields:
 3. date_of_issue: Date in YYYY-MM-DD format
 4. due_date: Payment due date in YYYY-MM-DD format (if available)
 5. vendor_name: Name of the seller/vendor company
-6. vendor_gstin: Vendor's GST Identification Number (15 characters)
+6. vendor_gstin: Vendor's Indian GSTIN only (15 characters). If the seller is foreign or the document only shows a foreign tax ID/UEN/VAT/customer GST, return null
 7. vendor_city: Vendor's city/location
-8. vendor_gst_registration_status: "registered", "unregistered", or "composition"
-9. vendor_business_type: "B2B" or "B2C"
-10. customer_name: Name of the buyer/customer
-11. customer_city: Customer's city/location
-12. place_of_supply: State where goods/services are supplied
-13. taxable_amount: Total amount before GST (number)
-14. cgst: Central GST amount (number, 0 if inter-state)
-15. sgst: State GST amount (number, 0 if inter-state)
-16. igst: Integrated GST amount (number, 0 if intra-state)
-17. total_gst: Sum of all GST components (number)
-18. total_with_gst: Final invoice amount including GST (number)
-19. expense_account: Exact Zoho account name for the bill
-20. expense_account_group: "expense" or "cost_of_goods_sold"
-21. payment_mode: "Cash", "Bank Transfer", "Credit Card", "UPI", "Cheque"
-22. gst_reasoning: Explain the GST treatment
-23. confidence: Your confidence score from 0 to 100
+8. vendor_country: Vendor's country. For overseas vendors, extract the country name like Singapore
+9. vendor_gst_registration_status: "registered", "unregistered", or "composition"
+10. vendor_business_type: "B2B" or "B2C"
+11. customer_name: Name of the buyer/customer
+12. customer_city: Customer's city/location
+13. place_of_supply: State where goods/services are supplied
+14. taxable_amount: Total amount before GST (number)
+15. cgst: Central GST amount (number, 0 if inter-state)
+16. sgst: State GST amount (number, 0 if inter-state)
+17. igst: Integrated GST amount (number, 0 if intra-state)
+18. total_gst: Sum of all GST components (number)
+19. total_with_gst: Final invoice amount including GST (number)
+20. expense_account: Exact Zoho account name for the bill
+21. expense_account_group: "expense" or "cost_of_goods_sold"
+22. payment_mode: "Cash", "Bank Transfer", "Credit Card", "UPI", "Cheque"
+23. gst_reasoning: Explain the GST treatment
+24. confidence: Your confidence score from 0 to 100
+
+Vendor tax rules:
+- vendor_gstin must only contain the seller/vendor's Indian 15-character GSTIN.
+- Never copy the purchaser/customer GST or customer tax ID into vendor_gstin.
+- If the vendor is outside India or the document shows a foreign registration number like UEN, VAT ID, or TAX ID, set vendor_gstin to null and fill vendor_country.
 
 ${buildExpenseAccountPromptText()}
 
@@ -343,8 +350,9 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     date_of_issue: extractedData.date_of_issue || new Date().toISOString().split('T')[0],
     due_date: extractedData.due_date || null,
     vendor_name: extractedData.vendor_name || 'Unknown Vendor',
-    vendor_gstin: extractedData.vendor_gstin || null,
+    vendor_gstin: normalizeIndianGstin(extractedData.vendor_gstin) || null,
     vendor_city: extractedData.vendor_city || null,
+    vendor_country: extractedData.vendor_country || null,
     vendor_gst_registration_status: extractedData.vendor_gst_registration_status || null,
     vendor_business_type: extractedData.vendor_business_type || null,
     customer_name: extractedData.customer_name || null,

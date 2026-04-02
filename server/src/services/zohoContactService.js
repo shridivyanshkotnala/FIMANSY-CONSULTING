@@ -1,6 +1,6 @@
-export const getOrCreateZohoCustomer = async (zohoClient, customer) => {
+import { normalizeIndianGstin, resolveVendorTaxProfile } from "../utils/zohoGstState.js";
 
-  // search existing
+export const getOrCreateZohoCustomer = async (zohoClient, customer) => {
   const search = await zohoClient.get("/contacts", {
     contact_name: customer.name,
   });
@@ -9,14 +9,13 @@ export const getOrCreateZohoCustomer = async (zohoClient, customer) => {
     return search.contacts[0].contact_id;
   }
 
-  // create
+  const gstNo = normalizeIndianGstin(customer.gstin);
+
   const created = await zohoClient.post("/contacts", {
     contact_name: customer.name,
     company_name: customer.name,
     contact_type: "customer",
-
-    ...(customer.gstin && { gst_no: customer.gstin }),
-
+    ...(gstNo ? { gst_no: gstNo, gst_treatment: "business_gst" } : {}),
     billing_address: {
       state_code: customer.state_code || "DL",
       country: "India",
@@ -51,7 +50,7 @@ export const getOrCreateZohoVendor = async (zohoClient, vendorInput) => {
   });
 
   const contacts = search?.contacts || [];
-  const exact = contacts.find((c) => normalize(c?.contact_name) === normalize(vendorName));
+  const exact = contacts.find((contact) => normalize(contact?.contact_name) === normalize(vendorName));
   if (exact?.contact_id) {
     return exact.contact_id;
   }
@@ -60,24 +59,29 @@ export const getOrCreateZohoVendor = async (zohoClient, vendorInput) => {
     return contacts[0].contact_id;
   }
 
-  const gstNo = String(vendor.gstin || vendor.vendor_gstin || "")
-    .replace(/\s+/g, "")
-    .toUpperCase();
+  const city = String(vendor.city || vendor.vendor_city || "").trim() || undefined;
+  const taxProfile = resolveVendorTaxProfile({
+    gstin: vendor.gstin || vendor.vendor_gstin,
+    gstTreatment: vendor.gst_treatment,
+    city,
+    country: vendor.country || vendor.vendor_country,
+    vendorName,
+    gstReasoning: vendor.gst_reasoning || vendor.gstReasoning,
+  });
+
+  const billingAddress = {
+    ...(city ? { city } : {}),
+    ...(taxProfile.country ? { country: taxProfile.country } : {}),
+  };
 
   const payload = {
     contact_name: vendorName,
     company_name: vendorName,
     contact_type: "vendor",
-    ...(gstNo
-      ? {
-          gst_treatment: "business_gst",
-          gst_no: gstNo,
-        }
-      : {}),
-    billing_address: {
-      city: String(vendor.city || vendor.vendor_city || "").trim() || undefined,
-      country: "India",
-    },
+    gst_treatment: taxProfile.gstTreatment,
+    ...(taxProfile.gstNo ? { gst_no: taxProfile.gstNo } : {}),
+    ...(taxProfile.placeOfContact ? { place_of_contact: taxProfile.placeOfContact } : {}),
+    ...(Object.keys(billingAddress).length ? { billing_address: billingAddress } : {}),
   };
 
   const created = await zohoClient.post("/contacts", payload, `vendor-${vendorName.toLowerCase()}`);

@@ -84,10 +84,106 @@ export const POS_TO_GST_STATE_CODE = Object.entries(GST_STATE_CODE_TO_POS).reduc
   {}
 );
 
-export const extractGstStateCode = (gstin) => {
+const INDIAN_GSTIN_REGEX = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+const COUNTRY_HINTS = [
+  { country: "India", tokens: ["india", "bharat"] },
+  { country: "Singapore", tokens: ["singapore"] },
+  { country: "United States", tokens: ["unitedstates", "unitedstatesofamerica", "usa"] },
+  { country: "United Kingdom", tokens: ["unitedkingdom", "greatbritain", "england", "britain"] },
+  { country: "United Arab Emirates", tokens: ["unitedarabemirates", "uae", "dubai", "abudhabi"] },
+  { country: "Canada", tokens: ["canada"] },
+  { country: "Australia", tokens: ["australia"] },
+  { country: "Germany", tokens: ["germany"] },
+  { country: "France", tokens: ["france"] },
+  { country: "Ireland", tokens: ["ireland"] },
+  { country: "Netherlands", tokens: ["netherlands"] },
+  { country: "Japan", tokens: ["japan"] },
+  { country: "China", tokens: ["china"] },
+  { country: "Hong Kong", tokens: ["hongkong"] },
+  { country: "New Zealand", tokens: ["newzealand"] },
+];
+
+const OVERSEAS_REASON_TOKENS = [
+  "nonresident",
+  "nonresidentcompany",
+  "overseas",
+  "foreign",
+  "outsideindia",
+  "importofservice",
+  "importofservices",
+  "reversecharge",
+];
+
+const normalizeGeoText = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")
+    .trim();
+
+export const normalizeIndianGstin = (gstin) => {
   const cleaned = String(gstin || "").replace(/\s+/g, "").toUpperCase();
+  return INDIAN_GSTIN_REGEX.test(cleaned) ? cleaned : undefined;
+};
+
+export const detectCountryFromText = (value = "") => {
+  const normalized = normalizeGeoText(value);
+  if (!normalized) return undefined;
+
+  const matched = COUNTRY_HINTS.find((entry) =>
+    entry.tokens.some((token) => normalized.includes(token))
+  );
+
+  return matched?.country;
+};
+
+export const extractGstStateCode = (gstin) => {
+  const cleaned = normalizeIndianGstin(gstin) || String(gstin || "").replace(/\s+/g, "").toUpperCase();
   const match = cleaned.match(/^(\d{2})[0-9A-Z]{13}$/);
   return match ? match[1] : undefined;
+};
+
+export const resolveVendorTaxProfile = ({
+  gstin,
+  gstTreatment,
+  city,
+  country,
+  vendorName,
+  gstReasoning,
+} = {}) => {
+  const gstNo = normalizeIndianGstin(gstin);
+  const normalizedReasoning = normalizeGeoText(gstReasoning);
+  const explicitCountry = detectCountryFromText(country);
+  const cityCountry = detectCountryFromText(city);
+  const nameCountry = detectCountryFromText(vendorName);
+  const resolvedCountry = explicitCountry || cityCountry || nameCountry;
+  const normalizedTreatment = String(gstTreatment || "").trim().toLowerCase();
+  const reasoningSuggestsOverseas = OVERSEAS_REASON_TOKENS.some((token) =>
+    normalizedReasoning.includes(token)
+  );
+
+  const isOverseas =
+    normalizedTreatment === "overseas" ||
+    (!gstNo && Boolean((resolvedCountry && resolvedCountry !== "India") || reasoningSuggestsOverseas));
+
+  const effectiveGstTreatment = gstNo
+    ? "business_gst"
+    : isOverseas
+      ? "overseas"
+      : (["business_none", "consumer"].includes(normalizedTreatment)
+          ? normalizedTreatment
+          : "business_none");
+
+  const gstStateCode = gstNo ? extractGstStateCode(gstNo) : undefined;
+
+  return {
+    gstNo,
+    gstTreatment: effectiveGstTreatment,
+    isOverseas,
+    country: resolvedCountry || (isOverseas ? undefined : "India"),
+    gstStateCode,
+    placeOfContact: gstStateCode ? GST_STATE_CODE_TO_POS[gstStateCode] : undefined,
+  };
 };
 
 export const normalizePlaceOfSupply = (value) => {

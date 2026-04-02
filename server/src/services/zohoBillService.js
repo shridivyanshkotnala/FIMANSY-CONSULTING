@@ -365,16 +365,21 @@ export async function buildZohoBillPayload(zohoClient, billData) {
   const explicitDestinationOfSupply = zohoGst.normalizePlaceOfSupply(billData.destination_of_supply);
   const normalizedSourceOfSupply = explicitSourceOfSupply.alpha || undefined;
   const normalizedDestinationOfSupply = explicitDestinationOfSupply.alpha || undefined;
-  const gstNo = String(billData.vendor_gstin || billData.gst_no || "")
-    .replace(/\s+/g, "")
-    .toUpperCase();
+  const vendorTaxProfile = zohoGst.resolveVendorTaxProfile({
+    gstin: billData.vendor_gstin || billData.gst_no,
+    gstTreatment: billData.gst_treatment,
+    city: billData.vendor_city,
+    country: billData.vendor_country,
+    vendorName: billData.vendor_name,
+    gstReasoning: billData.gst_reasoning,
+  });
+  const gstNo = vendorTaxProfile.gstNo;
 
   const orgGstState = await zohoGst.resolveOrganizationGstStateCode(zohoClient);
   const vendorGstState = zohoGst.extractGstStateCode(gstNo);
   const sourceNumericState =
     explicitSourceOfSupply.numeric ||
-    vendorGstState ||
-    placeOfSupply.numeric;
+    (!vendorTaxProfile.isOverseas ? (vendorGstState || placeOfSupply.numeric) : undefined);
   const destinationNumericState =
     explicitDestinationOfSupply.numeric ||
     orgGstState;
@@ -387,15 +392,21 @@ export async function buildZohoBillPayload(zohoClient, billData) {
       ? (isInterstateByState ? "interstate" : "intrastate")
       : amountBasedMode || "auto";
 
-  const sourceOfSupply =
-    normalizedSourceOfSupply ||
-    (sourceNumericState && zohoGst.GST_STATE_CODE_TO_POS[sourceNumericState]) ||
-    placeOfSupply.alpha ||
-    undefined;
-  const destinationOfSupply =
-    normalizedDestinationOfSupply ||
-    (destinationNumericState && zohoGst.GST_STATE_CODE_TO_POS[destinationNumericState]) ||
-    undefined;
+  const sourceOfSupply = vendorTaxProfile.isOverseas
+    ? (normalizedSourceOfSupply || undefined)
+    : (
+        normalizedSourceOfSupply ||
+        (sourceNumericState && zohoGst.GST_STATE_CODE_TO_POS[sourceNumericState]) ||
+        placeOfSupply.alpha ||
+        undefined
+      );
+  const destinationOfSupply = vendorTaxProfile.isOverseas
+    ? (normalizedDestinationOfSupply || undefined)
+    : (
+        normalizedDestinationOfSupply ||
+        (destinationNumericState && zohoGst.GST_STATE_CODE_TO_POS[destinationNumericState]) ||
+        undefined
+      );
 
   const resolvedAccount = await resolveOrCreateZohoBillAccount(zohoClient, {
     expenseAccount: billData.expense_account,
@@ -439,9 +450,9 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     source_of_supply: sourceOfSupply,
     destination_of_supply: destinationOfSupply,
     permit_number: billData.permit_number,
-    gst_treatment: billData.gst_treatment || (gstNo ? "business_gst" : undefined),
+    gst_treatment: vendorTaxProfile.gstTreatment,
     tax_treatment: billData.tax_treatment,
-    gst_no: billData.gst_no || gstNo || undefined,
+    gst_no: gstNo || undefined,
     pricebook_id: billData.pricebook_id,
     reference_number: billData.reference_number || billData.invoice_number,
     date: toDateString(billData.date || billData.date_of_issue),
@@ -502,10 +513,22 @@ export async function buildZohoBillPayload(zohoClient, billData) {
 }
 
 export const pushBillToZoho = async (zohoClient, bill) => {
+  const vendorTaxProfile = zohoGst.resolveVendorTaxProfile({
+    gstin: bill.vendor_gstin || bill.gst_no,
+    gstTreatment: bill.gst_treatment,
+    city: bill.vendor_city,
+    country: bill.vendor_country,
+    vendorName: bill.vendor_name || bill.vendor?.name || bill.vendor,
+    gstReasoning: bill.gst_reasoning,
+  });
+
   const vendorId = bill.vendor_id || (await getOrCreateZohoVendor(zohoClient, {
     name: bill.vendor_name || bill.vendor?.name || bill.vendor,
     gstin: bill.vendor_gstin,
     city: bill.vendor_city,
+    country: bill.vendor_country,
+    gst_treatment: bill.gst_treatment,
+    gst_reasoning: bill.gst_reasoning,
   }));
 
   const payload = await buildZohoBillPayload(zohoClient, {
@@ -586,7 +609,7 @@ export const pushBillToZoho = async (zohoClient, bill) => {
             return rest;
           }),
           is_inclusive_tax: false,
-          gst_treatment: "business_none",
+          gst_treatment: vendorTaxProfile.isOverseas ? "overseas" : "business_none",
         };
 
         delete minimal.gst_no;

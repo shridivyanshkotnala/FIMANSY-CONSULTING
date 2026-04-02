@@ -423,14 +423,21 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
   const explicitDestinationOfSupply = zohoGst.normalizePlaceOfSupply(expenseData.destination_of_supply);
   const normalizedSourceOfSupply = explicitSourceOfSupply.alpha || undefined;
   const normalizedDestinationOfSupply = explicitDestinationOfSupply.alpha || undefined;
-  const gstNo = String(expenseData.vendor_gstin || "").replace(/\s+/g, "").toUpperCase();
+  const vendorTaxProfile = zohoGst.resolveVendorTaxProfile({
+    gstin: expenseData.vendor_gstin || expenseData.gst_no,
+    gstTreatment: expenseData.gst_treatment,
+    city: expenseData.vendor_city,
+    country: expenseData.vendor_country,
+    vendorName: expenseData.vendor_name,
+    gstReasoning: expenseData.gst_reasoning,
+  });
+  const gstNo = vendorTaxProfile.gstNo;
 
   const orgGstState = await zohoGst.resolveOrganizationGstStateCode(zohoClient);
   const vendorGstState = zohoGst.extractGstStateCode(gstNo);
   const sourceNumericState =
     explicitSourceOfSupply.numeric ||
-    vendorGstState ||
-    placeOfSupply.numeric;
+    (!vendorTaxProfile.isOverseas ? (vendorGstState || placeOfSupply.numeric) : undefined);
   const destinationNumericState =
     explicitDestinationOfSupply.numeric ||
     orgGstState;
@@ -444,14 +451,20 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
       ? (isInterstateByState ? "interstate" : "intrastate")
       : amountBasedMode || "auto";
 
-  const sourceOfSupply =
-    normalizedSourceOfSupply ||
-    (sourceNumericState && zohoGst.GST_STATE_CODE_TO_POS[sourceNumericState]) ||
-    undefined;
-  const destinationOfSupply =
-    normalizedDestinationOfSupply ||
-    (destinationNumericState && zohoGst.GST_STATE_CODE_TO_POS[destinationNumericState]) ||
-    undefined;
+  const sourceOfSupply = vendorTaxProfile.isOverseas
+    ? (normalizedSourceOfSupply || undefined)
+    : (
+        normalizedSourceOfSupply ||
+        (sourceNumericState && zohoGst.GST_STATE_CODE_TO_POS[sourceNumericState]) ||
+        undefined
+      );
+  const destinationOfSupply = vendorTaxProfile.isOverseas
+    ? (normalizedDestinationOfSupply || undefined)
+    : (
+        normalizedDestinationOfSupply ||
+        (destinationNumericState && zohoGst.GST_STATE_CODE_TO_POS[destinationNumericState]) ||
+        undefined
+      );
 
   const resolvedAccount = await resolveOrCreateZohoBillAccount(zohoClient, {
     expenseAccount: expenseData.expense_account,
@@ -480,15 +493,15 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
     is_inclusive_tax: true,
     ...(taxId ? { tax_id: taxId } : {}),
     ...(paidThroughAccountId ? { paid_through_account_id: paidThroughAccountId } : {}),
+    ...(vendorTaxProfile.gstTreatment ? { gst_treatment: vendorTaxProfile.gstTreatment } : {}),
+    ...(gstNo ? { gst_no: gstNo } : {}),
     ...(gstNo
       ? {
-          gst_no: gstNo,
-          gst_treatment: "business_gst",
           ...(sourceOfSupply ? { source_of_supply: sourceOfSupply } : {}),
           ...(destinationOfSupply ? { destination_of_supply: destinationOfSupply } : {}),
         }
       : {}),
-    ...(!gstNo && placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
+    ...(!gstNo && !vendorTaxProfile.isOverseas && placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
   };
 
   const idempotencyBaseKey = `expense-${expenseData.invoice_number || Date.now()}`;
