@@ -73,9 +73,6 @@ ${buildTdsPromptText()}
 
 Critical extraction quality rules:
 - Never return placeholder values like "UNKNOWN", "N/A", "-" when the value is visible in the document.
-- The seller/service provider (top-left party, issuing entity) is always vendor_name.
-- The party under labels like "Bill to", "Billed to", "Buyer", "Customer", "Ship to" is customer_name.
-- Never set vendor_name to the Bill To customer entity.
 - For receipts (including foreign SaaS receipts) where GST lines are absent, set cgst=0, sgst=0, igst=0, total_gst=0.
 - For receipts with labels like "Subtotal", "Total", or "Amount paid":
   - taxable_amount should be Subtotal (or Total if subtotal is not separately available)
@@ -148,13 +145,6 @@ const FX_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const INDIAN_GSTIN_REGEX = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/i;
 
-const normalizePartyName = (value = "") =>
-  String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
 const looksMissing = (value) => {
   if (value == null) return true;
   const text = String(value).trim().toLowerCase();
@@ -203,38 +193,8 @@ function deriveInvoiceHintsFromText(text) {
   const source = String(text || "").trim();
   if (!source) return {};
 
-  const lines = source
-    .replace(/[\u2012\u2013\u2014]/g, "-")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+  const lines = source.split("\n").map((l) => l.trim()).filter(Boolean);
   const compact = source.replace(/[ \t]+/g, " ");
-
-  const looksLikePartyName = (value) => {
-    const line = String(value || "").trim();
-    if (!line) return false;
-    if (line.length < 3 || line.length > 90) return false;
-    if (/\d{3,}/.test(line)) return false;
-    if (/^(invoice|receipt|bill|date|due|subtotal|total|amount|description|qty|unit|payment|email|in\s*gst|gstin|gst)\b/i.test(line)) return false;
-    if (/[@]|https?:\/\//i.test(line)) return false;
-    return /[a-z]/i.test(line);
-  };
-
-  const billToIndex = lines.findIndex((line) => /^(bill(ed)?\s*to|buyer|customer|ship\s*to)\b/i.test(line));
-
-  const customerFromBillTo =
-    billToIndex >= 0 && looksLikePartyName(lines[billToIndex + 1])
-      ? lines[billToIndex + 1]
-      : null;
-
-  let vendorFromHeader = null;
-  const headerScanEnd = billToIndex > 0 ? billToIndex : Math.min(lines.length, 30);
-  for (let i = 0; i < headerScanEnd; i += 1) {
-    const line = lines[i];
-    if (!looksLikePartyName(line)) continue;
-    if (/^(bill(ed)?\s*to|buyer|customer|ship\s*to)\b/i.test(line)) continue;
-    vendorFromHeader = line;
-  }
 
   const looksLikeInvoiceNumber = (value) => {
     const token = String(value || "").trim();
@@ -269,7 +229,7 @@ function deriveInvoiceHintsFromText(text) {
   };
 
   const companyLine = lines.find((line) =>
-    /\b(limited|ltd|llp|private|pvt|inc|corp|pbc|technologies|solutions)\b/i.test(line)
+    /\b(limited|ltd|llp|private|pvt|inc|corp|technologies|solutions)\b/i.test(line)
   );
 
   const invoiceNo = extractInvoiceNumber();
@@ -279,7 +239,6 @@ function deriveInvoiceHintsFromText(text) {
     null;
 
   const billToName =
-    customerFromBillTo ||
     source.match(/bill\s*to\s*\n\s*([^\n]+)/i)?.[1]?.trim() ||
     source.match(/bill\s*to\s*[:\-]?\s*([^\n]+)/i)?.[1]?.trim() ||
     null;
@@ -326,7 +285,7 @@ function deriveInvoiceHintsFromText(text) {
     document_category: /\breceipt\b/i.test(compact) ? "expense" : undefined,
     invoice_number: invoiceNo,
     date_of_issue: parseDateToISO(dateRaw),
-    vendor_name: vendorFromHeader || companyLine || null,
+    vendor_name: companyLine || null,
     customer_name: billToName,
     vendor_country: foreignCountryLine || null,
     vendor_gstin: gstinMatch,
@@ -434,49 +393,6 @@ function mergeWithTextHints(extracted = {}, hints = {}) {
     "place_of_supply",
     "payment_mode",
   ].forEach(setIfMissing);
-
-  // Harden invoice-number mismatch correction: if OCR hint contains fuller token, prefer it.
-  if (!looksMissing(hints.invoice_number)) {
-    const currentInv = String(merged.invoice_number || "").trim();
-    const hintedInv = String(hints.invoice_number || "").trim();
-    if (
-      looksMissing(currentInv) ||
-      (hintedInv.length > currentInv.length && hintedInv.startsWith(currentInv)) ||
-      (currentInv && hintedInv && normalizePartyName(currentInv) !== normalizePartyName(hintedInv) && hintedInv.includes(currentInv))
-    ) {
-      merged.invoice_number = hintedInv;
-    }
-  }
-
-  // Harden party roles: Bill To should be customer, issuer should be vendor.
-  const hintedVendor = String(hints.vendor_name || "").trim();
-  const hintedCustomer = String(hints.customer_name || "").trim();
-  const currentVendor = String(merged.vendor_name || "").trim();
-  const currentCustomer = String(merged.customer_name || "").trim();
-
-  const vendorNorm = normalizePartyName(currentVendor);
-  const customerNorm = normalizePartyName(currentCustomer);
-  const hintedVendorNorm = normalizePartyName(hintedVendor);
-  const hintedCustomerNorm = normalizePartyName(hintedCustomer);
-
-  if (hintedCustomer && (looksMissing(currentCustomer) || customerNorm !== hintedCustomerNorm)) {
-    merged.customer_name = hintedCustomer;
-  }
-
-  const vendorLooksLikeCustomer =
-    hintedCustomerNorm && vendorNorm && (vendorNorm === hintedCustomerNorm || vendorNorm.includes(hintedCustomerNorm));
-
-  if (hintedVendor && (looksMissing(currentVendor) || vendorLooksLikeCustomer || vendorNorm === customerNorm)) {
-    merged.vendor_name = hintedVendor;
-  }
-
-  if (!looksMissing(merged.vendor_name) && !looksMissing(merged.customer_name)) {
-    const vn = normalizePartyName(merged.vendor_name);
-    const cn = normalizePartyName(merged.customer_name);
-    if (vn && cn && vn === cn && hintedVendor) {
-      merged.vendor_name = hintedVendor;
-    }
-  }
 
   const numericIfMissing = (key) => {
     const current = Number(merged[key]);
