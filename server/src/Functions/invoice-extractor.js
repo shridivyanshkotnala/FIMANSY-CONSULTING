@@ -80,6 +80,9 @@ Critical extraction quality rules:
 - Parse dates like "September 5, 2025" into YYYY-MM-DD.
 - If vendor is foreign and only customer Indian GST is present, vendor_gstin must be null.
 - Read both key-value labels and table totals carefully before deciding fields.
+- vendor_name must be the seller (the issuer/from party), not the "Bill to" customer. If both parties are present, choose the issuer business name.
+- invoice_number must be copied exactly as printed, including full suffix/prefix after separators like "-", "/", "_". Never truncate (example: keep "15439A58-0015", not "15439A58").
+- Do not strip punctuation inside legal entity names (for example "Anthropic, PBC").
 
 Return ONLY valid JSON with all fields, no other text or markdown.`;
 
@@ -189,6 +192,75 @@ const parseDateToISO = (value) => {
   return null;
 };
 
+const sanitizeInvoiceNumber = (value) => {
+  const token = String(value || "")
+    .trim()
+    .replace(/[–—]/g, "-")
+    .replace(/\s*([\-_/])\s*/g, "$1")
+    .replace(/^[#:\-\s]+/, "")
+    .replace(/[.,;:]+$/, "");
+
+  return token || null;
+};
+
+const normalizeInvoiceToken = (value) =>
+  String(value || "")
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/[–—]/g, "-")
+    .replace(/[^A-Z0-9\-_/]/g, "");
+
+const looksLikeInvoiceNumberToken = (value) => {
+  const token = sanitizeInvoiceNumber(value);
+  if (!token) return false;
+  if (token.length < 5 || token.length > 50) return false;
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(token)) return false;
+  if (/^\d+(?:\.\d{1,2})?$/.test(token)) return false;
+  if (INDIAN_GSTIN_REGEX.test(token)) return false;
+
+  const hasAlpha = /[A-Z]/i.test(token);
+  const hasDigit = /\d/.test(token);
+  if (!(hasAlpha && hasDigit)) return false;
+
+  return /^[A-Z0-9][A-Z0-9\-_/]*$/i.test(token);
+};
+
+const shouldPreferHintInvoiceNumber = (currentValue, hintValue) => {
+  const hint = sanitizeInvoiceNumber(hintValue);
+  if (!looksLikeInvoiceNumberToken(hint)) return false;
+
+  const current = sanitizeInvoiceNumber(currentValue);
+  if (looksMissing(current) || !looksLikeInvoiceNumberToken(current)) return true;
+
+  const normCurrent = normalizeInvoiceToken(current);
+  const normHint = normalizeInvoiceToken(hint);
+
+  if (!normHint || normCurrent === normHint) return false;
+  if (normHint.startsWith(`${normCurrent}-`) || normHint.startsWith(`${normCurrent}/`) || normHint.startsWith(`${normCurrent}_`)) {
+    return true;
+  }
+
+  return normHint.length > normCurrent.length && normHint.includes("-") && normCurrent === normHint.split("-")[0];
+};
+
+const sanitizeVendorName = (value) => {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/^vendor\s*name\s*[:\-]?\s*/i, "")
+    .replace(/^seller\s*[:\-]?\s*/i, "")
+    .replace(/\s{2,}/g, " ");
+
+  return cleaned || null;
+};
+
+const isLowQualityVendorName = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return true;
+  if (["unknown", "unknown vendor", "vendor", "seller", "na", "n/a", "null"].includes(normalized)) return true;
+  if (/^bill\s*to$/i.test(normalized)) return true;
+  return normalized.length < 3;
+};
+
 function deriveInvoiceHintsFromText(text) {
   const source = String(text || "").trim();
   if (!source) return {};
@@ -196,40 +268,29 @@ function deriveInvoiceHintsFromText(text) {
   const lines = source.split("\n").map((l) => l.trim()).filter(Boolean);
   const compact = source.replace(/[ \t]+/g, " ");
 
-  const looksLikeInvoiceNumber = (value) => {
-    const token = String(value || "").trim();
-    if (!token) return false;
-    if (token.length < 5 || token.length > 40) return false;
-    if (!/[a-zA-Z]/.test(token) || !/\d/.test(token)) return false;
-    if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(token)) return false;
-    if (/^\d+(?:\.\d{1,2})?$/.test(token)) return false;
-    if (INDIAN_GSTIN_REGEX.test(token)) return false;
-    return /^[A-Z0-9][A-Z0-9\-_/]*$/i.test(token);
-  };
-
   const extractInvoiceNumber = () => {
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
-      if (!/^(invoice|receipt|bill)\s*(number|no\.?)/i.test(line)) continue;
+      if (!/^(invoice|receipt|bill)\s*(number|no\.?|#|id)?/i.test(line)) continue;
 
-      const inline = line.match(/(?:invoice|receipt|bill)\s*(?:number|no\.?)\s*[:#-]?\s*([A-Z0-9\-_/]+)/i)?.[1];
-      if (looksLikeInvoiceNumber(inline)) return inline;
+      const inline = line.match(/(?:invoice|receipt|bill)\s*(?:number|no\.?|#|id)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/]*)/i)?.[1];
+      if (looksLikeInvoiceNumberToken(inline)) return sanitizeInvoiceNumber(inline);
 
-      const afterColon = line.split(":").slice(1).join(":").trim();
-      if (looksLikeInvoiceNumber(afterColon)) return afterColon;
+      const afterColon = sanitizeInvoiceNumber(line.split(":").slice(1).join(":").trim());
+      if (looksLikeInvoiceNumberToken(afterColon)) return afterColon;
 
-      const next = lines[i + 1];
-      if (looksLikeInvoiceNumber(next)) return next;
+      const next = sanitizeInvoiceNumber(lines[i + 1]);
+      if (looksLikeInvoiceNumberToken(next)) return next;
     }
 
-    const compactMatch = compact.match(/(?:invoice\s*number|invoice\s*no\.?|receipt\s*number|receipt\s*no\.?|bill\s*number|bill\s*no\.?)\s*[:#-]?\s*([A-Z0-9\-/]+)/i)?.[1];
-    if (looksLikeInvoiceNumber(compactMatch)) return compactMatch;
+    const compactMatch = compact.match(/(?:invoice\s*number|invoice\s*no\.?|invoice\s*#|receipt\s*number|receipt\s*no\.?|bill\s*number|bill\s*no\.?|bill\s*#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/]*)/i)?.[1];
+    if (looksLikeInvoiceNumberToken(compactMatch)) return sanitizeInvoiceNumber(compactMatch);
 
     return null;
   };
 
   const companyLine = lines.find((line) =>
-    /\b(limited|ltd|llp|private|pvt|inc|corp|technologies|solutions)\b/i.test(line)
+    /\b(limited|ltd|llp|private|pvt|inc|corp|corporation|company|co\.?|technologies|solutions|services|pbc|llc|plc|gmbh|pte|sa|bv)\b/i.test(line)
   );
 
   const invoiceNo = extractInvoiceNumber();
@@ -393,6 +454,18 @@ function mergeWithTextHints(extracted = {}, hints = {}) {
     "place_of_supply",
     "payment_mode",
   ].forEach(setIfMissing);
+
+  if (shouldPreferHintInvoiceNumber(merged.invoice_number, hints.invoice_number)) {
+    merged.invoice_number = sanitizeInvoiceNumber(hints.invoice_number);
+  } else {
+    merged.invoice_number = sanitizeInvoiceNumber(merged.invoice_number);
+  }
+
+  if (isLowQualityVendorName(merged.vendor_name) && !looksMissing(hints.vendor_name)) {
+    merged.vendor_name = sanitizeVendorName(hints.vendor_name);
+  } else {
+    merged.vendor_name = sanitizeVendorName(merged.vendor_name);
+  }
 
   const numericIfMissing = (key) => {
     const current = Number(merged[key]);
@@ -689,10 +762,10 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     uploadedBy: userId,
 
     document_category: documentCategory,
-    invoice_number: extractedData.invoice_number || 'UNKNOWN',
+    invoice_number: sanitizeInvoiceNumber(extractedData.invoice_number) || 'UNKNOWN',
     date_of_issue: extractedData.date_of_issue || new Date().toISOString().split('T')[0],
     due_date: extractedData.due_date || null,
-    vendor_name: extractedData.vendor_name || 'Unknown Vendor',
+    vendor_name: sanitizeVendorName(extractedData.vendor_name) || 'Unknown Vendor',
     vendor_gstin: normalizeIndianGstin(extractedData.vendor_gstin) || null,
     vendor_city: extractedData.vendor_city || null,
     vendor_country: extractedData.vendor_country || null,
