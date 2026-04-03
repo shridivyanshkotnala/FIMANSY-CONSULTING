@@ -656,6 +656,10 @@ export const pushBillToZoho = async (zohoClient, bill) => {
     const invalidTdsTaxError =
       message.includes("invalid tax/ tax group for tds") ||
       message.includes("invalid tax/tax group for tds");
+    const missingTaxMeta =
+      message.includes("specify either a tax") ||
+      message.includes("tax exemption") ||
+      message.includes("reverse charge");
     const interstateTaxError =
       message.includes("igst has to be applied") ||
       message.includes("interstate transaction");
@@ -663,6 +667,26 @@ export const pushBillToZoho = async (zohoClient, bill) => {
       message.includes("invalid element source_of_supply") ||
       message.includes("invalid element destination_of_supply");
     const invalidPos = message.includes("invalid element place_of_supply");
+
+    const toMinimalNoGstPayload = (basePayload) => {
+      const minimal = {
+        ...basePayload,
+        line_items: (basePayload.line_items || []).map((item) => {
+          const { tax_id, ...rest } = item || {};
+          return rest;
+        }),
+        is_inclusive_tax: false,
+        gst_treatment: vendorTaxProfile.isOverseas ? "overseas" : "business_none",
+      };
+
+      delete minimal.gst_no;
+      delete minimal.tax_treatment;
+      delete minimal.taxes;
+      delete minimal.source_of_supply;
+      delete minimal.destination_of_supply;
+
+      return minimal;
+    };
 
     if (invalidTdsTaxError) {
       const withoutTds = {
@@ -674,7 +698,27 @@ export const pushBillToZoho = async (zohoClient, bill) => {
         }),
       };
 
-      return await zohoClient.post("/bills", withoutTds, `${idempotencyBaseKey}-no-tds`);
+      try {
+        return await zohoClient.post("/bills", withoutTds, `${idempotencyBaseKey}-no-tds`);
+      } catch (noTdsError) {
+        const noTdsMessage = String(noTdsError?.message || "").toLowerCase();
+        const noTdsMissingTaxMeta =
+          noTdsMessage.includes("specify either a tax") ||
+          noTdsMessage.includes("tax exemption") ||
+          noTdsMessage.includes("reverse charge");
+
+        if (!noTdsMissingTaxMeta) {
+          throw noTdsError;
+        }
+
+        const minimalNoTds = toMinimalNoGstPayload(withoutTds);
+        return await zohoClient.post("/bills", minimalNoTds, `${idempotencyBaseKey}-no-tds-minimal-nogst`);
+      }
+    }
+
+    if (missingTaxMeta) {
+      const minimal = toMinimalNoGstPayload(payload);
+      return await zohoClient.post("/bills", minimal, `${idempotencyBaseKey}-tax-meta-minimal-nogst`);
     }
 
     if (!interstateTaxError && !invalidSupplyFields && !invalidPos) {
@@ -729,21 +773,7 @@ export const pushBillToZoho = async (zohoClient, bill) => {
 
         // Last resort to avoid hard failure when tax mapping is strict in Zoho org.
         // Convert to non-GST bill payload so creation never blocks on tax mapping.
-        const minimal = {
-          ...patched,
-          line_items: (patched.line_items || []).map((item) => {
-            const { tax_id, ...rest } = item;
-            return rest;
-          }),
-          is_inclusive_tax: false,
-          gst_treatment: vendorTaxProfile.isOverseas ? "overseas" : "business_none",
-        };
-
-        delete minimal.gst_no;
-        delete minimal.tax_treatment;
-        delete minimal.taxes;
-        delete minimal.source_of_supply;
-        delete minimal.destination_of_supply;
+        const minimal = toMinimalNoGstPayload(patched);
 
         try {
           return await zohoClient.post("/bills", minimal, `${idempotencyBaseKey}-minimal-nogst`);
