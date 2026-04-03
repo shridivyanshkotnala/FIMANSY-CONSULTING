@@ -84,7 +84,11 @@ Critical extraction quality rules:
 - If vendor is foreign and only customer Indian GST is present, vendor_gstin must be null.
 - Read both key-value labels and table totals carefully before deciding fields.
 - vendor_name must be the precise seller (the issuer/from party), extracting the exact legal business name without modification. Do not guess it.
+- If a "Bill to" section exists, treat the name under "Bill to" as customer_name (buyer), not vendor_name.
+- Prefer seller/issuer names near "From", "Sold by", "Vendor", or left-side issuer block as vendor_name.
+- vendor_name and customer_name must not be identical unless the document explicitly indicates self-billing.
 - invoice_number must be copied exactly as printed, including full suffix/prefix after separators like "-", "/", "_". Never truncate (example: keep "15439A58-0015", not "15439A58").
+- If invoice number appears as alphanumeric with suffix (for example "15HD9K32-0007"), extract the full token including suffix.
 - Do not strip punctuation inside legal entity names (for example "Anthropic, PBC").
 
 Return ONLY valid JSON with all fields, no other text or markdown.`;
@@ -145,9 +149,6 @@ async function extractTextFromPdf(buffer) {
     return "";
   }
 }
-
-const FX_CACHE = new Map();
-const FX_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const INDIAN_GSTIN_REGEX = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/i;
 
@@ -285,14 +286,38 @@ const shouldPreferHintInvoiceNumber = (currentValue, hintValue) => {
   return normHint.length > normCurrent.length && normHint.includes("-") && normCurrent === normHint.split("-")[0];
 };
 
-const sanitizeVendorName = (value) => {
+const isLikelyAddressLine = (line) => {
+  const text = String(line || "").trim();
+  if (!text) return false;
+  if (/\b(?:street|st\.?|road|rd\.?|avenue|ave\.?|sector|floor|fl\.?|suite|ste\.?|block|building|layout|po box|zip|postal|india|usa|united states)\b/i.test(text)) return true;
+  if (/\b\d{5,6}\b/.test(text)) return true;
+  if (/^\+?\d[\d\s\-()]{7,}$/.test(text)) return true;
+  if (/@/.test(text)) return true;
+  return false;
+};
+
+const sanitizePartyName = (value) => {
   const cleaned = String(value || "")
     .trim()
-    .replace(/^vendor\s*name\s*[:\-]?\s*/i, "")
-    .replace(/^seller\s*[:\-]?\s*/i, "")
-    .replace(/\s{2,}/g, " ");
+    .replace(/^(?:vendor\s*name|customer\s*name|seller|vendor|buyer|bill\s*to|ship\s*to|from)\s*[:\-]?\s*/i, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/[|•]+/g, " ")
+    .trim();
 
-  return cleaned || null;
+  if (!cleaned) return null;
+  if (/^(?:invoice|date|due\s*date|description|qty|quantity|unit\s*price|subtotal|total|amount|tax|gst|tds)\b/i.test(cleaned)) {
+    return null;
+  }
+
+  return cleaned;
+};
+
+const sanitizeVendorName = (value) => {
+  return sanitizePartyName(value);
+};
+
+const sanitizeCustomerName = (value) => {
+  return sanitizePartyName(value);
 };
 
 const isLowQualityVendorName = (value) => {
@@ -300,6 +325,15 @@ const isLowQualityVendorName = (value) => {
   if (!normalized) return true;
   if (["unknown", "unknown vendor", "vendor", "seller", "na", "n/a", "null"].includes(normalized)) return true;
   if (/^bill\s*to$/i.test(normalized)) return true;
+  if (isLikelyAddressLine(normalized)) return true;
+  return normalized.length < 3;
+};
+
+const isLowQualityCustomerName = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return true;
+  if (["unknown", "customer", "buyer", "bill to", "na", "n/a", "null"].includes(normalized)) return true;
+  if (isLikelyAddressLine(normalized)) return true;
   return normalized.length < 3;
 };
 
@@ -312,6 +346,14 @@ function deriveInvoiceHintsFromText(text) {
 
   const extractInvoiceNumber = () => {
     const invoiceLabelRegex = /^(invoice|receipt|bill)\s*(number|no\.?|#|id)?\s*[:#-]?\s*/i;
+
+    const strictLabeled = source.match(/(?:invoice|receipt|bill)\s*(?:number|no\.?|#|id)?\s*[:#-]?\s*([A-Z0-9]{2,}(?:[-_/][A-Z0-9]{1,})+)/i)?.[1];
+    const strictFromLabel = extractInvoiceNumberFromSegment(strictLabeled);
+    if (strictFromLabel) return strictFromLabel;
+
+    const generalLabeled = source.match(/(?:invoice|receipt|bill)\s*(?:number|no\.?|#|id)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/]{4,})/i)?.[1];
+    const generalFromLabel = extractInvoiceNumberFromSegment(generalLabeled);
+    if (generalFromLabel) return generalFromLabel;
 
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
@@ -345,19 +387,77 @@ function deriveInvoiceHintsFromText(text) {
     return null;
   };
 
-  const companyLine = lines.find((line) =>
-    /\b(limited|ltd|llp|private|pvt|inc|corp|corporation|company|co\.?|technologies|solutions|services|pbc|llc|plc|gmbh|pte|sa|bv)\b/i.test(line)
-  );
+  const isSectionMarker = (line) =>
+    /^(?:invoice|date|due\s*date|description|qty|quantity|unit\s*price|subtotal|total|amount|tax|gst|tds)\b/i.test(line);
+
+  const extractCustomerName = () => {
+    const billToInline = source.match(/bill\s*to\s*[:\-]?\s*([^\n]+)/i)?.[1];
+    const inline = sanitizeCustomerName(billToInline);
+    if (inline && !isLowQualityCustomerName(inline)) return inline;
+
+    const billToIndex = lines.findIndex((line) => /\bbill\s*to\b/i.test(line));
+    if (billToIndex >= 0) {
+      const fromSameLine = sanitizeCustomerName(lines[billToIndex].replace(/.*\bbill\s*to\b\s*[:\-]?/i, ""));
+      if (fromSameLine && !isLowQualityCustomerName(fromSameLine)) return fromSameLine;
+
+      for (let j = billToIndex + 1; j < Math.min(lines.length, billToIndex + 7); j += 1) {
+        const candidate = sanitizeCustomerName(lines[j]);
+        if (!candidate) continue;
+        if (isSectionMarker(candidate)) break;
+        if (!isLowQualityCustomerName(candidate)) return candidate;
+      }
+    }
+
+    return null;
+  };
+
+  const extractVendorName = (customerName) => {
+    const customerNorm = String(customerName || "").trim().toLowerCase();
+    const billToIndex = lines.findIndex((line) => /\bbill\s*to\b/i.test(line));
+
+    const labelBased = source.match(/(?:vendor\s*name|seller|sold\s*by|from|issuer)\s*[:\-]?\s*([^\n]+)/i)?.[1];
+    const labeledVendor = sanitizeVendorName(labelBased);
+    if (labeledVendor && !isLowQualityVendorName(labeledVendor) && labeledVendor.toLowerCase() !== customerNorm) {
+      return labeledVendor;
+    }
+
+    if (billToIndex >= 0) {
+      const lineWithBillTo = lines[billToIndex];
+      const leftOfBillTo = sanitizeVendorName(lineWithBillTo.split(/bill\s*to/i)[0]);
+      if (leftOfBillTo && !isLowQualityVendorName(leftOfBillTo) && leftOfBillTo.toLowerCase() !== customerNorm) {
+        return leftOfBillTo;
+      }
+
+      for (let j = billToIndex - 1; j >= Math.max(0, billToIndex - 8); j -= 1) {
+        const candidate = sanitizeVendorName(lines[j]);
+        if (!candidate || isSectionMarker(candidate)) continue;
+        if (isLowQualityVendorName(candidate)) continue;
+        if (candidate.toLowerCase() === customerNorm) continue;
+        return candidate;
+      }
+    }
+
+    const topCandidate = lines
+      .slice(0, 30)
+      .map((line) => sanitizeVendorName(line))
+      .find((line) => {
+        if (!line) return false;
+        if (isSectionMarker(line)) return false;
+        if (isLowQualityVendorName(line)) return false;
+        if (line.toLowerCase() === customerNorm) return false;
+        return true;
+      });
+
+    return topCandidate || null;
+  };
+
+  const customerName = extractCustomerName();
+  const vendorName = extractVendorName(customerName);
 
   const invoiceNo = extractInvoiceNumber();
 
   const dateRaw =
     compact.match(/(?:date\s*paid|date\s*of\s*issue|invoice\s*date|date)\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s*\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2})/i)?.[1] ||
-    null;
-
-  const billToName =
-    source.match(/bill\s*to\s*\n\s*([^\n]+)/i)?.[1]?.trim() ||
-    source.match(/bill\s*to\s*[:\-]?\s*([^\n]+)/i)?.[1]?.trim() ||
     null;
 
   const subtotalRaw = compact.match(/(?:sub\s*total|subtotal)\s*[:\-]?\s*[₹$£€]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1] || null;
@@ -402,8 +502,8 @@ function deriveInvoiceHintsFromText(text) {
     document_category: /\breceipt\b/i.test(compact) ? "expense" : undefined,
     invoice_number: invoiceNo,
     date_of_issue: parseDateToISO(dateRaw),
-    vendor_name: companyLine || null,
-    customer_name: billToName,
+    vendor_name: vendorName || null,
+    customer_name: customerName,
     vendor_country: foreignCountryLine || null,
     vendor_gstin: gstinMatch,
     place_of_supply: placeOfSupply,
@@ -425,70 +525,6 @@ function detectDocumentCurrency(text = "", extracted = {}) {
   }
 
   return null;
-}
-
-async function getFxRate(baseCurrency, quoteCurrency) {
-  const base = String(baseCurrency || "").toUpperCase();
-  const quote = String(quoteCurrency || "").toUpperCase();
-  if (!base || !quote) return null;
-  if (base === quote) return 1;
-
-  const key = `${base}_${quote}`;
-  const cached = FX_CACHE.get(key);
-  if (cached && Date.now() - cached.fetchedAt < FX_CACHE_TTL_MS) {
-    return cached.rate;
-  }
-
-  const urls = [
-    `https://open.er-api.com/v6/latest/${base}`,
-    `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`,
-  ];
-
-  for (const url of urls) {
-    try {
-      const { data } = await axios.get(url, { timeout: 5000 });
-      const rate = Number(data?.rates?.[quote]);
-      if (Number.isFinite(rate) && rate > 0) {
-        FX_CACHE.set(key, { rate, fetchedAt: Date.now() });
-        return rate;
-      }
-    } catch {
-      // try next endpoint
-    }
-  }
-
-  return null;
-}
-
-function convertToInr(extracted = {}, fxRate = null, sourceCurrency = "") {
-  const rate = Number(fxRate);
-  if (!Number.isFinite(rate) || rate <= 0) return extracted;
-
-  const monetaryFields = [
-    "taxable_amount",
-    "cgst",
-    "sgst",
-    "igst",
-    "total_gst",
-    "total_with_gst",
-    "tds_amount",
-  ];
-
-  const rounded = (n) => Number((Number(n) * rate).toFixed(2));
-  const next = { ...extracted };
-
-  monetaryFields.forEach((field) => {
-    const value = Number(next[field]);
-    if (Number.isFinite(value) && value > 0) {
-      next[field] = rounded(value);
-    }
-  });
-
-  next.original_currency = String(sourceCurrency || "").toUpperCase();
-  next.currency = "INR";
-  next.exchange_rate = rate;
-
-  return next;
 }
 
 function mergeWithTextHints(extracted = {}, hints = {}) {
@@ -523,6 +559,24 @@ function mergeWithTextHints(extracted = {}, hints = {}) {
     merged.vendor_name = sanitizeVendorName(merged.vendor_name);
   }
 
+  if (isLowQualityCustomerName(merged.customer_name) && !looksMissing(hints.customer_name)) {
+    merged.customer_name = sanitizeCustomerName(hints.customer_name);
+  } else {
+    merged.customer_name = sanitizeCustomerName(merged.customer_name);
+  }
+
+  const vendorNorm = String(merged.vendor_name || "").trim().toLowerCase();
+  const customerNorm = String(merged.customer_name || "").trim().toLowerCase();
+  const hintVendorNorm = String(hints.vendor_name || "").trim().toLowerCase();
+  const hintCustomerNorm = String(hints.customer_name || "").trim().toLowerCase();
+
+  if (vendorNorm && customerNorm && vendorNorm === customerNorm) {
+    if (hintVendorNorm && hintCustomerNorm && hintVendorNorm !== hintCustomerNorm) {
+      merged.vendor_name = sanitizeVendorName(hints.vendor_name);
+      merged.customer_name = sanitizeCustomerName(hints.customer_name);
+    }
+  }
+
   const numericIfMissing = (key) => {
     const current = Number(merged[key]);
     const fallback = Number(hints[key]);
@@ -533,6 +587,19 @@ function mergeWithTextHints(extracted = {}, hints = {}) {
 
   numericIfMissing("taxable_amount");
   numericIfMissing("total_with_gst");
+
+  const hintTaxable = Number(hints.taxable_amount);
+  const hintTotal = Number(hints.total_with_gst);
+  const currentTaxable = Number(merged.taxable_amount);
+  const currentTotal = Number(merged.total_with_gst);
+
+  if (Number.isFinite(hintTaxable) && hintTaxable > 0 && Number.isFinite(currentTaxable) && currentTaxable > hintTaxable * 8) {
+    merged.taxable_amount = hintTaxable;
+  }
+
+  if (Number.isFinite(hintTotal) && hintTotal > 0 && Number.isFinite(currentTotal) && currentTotal > hintTotal * 8) {
+    merged.total_with_gst = hintTotal;
+  }
 
   const cgst = Number(merged.cgst || 0);
   const sgst = Number(merged.sgst || 0);
@@ -786,11 +853,8 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
   extractedData = mergeWithTextHints(extractedData, textHints);
 
   const detectedCurrency = detectDocumentCurrency(rawDocText, extractedData);
-  if (detectedCurrency && detectedCurrency !== "INR") {
-    const fxRate = await getFxRate(detectedCurrency, "INR");
-    if (fxRate) {
-      extractedData = convertToInr(extractedData, fxRate, detectedCurrency);
-    }
+  if (!extractedData.currency && detectedCurrency) {
+    extractedData.currency = detectedCurrency;
   }
 
   const validCategories = ['expense', 'revenue', 'asset', 'liability'];
@@ -827,7 +891,7 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     vendor_country: extractedData.vendor_country || null,
     vendor_gst_registration_status: extractedData.vendor_gst_registration_status || null,
     vendor_business_type: extractedData.vendor_business_type || null,
-    customer_name: extractedData.customer_name || null,
+    customer_name: sanitizeCustomerName(extractedData.customer_name) || null,
     customer_city: extractedData.customer_city || null,
     place_of_supply: extractedData.place_of_supply || null,
     taxable_amount: Number(extractedData.taxable_amount) || 0,
