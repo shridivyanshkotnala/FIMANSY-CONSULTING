@@ -8,7 +8,24 @@ export const zohoApi = baseApi.injectEndpoints({
       providesTags: ["Zoho"],
     }),
 
+    getZohoOauthOrganizations: builder.query({
+      query: (sessionId) => `/zoho/oauth/session/${encodeURIComponent(sessionId)}/organizations`,
+    }),
+
+    selectZohoOrganization: builder.mutation({
+      query: (body) => ({
+        url: "/zoho/oauth/select-organization",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Zoho"],
+    }),
+
   }),
 });
 
-export const { useGetZohoStatusQuery } = zohoApi;
+export const {
+  useGetZohoStatusQuery,
+  useGetZohoOauthOrganizationsQuery,
+  useSelectZohoOrganizationMutation,
+} = zohoApi;

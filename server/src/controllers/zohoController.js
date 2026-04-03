@@ -2,9 +2,40 @@ import { asynchandler } from "../utils/asynchandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ZohoConnection } from "../models/zohoConnectionModel.js";
+import { ZohoOauthSession } from "../models/zohoOauthSessionModel.js";
 import { createZohoState } from "../utils/zohoState.js";
 import { verifyZohoState } from "../utils/zohoState.js";
 import { initializeSyncJobs } from "../services/syncJobInitializer.js";
+
+const connectZohoOrganization = async ({
+  organizationId,
+  zohoOrgId,
+  accessToken,
+  refreshToken,
+  expiresIn,
+}) => {
+  const connection = await ZohoConnection.findOneAndUpdate(
+    { organizationId },
+    {
+      organizationId,
+      zohoOrgId,
+      accessToken,
+      refreshToken,
+      tokenExpiry: new Date(Date.now() + Number(expiresIn || 0) * 1000),
+      status: "connected",
+    },
+    { upsert: true, returnDocument: "after" }
+  );
+
+  if (!connection) throw new ApiError(500, "Failed to save Zoho connection");
+
+  const syncedJobs = await initializeSyncJobs(connection);
+  if (!syncedJobs) {
+    throw new ApiError(500, "Failed to initialize sync jobs for Zoho connection");
+  }
+
+  return connection;
+};
 
 
 const connectZoho = asynchandler(async (req, res) => {
@@ -53,7 +84,7 @@ const zohoCallback = asynchandler(async (req, res) => {
     throw new ApiError(400, "Invalid or expired OAuth state");
   }
 
-  const { organizationId } = payload;
+  const { userId, organizationId } = payload;
 
   // Step 1 — exchange code for tokens
   const tokenURL = new URL(`${process.env.ZOHO_ACCOUNTS_URL}/oauth/v2/token`);
@@ -70,6 +101,9 @@ const zohoCallback = asynchandler(async (req, res) => {
   if (!tokenRes.ok) throw new ApiError(400, "Zoho token exchange failed");
 
   const { access_token, refresh_token, expires_in } = tokenData;
+  if (!access_token || !refresh_token) {
+    throw new ApiError(400, "Zoho token exchange returned incomplete tokens");
+  }
 
   // Step 2 — fetch Zoho organization
   const orgRes = await fetch("https://www.zohoapis.in/books/v3/organizations", {
@@ -77,43 +111,50 @@ const zohoCallback = asynchandler(async (req, res) => {
   });
 
   const orgData = await orgRes.json();
-  // const zohoOrgId = orgData.organizations?.[0]?.organization_id;
+  const organizations = Array.isArray(orgData?.organizations)
+    ? orgData.organizations
+        .map((o) => ({
+          organization_id: o?.organization_id,
+          name: o?.name || null,
+          is_default_org: Boolean(o?.is_default_org),
+        }))
+        .filter((o) => o.organization_id)
+    : [];
 
-
-  const defaultOrg = orgData.organizations?.find(o => o.is_default_org);
-
-  if (!defaultOrg) {
-    throw new ApiError(400, "No default Zoho organization found");
+  if (!organizations.length) {
+    throw new ApiError(400, "No Zoho Books organizations found for this account");
   }
 
-  const zohoOrgId = defaultOrg.organization_id;
+  const defaultOrg = organizations.find((o) => o.is_default_org) || organizations[0];
 
-  console.log(JSON.stringify(orgData, null, 2));
-  if (!zohoOrgId) throw new ApiError(400, "Zoho organization not found");
-
-  // Step 3 — save connection AT ORGANIZATION LEVEL
-  const connection = await ZohoConnection.findOneAndUpdate(
-    { organizationId },
-    {
+  if (organizations.length === 1) {
+    await connectZohoOrganization({
       organizationId,
-      zohoOrgId,
+      zohoOrgId: defaultOrg.organization_id,
       accessToken: access_token,
       refreshToken: refresh_token,
-      tokenExpiry: new Date(Date.now() + expires_in * 1000),
-      status: "connected",
-    },
-    { upsert: true, returnDocument: 'after' }
-  );
+      expiresIn: expires_in,
+    });
 
-  if (!connection) throw new ApiError(500, "Failed to save Zoho connection");
-
-  // Step 4 - initialize sync jobs for this connection
-
-  const syncedJobs = await initializeSyncJobs(connection);
-
-  if (!syncedJobs) {
-    throw new ApiError(500, "Failed to initialize sync jobs for Zoho connection");
+    return res.redirect(`${process.env.CLIENT_URL}/oauth/zoho/success?zoho=connected`);
   }
+
+  const pendingSession = await ZohoOauthSession.create({
+    userId,
+    organizationId,
+    accessToken: access_token,
+    refreshToken: refresh_token,
+    tokenExpiry: new Date(Date.now() + Number(expires_in || 0) * 1000),
+    organizations,
+    consumed: false,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+  });
+
+  return res.redirect(
+    `${process.env.CLIENT_URL}/oauth/zoho/success?zoho=select_org&session=${encodeURIComponent(
+      String(pendingSession._id)
+    )}`
+  );
 
 
   /*
@@ -143,26 +184,73 @@ This is how real SaaS integrations behave.
 const getZohoStatus = asynchandler(async (req, res) => {
   const connection = await ZohoConnection
     .findOne({ organizationId: req.organizationId })
-    .lean();
 
-  if (!connection) {
-    return res.json({
-      connected: false,
-      organizationId: null,
-      expiresAt: null,
-      provider: "zoho",
-    });
-  }
 
-  return res.json({
-    connected: true,
-    organizationId: connection.zohoOrgId,
-    expiresAt: connection.tokenExpiry,
-    provider: "zoho",
+
+  const getZohoOauthOrganizations = asynchandler(async (req, res) => {
+    const { sessionId } = req.params;
+    if (!sessionId) throw new ApiError(400, "sessionId is required");
+
+    const session = await ZohoOauthSession.findById(sessionId).lean();
+    if (!session || session.consumed) {
+      throw new ApiError(404, "OAuth session not found or already used");
+    }
+
+    if (String(session.userId) !== String(req.user?._id)) {
+      throw new ApiError(403, "Not allowed to access this OAuth session");
+    }
+
+    if (new Date(session.expiresAt).getTime() <= Date.now()) {
+      throw new ApiError(410, "OAuth session expired. Please reconnect Zoho");
+    }
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        sessionId: String(session._id),
+        organizations: session.organizations,
+      }, "Zoho organizations fetched")
+    );
   });
-});
 
 
+  const selectZohoOrganization = asynchandler(async (req, res) => {
+    const { sessionId, zohoOrgId } = req.body || {};
+
+    if (!sessionId || !zohoOrgId) {
+      throw new ApiError(400, "sessionId and zohoOrgId are required");
+    }
+
+    const session = await ZohoOauthSession.findById(sessionId);
+    if (!session || session.consumed) {
+      throw new ApiError(404, "OAuth session not found or already used");
+    }
+
+    if (String(session.userId) !== String(req.user?._id)) {
+      throw new ApiError(403, "Not allowed to use this OAuth session");
+    }
+
+    if (new Date(session.expiresAt).getTime() <= Date.now()) {
+      throw new ApiError(410, "OAuth session expired. Please reconnect Zoho");
+    }
+
+    const match = session.organizations.find((org) => String(org.organization_id) === String(zohoOrgId));
+    if (!match) {
+      throw new ApiError(400, "Selected Zoho organization is invalid");
+    }
+
+    await connectZohoOrganization({
+      organizationId: session.organizationId,
+      zohoOrgId: match.organization_id,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresIn: Math.max(1, Math.floor((new Date(session.tokenExpiry).getTime() - Date.now()) / 1000)),
+    });
+
+    session.consumed = true;
+    await session.save();
+
+    return res.status(200).json(new ApiResponse(200, { connected: true }, "Zoho connected"));
+  });
 
 
-export { connectZoho, zohoCallback, getZohoStatus };
+export { connectZoho, zohoCallback, getZohoStatus, getZohoOauthOrganizations, selectZohoOrganization };
