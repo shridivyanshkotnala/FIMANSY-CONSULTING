@@ -83,6 +83,8 @@ Critical extraction quality rules:
 - Parse dates like "September 5, 2025" into YYYY-MM-DD.
 - If vendor is foreign and only customer Indian GST is present, vendor_gstin must be null.
 - Read both key-value labels and table totals carefully before deciding fields.
+- If GST (CGST/SGST/IGST) is listed per line item and there is a final "Total" row, treat that final total as total_with_gst.
+- In line-item GST tables, aggregate CGST/SGST/IGST from totals (or summed item taxes) and compute taxable_amount as total_with_gst - (cgst + sgst + igst).
 - vendor_name must be the precise seller (the issuer/from party), extracting the exact legal business name without modification. Do not guess it.
 - invoice_number must be copied exactly as printed, including full suffix/prefix after separators like "-", "/", "_". Never truncate (example: keep "15439A58-0015", not "15439A58").
 - Do not strip punctuation inside legal entity names (for example "Anthropic, PBC").
@@ -165,6 +167,58 @@ const parseAmount = (value) => {
     .trim();
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
+};
+
+const extractNumericTokens = (line = "") => {
+  const matches = String(line || "").match(/\d+(?:\.\d+)?/g) || [];
+  return matches.map((token) => Number(token)).filter((n) => Number.isFinite(n));
+};
+
+const deriveLineItemTaxTotals = (source = "", lines = []) => {
+  const text = String(source || "");
+  const hasItemTable = /\b(?:sr\.?\s*no|item\s*description|qty|taxable\s*value)\b/i.test(text);
+  const hasCgst = /\bcgst\b/i.test(text);
+  const hasSgst = /\bsgst\b/i.test(text);
+  const hasIgst = /\bigst\b/i.test(text);
+
+  if (!hasItemTable || !(hasCgst || hasSgst || hasIgst)) return null;
+
+  const totalLine = lines.find((line) => /^\s*total\b/i.test(line));
+  if (!totalLine) return null;
+
+  const nums = extractNumericTokens(totalLine);
+  if (nums.length < 2) return null;
+
+  const totalWithGst = Number(nums[nums.length - 1] || 0);
+  if (!(totalWithGst > 0)) return null;
+
+  let cgst = 0;
+  let sgst = 0;
+  let igst = 0;
+
+  if (hasCgst && hasSgst && nums.length >= 4) {
+    // Expected tail for many GST tables: [..., cgst_total, sgst_total, final_total]
+    cgst = Number(nums[nums.length - 3] || 0);
+    sgst = Number(nums[nums.length - 2] || 0);
+  } else if (hasIgst && nums.length >= 3) {
+    // Expected tail: [..., igst_total, final_total]
+    igst = Number(nums[nums.length - 2] || 0);
+  }
+
+  const totalGst = Number((cgst + sgst + igst).toFixed(2));
+  if (!(totalGst > 0)) return null;
+
+  const taxableAmount = Math.max(0, Number((totalWithGst - totalGst).toFixed(2)));
+
+  return {
+    line_item_tax_mode: true,
+    taxable_amount: taxableAmount,
+    cgst,
+    sgst,
+    igst,
+    total_gst: totalGst,
+    total_with_gst: totalWithGst,
+  };
 };
 
 const parseDateToISO = (value) => {
@@ -388,6 +442,7 @@ function deriveInvoiceHintsFromText(text) {
 
   const subtotal = parseAmount(subtotalRaw);
   const total = parseAmount(totalRaw);
+  const lineItemTaxTotals = deriveLineItemTaxTotals(source, lines);
 
   let paymentMode = null;
   if (paymentModeRaw) {
@@ -410,6 +465,7 @@ function deriveInvoiceHintsFromText(text) {
     taxable_amount: subtotal ?? total ?? null,
     total_with_gst: total ?? subtotal ?? null,
     payment_mode: paymentMode,
+    ...(lineItemTaxTotals || {}),
   };
 }
 
@@ -533,6 +589,22 @@ function mergeWithTextHints(extracted = {}, hints = {}) {
 
   numericIfMissing("taxable_amount");
   numericIfMissing("total_with_gst");
+
+  if (hints.line_item_tax_mode && Number(hints.total_with_gst || 0) > 0) {
+    const hintedCgst = Number(hints.cgst || 0);
+    const hintedSgst = Number(hints.sgst || 0);
+    const hintedIgst = Number(hints.igst || 0);
+    const hintedTotal = Number(hints.total_with_gst || 0);
+
+    if (hintedCgst > 0 || hintedSgst > 0 || hintedIgst > 0) {
+      merged.cgst = hintedCgst;
+      merged.sgst = hintedSgst;
+      merged.igst = hintedIgst;
+      merged.total_gst = Number((hintedCgst + hintedSgst + hintedIgst).toFixed(2));
+      merged.total_with_gst = hintedTotal;
+      merged.taxable_amount = Math.max(0, Number((hintedTotal - merged.total_gst).toFixed(2)));
+    }
+  }
 
   const cgst = Number(merged.cgst || 0);
   const sgst = Number(merged.sgst || 0);
