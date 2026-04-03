@@ -72,15 +72,18 @@ ${buildExpenseAccountPromptText()}
 ${buildTdsPromptText()}
 
 Critical extraction quality rules:
+- NEVER HALLUCINATE OR MAKE UP ANY DATA. IF A FIELD IS NOT CLEARLY VISIBLE, RETURN null.
+- DO NOT invent placeholder names like "XYZ Enterprises", "ABC Inc", "John Doe", or dummy GSTINs/addresses. Return null if absent.
 - Never return placeholder values like "UNKNOWN", "N/A", "-" when the value is visible in the document.
 - For receipts (including foreign SaaS receipts) where GST lines are absent, set cgst=0, sgst=0, igst=0, total_gst=0.
 - For receipts with labels like "Subtotal", "Total", or "Amount paid":
   - taxable_amount should be Subtotal (or Total if subtotal is not separately available)
   - total_with_gst should be final paid/total amount
+- The amounts MUST be exactly as printed on the document. Do not do currency conversion.
 - Parse dates like "September 5, 2025" into YYYY-MM-DD.
 - If vendor is foreign and only customer Indian GST is present, vendor_gstin must be null.
 - Read both key-value labels and table totals carefully before deciding fields.
-- vendor_name must be the seller (the issuer/from party), not the "Bill to" customer. If both parties are present, choose the issuer business name.
+- vendor_name must be the precise seller (the issuer/from party), extracting the exact legal business name without modification. Do not guess it.
 - invoice_number must be copied exactly as printed, including full suffix/prefix after separators like "-", "/", "_". Never truncate (example: keep "15439A58-0015", not "15439A58").
 - Do not strip punctuation inside legal entity names (for example "Anthropic, PBC").
 
@@ -357,9 +360,9 @@ function deriveInvoiceHintsFromText(text) {
     source.match(/bill\s*to\s*[:\-]?\s*([^\n]+)/i)?.[1]?.trim() ||
     null;
 
-  const subtotalRaw = compact.match(/sub\s*total\s*[:\-]?\s*[₹$£€]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1] || null;
+  const subtotalRaw = compact.match(/(?:sub\s*total|subtotal)\s*[:\-]?\s*[₹$£€]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1] || null;
   const totalRaw =
-    compact.match(/(?:amount\s*paid|total\s*paid|grand\s*total|total)\s*[:\-]?\s*[₹$£€]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1] ||
+    compact.match(/(?:grand\s*total|amount\s*paid|total\s*paid|total(?!\s*tokens|ling))\s*[:\-]?\s*[₹$£€]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1] ||
     compact.match(/[₹$£€]\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s+paid\s+on/i)?.[1] ||
     null;
 
@@ -576,8 +579,8 @@ async function callGroq({ buffer, mimeType }) {
     const candidateModels = isPdf
       ? ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
       : [
-          "meta-llama/llama-4-scout-17b-16e-instruct",
-          "meta-llama/llama-4-maverick-17b-128e-instruct"
+          "llama-3.2-90b-vision-preview",
+          "llama-3.2-11b-vision-preview"
         ];
     let lastModelError = null;
 
