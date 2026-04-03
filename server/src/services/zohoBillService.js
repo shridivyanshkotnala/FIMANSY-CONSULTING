@@ -407,11 +407,29 @@ async function resolveBillTdsSelection(zohoClient, billData, options = {}) {
     })),
   ];
 
-  const matchedTds = pickMatchingZohoTds(catalog, resolvedTds);
+  let matchedTds = pickMatchingZohoTds(catalog, resolvedTds);
   if (!matchedTds) {
-    throw new Error(
-      `No matching Zoho TDS tax found for ${resolvedTds.tdsTaxName || resolvedTds.tdsNature || "the detected bill nature"}. Configure it in Zoho Manage TDS or choose a different TDS in review.`
-    );
+    try {
+      const generatedName = resolvedTds.tdsTaxName || `TDS on ${resolvedTds.tdsNature || "Services"}`;
+      const fallbackPayload = {
+        tax_name: generatedName.slice(0, 50),
+        tax_percentage: Number(resolvedTds.tdsRate || 10),
+        tax_type: "tds",
+        type: "tds",
+      };
+
+      const creationRes = await zohoClient.post("/settings/taxes", fallbackPayload);
+      if (creationRes && creationRes.tax) {
+        matchedTds = creationRes.tax;
+      } else {
+        throw new Error("Tax creation returned no details");
+      }
+    } catch (creationError) {
+      console.warn("[ZOHO_BILL][TDS_CREATION_FAILED]", creationError?.message);
+      throw new Error(
+        `Failed to create missing TDS Tax in Zoho: ${creationError?.message || "Unknown error"}. Please configure ${resolvedTds.tdsTaxName || resolvedTds.tdsNature} in Zoho Manage TDS.`
+      );
+    }
   }
 
   return {

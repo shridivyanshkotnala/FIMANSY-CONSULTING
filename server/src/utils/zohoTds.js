@@ -8,7 +8,7 @@ const TDS_PROFILES = [
     singleBillThreshold: 20000,
     annualThreshold: 20000,
     thresholdLabel: "Rs 20,000 in a financial year",
-    zohoPreferredNames: ["Commission or Brokerage"],
+    zohoPreferredNames: ["Commission or Brokerage", "194h", "commission", "brokerage"],
     matchKeywords: [
       "commission",
       "brokerage",
@@ -31,7 +31,7 @@ const TDS_PROFILES = [
     singleBillThreshold: 50000,
     annualThreshold: 50000,
     thresholdLabel: "Rs 50,000 in a financial year",
-    zohoPreferredNames: ["Professional Fees"],
+    zohoPreferredNames: ["Professional Fees", "194j", "professional"],
     matchKeywords: [
       "professional fee",
       "professional fees",
@@ -61,7 +61,7 @@ const TDS_PROFILES = [
     singleBillThreshold: 50000,
     annualThreshold: 50000,
     thresholdLabel: "Rs 50,000 in a financial year",
-    zohoPreferredNames: ["Technical Fees (2%)", "Technical Fees"],
+    zohoPreferredNames: ["Technical Fees (2%)", "Technical Fees", "technical", "194j"],
     matchKeywords: [
       "technical fee",
       "technical fees",
@@ -90,7 +90,7 @@ const TDS_PROFILES = [
     singleBillThreshold: 50000,
     annualThreshold: 600000,
     thresholdLabel: "Rs 50,000 per month or Rs 6,00,000 in a financial year",
-    zohoPreferredNames: ["Rent on land or furniture etc", "Rent on land or furniture"],
+    zohoPreferredNames: ["Rent on land or furniture etc", "Rent on land or furniture", "rent", "194i"],
     matchKeywords: [
       "rent",
       "lease rent",
@@ -114,7 +114,7 @@ const TDS_PROFILES = [
     singleBillThreshold: 30000,
     annualThreshold: 100000,
     thresholdLabel: "Rs 30,000 per bill or Rs 1,00,000 in a financial year",
-    zohoPreferredNames: ["Payment of contractors for Others"],
+    zohoPreferredNames: ["Payment of contractors for Others", "contractor", "194c"],
     matchKeywords: [
       "contractor",
       "sub contractor",
@@ -152,7 +152,7 @@ const TDS_PROFILES = [
     singleBillThreshold: 10000,
     annualThreshold: 10000,
     thresholdLabel: "Rs 10,000 in a financial year for non-bank payers",
-    zohoPreferredNames: ["Interest Other than Interest on Securities", "Other Interest than securities", "Other Interest than Securities", "194a"],
+    zohoPreferredNames: ["Interest Other than Interest on Securities", "Other Interest than securities", "Other Interest than Securities", "194a", "interest"],
     matchKeywords: [
       "interest",
       "interest on loan",
