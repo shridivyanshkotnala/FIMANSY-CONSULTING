@@ -358,8 +358,6 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
       ? (orgStateAlpha === destinationStateAlpha ? "intrastate" : "interstate")
       : "auto";
 
-  const nonGstExemption = isGstInvoice ? null : await resolveSpecialTaxExemption("special:non-gst-supply");
-
   const items = [];
   for (const row of lineItems) {
     const description = String(row?.description || "").trim();
@@ -387,7 +385,10 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
         ? specialTaxExemption
         : { tax_id: modeAdjustedTaxId || resolvedTaxId };
     } else {
-      lineItemTaxPayload = nonGstExemption || {};
+      // For non-GST invoices in Zoho, do not send tax_exemption fields.
+      // Sending tax_exemption_code here causes Zoho to reject payload with
+      // "Invalid Element tax_exemption_code" for /invoices.
+      lineItemTaxPayload = {};
     }
 
     const itemId = await getOrCreateZohoItem(req.zoho, {
