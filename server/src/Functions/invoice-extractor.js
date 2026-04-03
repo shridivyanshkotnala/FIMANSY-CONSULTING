@@ -71,6 +71,16 @@ ${buildExpenseAccountPromptText()}
 
 ${buildTdsPromptText()}
 
+Critical extraction quality rules:
+- Never return placeholder values like "UNKNOWN", "N/A", "-" when the value is visible in the document.
+- For receipts (including foreign SaaS receipts) where GST lines are absent, set cgst=0, sgst=0, igst=0, total_gst=0.
+- For receipts with labels like "Subtotal", "Total", or "Amount paid":
+  - taxable_amount should be Subtotal (or Total if subtotal is not separately available)
+  - total_with_gst should be final paid/total amount
+- Parse dates like "September 5, 2025" into YYYY-MM-DD.
+- If vendor is foreign and only customer Indian GST is present, vendor_gstin must be null.
+- Read both key-value labels and table totals carefully before deciding fields.
+
 Return ONLY valid JSON with all fields, no other text or markdown.`;
 
 
@@ -115,11 +125,206 @@ async function downloadFile(url) {
 async function extractTextFromPdf(buffer) {
   try {
     const parsed = await pdf(buffer);
-    const text = String(parsed?.text || "").replace(/\s+/g, " ").trim();
+    const raw = String(parsed?.text || "");
+    const text = raw
+      .replace(/\u00A0/g, " ")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .map((line) => line.replace(/[ \t]+/g, " ").trimEnd())
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
     return text;
   } catch {
     return "";
   }
+}
+
+const INDIAN_GSTIN_REGEX = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/i;
+
+const looksMissing = (value) => {
+  if (value == null) return true;
+  const text = String(value).trim().toLowerCase();
+  if (!text) return true;
+  return ["unknown", "n/a", "na", "-", "null", "undefined"].includes(text);
+};
+
+const parseAmount = (value) => {
+  const cleaned = String(value || "")
+    .replace(/[₹$,£€]/g, "")
+    .replace(/,/g, "")
+    .trim();
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+};
+
+const parseDateToISO = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const isoLike = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (isoLike) {
+    const yyyy = isoLike[1];
+    const mm = String(isoLike[2]).padStart(2, "0");
+    const dd = String(isoLike[3]).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  const dmy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (dmy) {
+    const dd = String(dmy[1]).padStart(2, "0");
+    const mm = String(dmy[2]).padStart(2, "0");
+    const yyyy = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return null;
+};
+
+function deriveInvoiceHintsFromText(text) {
+  const source = String(text || "").trim();
+  if (!source) return {};
+
+  const lines = source.split("\n").map((l) => l.trim()).filter(Boolean);
+  const compact = source.replace(/[ \t]+/g, " ");
+
+  const companyLine = lines.find((line) =>
+    /\b(limited|ltd|llp|private|pvt|inc|corp|technologies|solutions)\b/i.test(line)
+  );
+
+  const invoiceNo =
+    compact.match(/(?:invoice\s*number|invoice\s*no\.?|receipt\s*number|bill\s*number)\s*[:#-]?\s*([A-Z0-9\-/]+)/i)?.[1] ||
+    null;
+
+  const dateRaw =
+    compact.match(/(?:date\s*paid|date\s*of\s*issue|invoice\s*date|date)\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s*\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2})/i)?.[1] ||
+    null;
+
+  const billToName =
+    source.match(/bill\s*to\s*\n\s*([^\n]+)/i)?.[1]?.trim() ||
+    source.match(/bill\s*to\s*[:\-]?\s*([^\n]+)/i)?.[1]?.trim() ||
+    null;
+
+  const subtotalRaw = compact.match(/sub\s*total\s*[:\-]?\s*[₹$£€]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1] || null;
+  const totalRaw =
+    compact.match(/(?:amount\s*paid|total\s*paid|grand\s*total|total)\s*[:\-]?\s*[₹$£€]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1] ||
+    compact.match(/[₹$£€]\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s+paid\s+on/i)?.[1] ||
+    null;
+
+  const paymentModeRaw = compact.match(/(?:payment\s*method|payment\s*mode)\s*[:\-]?\s*([^\n]+)/i)?.[1] || null;
+
+  const knownStates = [
+    "andhra pradesh", "arunachal pradesh", "assam", "bihar", "chhattisgarh", "goa", "gujarat", "haryana",
+    "himachal pradesh", "jharkhand", "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur",
+    "meghalaya", "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
+    "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal", "delhi", "puducherry", "chandigarh",
+    "jammu and kashmir", "ladakh",
+  ];
+
+  const placeOfSupply = lines.find((line) =>
+    knownStates.some((state) => line.toLowerCase().includes(state))
+  ) || null;
+
+  const foreignCountryLine = lines.find((line) =>
+    /\b(ireland|singapore|united states|usa|uk|united kingdom|canada|australia|germany|france|uae|netherlands)\b/i.test(line)
+  );
+
+  const gstinMatch = compact.match(INDIAN_GSTIN_REGEX)?.[0] || null;
+
+  const subtotal = parseAmount(subtotalRaw);
+  const total = parseAmount(totalRaw);
+
+  let paymentMode = null;
+  if (paymentModeRaw) {
+    if (/visa|mastercard|card|amex/i.test(paymentModeRaw)) paymentMode = "Credit Card";
+    else if (/upi/i.test(paymentModeRaw)) paymentMode = "UPI";
+    else if (/bank|wire|neft|rtgs|imps/i.test(paymentModeRaw)) paymentMode = "Bank Transfer";
+    else if (/cash/i.test(paymentModeRaw)) paymentMode = "Cash";
+    else if (/cheque|check/i.test(paymentModeRaw)) paymentMode = "Cheque";
+  }
+
+  return {
+    document_category: /\breceipt\b/i.test(compact) ? "expense" : undefined,
+    invoice_number: invoiceNo,
+    date_of_issue: parseDateToISO(dateRaw),
+    vendor_name: companyLine || null,
+    customer_name: billToName,
+    vendor_country: foreignCountryLine || null,
+    vendor_gstin: gstinMatch,
+    place_of_supply: placeOfSupply,
+    taxable_amount: subtotal ?? total ?? null,
+    total_with_gst: total ?? subtotal ?? null,
+    payment_mode: paymentMode,
+  };
+}
+
+function mergeWithTextHints(extracted = {}, hints = {}) {
+  const merged = { ...extracted };
+
+  const setIfMissing = (key) => {
+    if (looksMissing(merged[key]) && !looksMissing(hints[key])) {
+      merged[key] = hints[key];
+    }
+  };
+
+  [
+    "document_category",
+    "invoice_number",
+    "date_of_issue",
+    "vendor_name",
+    "vendor_country",
+    "customer_name",
+    "place_of_supply",
+    "payment_mode",
+  ].forEach(setIfMissing);
+
+  const numericIfMissing = (key) => {
+    const current = Number(merged[key]);
+    const fallback = Number(hints[key]);
+    if (!(current > 0) && Number.isFinite(fallback) && fallback > 0) {
+      merged[key] = fallback;
+    }
+  };
+
+  numericIfMissing("taxable_amount");
+  numericIfMissing("total_with_gst");
+
+  const cgst = Number(merged.cgst || 0);
+  const sgst = Number(merged.sgst || 0);
+  const igst = Number(merged.igst || 0);
+  const totalGst = Number(merged.total_gst || 0);
+
+  if (!(totalGst > 0)) {
+    merged.total_gst = cgst + sgst + igst;
+  }
+
+  if (!(Number(merged.total_with_gst || 0) > 0) && Number(merged.taxable_amount || 0) > 0) {
+    merged.total_with_gst = Number(merged.taxable_amount || 0) + Number(merged.total_gst || 0);
+  }
+
+  if (!(Number(merged.taxable_amount || 0) > 0) && Number(merged.total_with_gst || 0) > 0) {
+    merged.taxable_amount = Math.max(0, Number(merged.total_with_gst || 0) - Number(merged.total_gst || 0));
+  }
+
+  const vendorCountry = String(merged.vendor_country || "").toLowerCase();
+  const isForeign = vendorCountry && !vendorCountry.includes("india");
+  if (isForeign) {
+    merged.vendor_gstin = null;
+    merged.cgst = 0;
+    merged.sgst = 0;
+    merged.igst = 0;
+    merged.total_gst = 0;
+    if (Number(merged.taxable_amount || 0) <= 0 && Number(merged.total_with_gst || 0) > 0) {
+      merged.taxable_amount = Number(merged.total_with_gst || 0);
+    }
+  }
+
+  return merged;
 }
 
 
@@ -324,6 +529,7 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
 
   // 1️⃣ Download from Supabase (same logic works)
   const { buffer, mime } = await downloadFile(fileUrl);
+  const rawDocText = mime.includes("pdf") ? await extractTextFromPdf(buffer) : "";
 
   // 2️⃣ Send to Groq
   const aiContent = await callGroq({ buffer, mimeType: mime });
@@ -335,6 +541,9 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
   } catch {
     extractedData = await repairAIJSON(aiContent);
   }
+
+  const textHints = deriveInvoiceHintsFromText(rawDocText);
+  extractedData = mergeWithTextHints(extractedData, textHints);
 
   const validCategories = ['expense', 'revenue', 'asset', 'liability'];
   const documentCategory = validCategories.includes((extractedData.document_category || '').toLowerCase())
