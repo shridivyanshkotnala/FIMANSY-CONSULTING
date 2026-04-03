@@ -407,44 +407,7 @@ async function resolveBillTdsSelection(zohoClient, billData, options = {}) {
     })),
   ];
 
-  let matchedTds = pickMatchingZohoTds(catalog, resolvedTds);
-  if (!matchedTds) {
-    try {
-      const generatedName = resolvedTds.tdsTaxName || `TDS on ${resolvedTds.tdsNature || "Services"}`;
-      const fallbackPayload = {
-        tax_name: generatedName.slice(0, 50),
-        tax_percentage: Number(resolvedTds.tdsRate || 10),
-        tax_type: "tax",
-      };
-
-      const creationRes = await zohoClient.post("/settings/taxes", fallbackPayload);
-      const createdTax =
-        (Array.isArray(creationRes?.tax) ? creationRes.tax[0] : null) ||
-        creationRes?.tax ||
-        null;
-
-      if (createdTax) {
-        matchedTds = createdTax;
-      }
-    } catch (creationError) {
-      console.warn("[ZOHO_BILL][TDS_CREATION_FAILED]", {
-        message: creationError?.message,
-        requested: resolvedTds.tdsTaxName || resolvedTds.tdsNature,
-      });
-    }
-  }
-
-  if (!matchedTds) {
-    const requestedRate = Number(resolvedTds.tdsRate || 0);
-    const bestByRate = catalog.find((entry) => {
-      const entryRate = Number(entry.tax_percentage || entry.percentage || 0);
-      return Math.abs(entryRate - requestedRate) <= 0.05;
-    }) || null;
-
-    if (bestByRate) {
-      matchedTds = bestByRate;
-    }
-  }
+  const matchedTds = pickMatchingZohoTds(catalog, resolvedTds);
 
   if (!matchedTds) {
     console.warn("[ZOHO_BILL][TDS_SKIPPED_NO_MATCH]", {
@@ -690,6 +653,9 @@ export const pushBillToZoho = async (zohoClient, bill) => {
     return await zohoClient.post("/bills", payload, idempotencyBaseKey);
   } catch (error) {
     const message = String(error?.message || "").toLowerCase();
+    const invalidTdsTaxError =
+      message.includes("invalid tax/ tax group for tds") ||
+      message.includes("invalid tax/tax group for tds");
     const interstateTaxError =
       message.includes("igst has to be applied") ||
       message.includes("interstate transaction");
@@ -697,6 +663,19 @@ export const pushBillToZoho = async (zohoClient, bill) => {
       message.includes("invalid element source_of_supply") ||
       message.includes("invalid element destination_of_supply");
     const invalidPos = message.includes("invalid element place_of_supply");
+
+    if (invalidTdsTaxError) {
+      const withoutTds = {
+        ...payload,
+        is_tds_applied: false,
+        line_items: (payload.line_items || []).map((item) => {
+          const { tds_tax_id, ...rest } = item || {};
+          return rest;
+        }),
+      };
+
+      return await zohoClient.post("/bills", withoutTds, `${idempotencyBaseKey}-no-tds`);
+    }
 
     if (!interstateTaxError && !invalidSupplyFields && !invalidPos) {
       throw error;
