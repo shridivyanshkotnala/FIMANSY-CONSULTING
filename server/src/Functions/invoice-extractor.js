@@ -47,12 +47,12 @@ Then extract these fields:
 11. customer_name: Name of the buyer/customer
 12. customer_city: Customer's city/location
 13. place_of_supply: State where goods/services are supplied
-14. taxable_amount: Total amount before GST (number)
+14. taxable_amount: Exact Sub Total (Pre Tax) amount BEFORE any GST or taxes or discounts are strictly applied.
 15. cgst: Central GST amount (number, 0 if inter-state)
 16. sgst: State GST amount (number, 0 if inter-state)
 17. igst: Integrated GST amount (number, 0 if intra-state)
 18. total_gst: Sum of all GST components (number)
-19. total_with_gst: Final invoice amount including GST (number)
+19. total_with_gst: Final Total Amount of the invoice including all GST and discounts (number)
 20. expense_account: Exact Zoho account name for the bill
 21. expense_account_group: "expense" or "cost_of_goods_sold"
 22. payment_mode: "Cash", "Bank Transfer", "Credit Card", "UPI", "Cheque"
