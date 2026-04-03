@@ -436,6 +436,67 @@ async function resolveBillTdsSelection(zohoClient, billData, options = {}) {
   };
 }
 
+const collectLikelyTdsCandidates = (taxData = {}, requestedName = "", requestedRate = null) => {
+  const requested = normalizeText(requestedName);
+  const requestedTokens = requested
+    .split(" ")
+    .filter((token) => token && token.length > 2 && !["on", "for", "than", "and", "other", "interest"].includes(token));
+
+  const catalog = [
+    ...(taxData?.tax_groups || []).map((group) => ({
+      ...group,
+      id: group.tax_group_id,
+      name: group.tax_group_name,
+      percentage: Number(group.tax_group_percentage || 0),
+    })),
+    ...(taxData?.taxes || []).map((tax) => ({
+      ...tax,
+      id: tax.tax_id,
+      name: tax.tax_name,
+      percentage: Number(tax.tax_percentage || 0),
+    })),
+  ];
+
+  const targetRate = Number(requestedRate || 0);
+
+  const scored = catalog
+    .map((entry) => {
+      const haystack = normalizeText([
+        entry.tax_name,
+        entry.tax_group_name,
+        entry.name,
+        entry.tax_type,
+        entry.tax_type_name,
+        entry.tax_specific_type,
+      ].filter(Boolean).join(" "));
+
+      const entryRate = Number(entry.tax_percentage || entry.percentage || 0);
+      const looksLikeTds = haystack.includes("tds") || haystack.includes("194");
+      const rateMatch = targetRate > 0 ? Math.abs(entryRate - targetRate) <= 0.05 : false;
+      const tokenHits = requestedTokens.reduce((acc, token) => acc + (haystack.includes(token) ? 1 : 0), 0);
+      const exactName = requested ? haystack === requested : false;
+      const containsName = requested ? haystack.includes(requested) : false;
+
+      const score =
+        (looksLikeTds ? 6 : 0) +
+        (rateMatch ? 4 : 0) +
+        (exactName ? 8 : 0) +
+        (containsName ? 3 : 0) +
+        tokenHits;
+
+      return {
+        entry,
+        score,
+        looksLikeTds,
+      };
+    })
+    .filter(({ score, looksLikeTds }) => score > 0 && (looksLikeTds || requestedTokens.length > 0))
+    .sort((a, b) => b.score - a.score)
+    .map(({ entry }) => entry);
+
+  return scored;
+};
+
 const pickDefined = (obj = {}, keys = []) => {
   const out = {};
   keys.forEach((key) => {
@@ -689,34 +750,78 @@ export const pushBillToZoho = async (zohoClient, bill) => {
     };
 
     if (invalidTdsTaxError) {
-      const withoutTds = {
-        ...payload,
-        is_tds_applied: false,
-        line_items: (payload.line_items || []).map((item) => {
-          const { tds_tax_id, ...rest } = item || {};
-          return rest;
-        }),
-      };
+      const taxData = await getZohoTaxesData(zohoClient);
+      const requestedName = bill.tds_tax_name || bill.tds_nature || "";
+      const requestedRate = Number(bill.tds_rate || 0);
+      const candidates = collectLikelyTdsCandidates(taxData, requestedName, requestedRate)
+        .map((entry) => entry.tax_id || entry.tax_group_id || entry.id)
+        .filter(Boolean);
 
-      try {
-        return await zohoClient.post("/bills", withoutTds, `${idempotencyBaseKey}-no-tds`);
-      } catch (noTdsError) {
-        const noTdsMessage = String(noTdsError?.message || "").toLowerCase();
-        const noTdsMissingTaxMeta =
-          noTdsMessage.includes("specify either a tax") ||
-          noTdsMessage.includes("tax exemption") ||
-          noTdsMessage.includes("reverse charge");
+      const currentTdsId = (payload.line_items || []).find((item) => item?.tds_tax_id)?.tds_tax_id;
+      const retryIds = candidates.filter((id) => String(id) !== String(currentTdsId));
 
-        if (!noTdsMissingTaxMeta) {
-          throw noTdsError;
+      for (let i = 0; i < retryIds.length; i += 1) {
+        const retryTdsId = retryIds[i];
+        const retryPayload = {
+          ...payload,
+          is_tds_applied: true,
+          line_items: (payload.line_items || []).map((item) => ({
+            ...item,
+            tds_tax_id: retryTdsId,
+          })),
+        };
+
+        try {
+          return await zohoClient.post("/bills", retryPayload, `${idempotencyBaseKey}-tds-retry-${i + 1}`);
+        } catch (retryTdsError) {
+          const retryMsg = String(retryTdsError?.message || "").toLowerCase();
+          const stillInvalidTds =
+            retryMsg.includes("invalid tax/ tax group for tds") ||
+            retryMsg.includes("invalid tax/tax group for tds");
+          if (!stillInvalidTds) {
+            throw retryTdsError;
+          }
         }
-
-        const minimalNoTds = toMinimalNoGstPayload(withoutTds);
-        return await zohoClient.post("/bills", minimalNoTds, `${idempotencyBaseKey}-no-tds-minimal-nogst`);
       }
+
+      throw new Error(
+        `Unable to map a valid Zoho Manage TDS tax for ${requestedName || "selected TDS"}. Please set the exact Zoho TDS tax in review.`
+      );
     }
 
     if (missingTaxMeta) {
+      const hasTdsApplied = Boolean(
+        payload.is_tds_applied || (payload.line_items || []).some((item) => item?.tds_tax_id)
+      );
+
+      if (hasTdsApplied) {
+        const fallbackTaxId = await resolveBillTaxId(zohoClient, bill, { mode: "auto" });
+        if (fallbackTaxId) {
+          const withTaxPayload = {
+            ...payload,
+            line_items: (payload.line_items || []).map((item) => ({
+              ...item,
+              tax_id: item?.tax_id || fallbackTaxId,
+            })),
+          };
+
+          try {
+            return await zohoClient.post("/bills", withTaxPayload, `${idempotencyBaseKey}-tax-meta-with-tax`);
+          } catch (withTaxError) {
+            const withTaxMessage = String(withTaxError?.message || "").toLowerCase();
+            const stillMissingTaxMeta =
+              withTaxMessage.includes("specify either a tax") ||
+              withTaxMessage.includes("tax exemption") ||
+              withTaxMessage.includes("reverse charge");
+            if (!stillMissingTaxMeta) {
+              throw withTaxError;
+            }
+          }
+        }
+
+        throw new Error("Zoho requires valid tax metadata when TDS is applied. Configure GST tax mapping and TDS tax in Zoho, then retry.");
+      }
+
       const minimal = toMinimalNoGstPayload(payload);
       return await zohoClient.post("/bills", minimal, `${idempotencyBaseKey}-tax-meta-minimal-nogst`);
     }
