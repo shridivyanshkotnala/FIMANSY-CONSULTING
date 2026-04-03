@@ -225,6 +225,44 @@ const looksLikeInvoiceNumberToken = (value) => {
   return /^[A-Z0-9][A-Z0-9\-_/]*$/i.test(token);
 };
 
+const extractInvoiceNumberFromSegment = (segment) => {
+  const text = String(segment || "").trim();
+  if (!text) return null;
+
+  const rawCandidates = [];
+  const seen = new Set();
+
+  const collect = (regex) => {
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const raw = match?.[1] || match?.[0];
+      if (!raw) continue;
+      const cleaned = sanitizeInvoiceNumber(raw);
+      const key = normalizeInvoiceToken(cleaned);
+      if (!cleaned || !key || seen.has(key)) continue;
+      seen.add(key);
+      rawCandidates.push(cleaned);
+    }
+  };
+
+  // Prefer IDs that include explicit separators, even when OCR inserts spaces around them.
+  collect(/([A-Z0-9]{2,}(?:\s*[-_/]\s*[A-Z0-9]{1,}){1,})/gi);
+  // Fallback to compact alphanumeric token.
+  collect(/([A-Z0-9][A-Z0-9\-_/]{4,})/gi);
+
+  const ranked = rawCandidates
+    .filter((candidate) => looksLikeInvoiceNumberToken(candidate))
+    .sort((a, b) => {
+      const score = (value) => {
+        const hasSeparator = /[-_/]/.test(value) ? 100 : 0;
+        return hasSeparator + String(value).length;
+      };
+      return score(b) - score(a);
+    });
+
+  return ranked[0] || null;
+};
+
 const shouldPreferHintInvoiceNumber = (currentValue, hintValue) => {
   const hint = sanitizeInvoiceNumber(hintValue);
   if (!looksLikeInvoiceNumberToken(hint)) return false;
@@ -269,22 +307,36 @@ function deriveInvoiceHintsFromText(text) {
   const compact = source.replace(/[ \t]+/g, " ");
 
   const extractInvoiceNumber = () => {
+    const invoiceLabelRegex = /^(invoice|receipt|bill)\s*(number|no\.?|#|id)?\s*[:#-]?\s*/i;
+
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (!/^(invoice|receipt|bill)\s*(number|no\.?|#|id)?/i.test(line)) continue;
 
-      const inline = line.match(/(?:invoice|receipt|bill)\s*(?:number|no\.?|#|id)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/]*)/i)?.[1];
-      if (looksLikeInvoiceNumberToken(inline)) return sanitizeInvoiceNumber(inline);
+      const labeledTail = line.replace(invoiceLabelRegex, "").trim();
+      const fromTail = extractInvoiceNumberFromSegment(labeledTail);
+      if (fromTail) return fromTail;
+
+      const fromWholeLine = extractInvoiceNumberFromSegment(line);
+      if (fromWholeLine) return fromWholeLine;
+
+      const stitchedTail = `${labeledTail} ${lines[i + 1] || ""}`.trim();
+      const fromStitchedTail = extractInvoiceNumberFromSegment(stitchedTail);
+      if (fromStitchedTail) return fromStitchedTail;
 
       const afterColon = sanitizeInvoiceNumber(line.split(":").slice(1).join(":").trim());
       if (looksLikeInvoiceNumberToken(afterColon)) return afterColon;
 
-      const next = sanitizeInvoiceNumber(lines[i + 1]);
-      if (looksLikeInvoiceNumberToken(next)) return next;
+      const next = extractInvoiceNumberFromSegment(lines[i + 1]);
+      if (next) return next;
     }
 
-    const compactMatch = compact.match(/(?:invoice\s*number|invoice\s*no\.?|invoice\s*#|receipt\s*number|receipt\s*no\.?|bill\s*number|bill\s*no\.?|bill\s*#)\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/]*)/i)?.[1];
-    if (looksLikeInvoiceNumberToken(compactMatch)) return sanitizeInvoiceNumber(compactMatch);
+    const compactSegment = compact.match(/(?:invoice\s*number|invoice\s*no\.?|invoice\s*#|receipt\s*number|receipt\s*no\.?|bill\s*number|bill\s*no\.?|bill\s*#)\s*[:#-]?\s*([^\n]{0,80})/i)?.[1];
+    const compactExtracted = extractInvoiceNumberFromSegment(compactSegment);
+    if (compactExtracted) return compactExtracted;
+
+    const topSectionExtracted = extractInvoiceNumberFromSegment(lines.slice(0, 35).join(" "));
+    if (topSectionExtracted) return topSectionExtracted;
 
     return null;
   };
