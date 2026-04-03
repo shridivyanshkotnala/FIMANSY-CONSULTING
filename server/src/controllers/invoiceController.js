@@ -153,13 +153,17 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
   const {
     customerId,
     placeOfSupply,
+    invoiceType,
     invoiceDate,
     subject,
     lineItems,
   } = req.body || {};
 
+  const normalizedInvoiceType = String(invoiceType || "gst").trim().toLowerCase();
+  const isGstInvoice = normalizedInvoiceType !== "non_gst";
+
   if (!customerId) throw new ApiError(400, "customerId is required");
-  if (!placeOfSupply) throw new ApiError(400, "placeOfSupply is required");
+  if (isGstInvoice && !placeOfSupply) throw new ApiError(400, "placeOfSupply is required for GST invoice");
   if (!invoiceDate) throw new ApiError(400, "invoiceDate is required");
   if (!Array.isArray(lineItems) || !lineItems.length) {
     throw new ApiError(400, "At least one line item is required");
@@ -348,11 +352,13 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
   };
 
   const orgStateAlpha = await resolveOrganizationStateAlpha();
-  const destinationStateAlpha = String(placeOfSupply || "").trim().toUpperCase();
+  const destinationStateAlpha = isGstInvoice ? String(placeOfSupply || "").trim().toUpperCase() : "";
   const transactionMode =
     orgStateAlpha && destinationStateAlpha
       ? (orgStateAlpha === destinationStateAlpha ? "intrastate" : "interstate")
       : "auto";
+
+  const nonGstExemption = isGstInvoice ? null : await resolveSpecialTaxExemption("special:non-gst-supply");
 
   const items = [];
   for (const row of lineItems) {
@@ -365,14 +371,24 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
     if (!description) throw new ApiError(400, "Each line item requires description");
     if (!(quantity > 0)) throw new ApiError(400, "Each line item requires quantity > 0");
     if (!(rate >= 0)) throw new ApiError(400, "Each line item requires valid rate");
-    if (!taxId) throw new ApiError(400, "Each line item requires tax selection");
 
-    const isSpecialTax = Object.prototype.hasOwnProperty.call(specialTaxLabels, taxId);
-    const resolvedTaxId = isSpecialTax ? taxId : await resolvePresetTaxId(taxId);
-    const modeAdjustedTaxId = isSpecialTax
-      ? null
-      : await resolveTaxIdByMode(resolvedTaxId, transactionMode, Number(row?.taxPercentage || 0));
-    const specialTaxExemption = isSpecialTax ? await resolveSpecialTaxExemption(taxId) : null;
+    let lineItemTaxPayload = {};
+    if (isGstInvoice) {
+      if (!taxId) throw new ApiError(400, "Each line item requires tax selection for GST invoice");
+
+      const isSpecialTax = Object.prototype.hasOwnProperty.call(specialTaxLabels, taxId);
+      const resolvedTaxId = isSpecialTax ? taxId : await resolvePresetTaxId(taxId);
+      const modeAdjustedTaxId = isSpecialTax
+        ? null
+        : await resolveTaxIdByMode(resolvedTaxId, transactionMode, Number(row?.taxPercentage || 0));
+      const specialTaxExemption = isSpecialTax ? await resolveSpecialTaxExemption(taxId) : null;
+
+      lineItemTaxPayload = isSpecialTax
+        ? specialTaxExemption
+        : { tax_id: modeAdjustedTaxId || resolvedTaxId };
+    } else {
+      lineItemTaxPayload = nonGstExemption || {};
+    }
 
     const itemId = await getOrCreateZohoItem(req.zoho, {
       name: description,
@@ -382,10 +398,10 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
 
     items.push({
       item_id: itemId,
-      description: isSpecialTax ? `${description} (${specialTaxLabels[taxId]})` : description,
+      description,
       quantity,
       rate,
-      ...(isSpecialTax ? specialTaxExemption : { tax_id: modeAdjustedTaxId || resolvedTaxId }),
+      ...lineItemTaxPayload,
       ...(discount != null && !Number.isNaN(discount) ? { discount } : {}),
     });
   }
@@ -393,7 +409,7 @@ export const createSalesInvoiceInZoho = asynchandler(async (req, res) => {
   const payload = {
     customer_id: customerId,
     date: invoiceDate,
-    place_of_supply: placeOfSupply,
+    ...(isGstInvoice && placeOfSupply ? { place_of_supply: placeOfSupply } : {}),
     line_items: items,
     ...(subject ? { subject: String(subject).trim() } : {}),
   };

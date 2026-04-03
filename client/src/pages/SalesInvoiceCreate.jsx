@@ -98,6 +98,7 @@ const AddressFields = ({ title, value, onChange }) => (
 export default function SalesInvoiceCreate() {
   const { toast } = useToast();
   const [customerSearch] = useState("");
+  const [invoiceType, setInvoiceType] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [placeOfSupply, setPlaceOfSupply] = useState("");
   const [subject, setSubject] = useState("");
@@ -120,6 +121,7 @@ export default function SalesInvoiceCreate() {
 
   const [createZohoCustomer, { isLoading: creatingCustomer }] = useCreateZohoCustomerMutation();
   const [createSalesInvoiceInZoho, { isLoading: creatingInvoice }] = useCreateSalesInvoiceInZohoMutation();
+  const isGstInvoice = invoiceType !== "non_gst";
 
   const taxOptions = useMemo(() => {
     const apiTaxes = (taxes || []).map((t) => ({
@@ -184,27 +186,38 @@ export default function SalesInvoiceCreate() {
   };
 
   const handleCreateInvoice = async () => {
+    if (!invoiceType) {
+      toast({ title: "Please select GST or Non-GST invoice first", variant: "destructive" });
+      return;
+    }
+
     if (!selectedCustomerId) {
       toast({ title: "Customer is required", variant: "destructive" });
       return;
     }
-    if (!placeOfSupply) {
+    if (isGstInvoice && !placeOfSupply) {
       toast({ title: "Place of supply is required", variant: "destructive" });
       return;
     }
 
     const invalid = lineItems.some((r) =>
-      !r.description.trim() || !(Number(r.quantity) > 0) || !(Number(r.rate) >= 0) || !r.taxId
+      !r.description.trim() || !(Number(r.quantity) > 0) || !(Number(r.rate) >= 0) || (isGstInvoice && !r.taxId)
     );
     if (invalid) {
-      toast({ title: "Fill all required line-item fields including tax", variant: "destructive" });
+      toast({
+        title: isGstInvoice
+          ? "Fill all required line-item fields including tax"
+          : "Fill all required line-item fields",
+        variant: "destructive",
+      });
       return;
     }
 
     try {
       await createSalesInvoiceInZoho({
+        invoiceType,
         customerId: selectedCustomerId,
-        placeOfSupply,
+        ...(isGstInvoice ? { placeOfSupply } : {}),
         subject,
         invoiceDate,
         lineItems,
@@ -223,11 +236,47 @@ export default function SalesInvoiceCreate() {
   return (
     <PillarLayout>
       <div className="p-6 max-w-6xl mx-auto space-y-6">
+        <Dialog open={!invoiceType}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Invoice Type</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Do you want to create a GST invoice or a Non-GST invoice?
+            </p>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <Button
+                type="button"
+                onClick={() => {
+                  setInvoiceType("gst");
+                }}
+              >
+                GST Invoice
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setInvoiceType("non_gst");
+                  setPlaceOfSupply("");
+                  setLineItems((prev) =>
+                    prev.map((row) => ({ ...row, taxId: "", taxPercentage: 0 }))
+                  );
+                }}
+              >
+                Non-GST Invoice
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <div className="rounded-xl border bg-gradient-to-r from-primary/10 via-background to-amber-500/10 p-5 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">Create Sales Invoice</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Create invoice directly in Zoho Books with customer, GST state, item and tax details.
+              {isGstInvoice
+                ? "Create GST invoice directly in Zoho Books with customer, GST state, item and tax details."
+                : "Create Non-GST invoice directly in Zoho Books without GST state and tax selection."}
             </p>
           </div>
           <Sparkles className="h-8 w-8 text-primary" />
@@ -264,19 +313,21 @@ export default function SalesInvoiceCreate() {
                 <p className="text-xs text-muted-foreground">If customer is missing, create instantly from dropdown.</p>
               </div>
 
-              <div className="space-y-2">
-                <Label>Place of Supply (State) *</Label>
-                <Select value={placeOfSupply} onValueChange={setPlaceOfSupply}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select state" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATE_OPTIONS.map((s) => (
-                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {isGstInvoice && (
+                <div className="space-y-2">
+                  <Label>Place of Supply (State) *</Label>
+                  <Select value={placeOfSupply} onValueChange={setPlaceOfSupply}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select state" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATE_OPTIONS.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -302,15 +353,18 @@ export default function SalesInvoiceCreate() {
                 {lineItems.map((row, index) => {
                   const amount = (Number(row.quantity || 0) * Number(row.rate || 0)) || 0;
                   return (
-                    <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 border rounded-md p-2 bg-muted/20">
+                    <div
+                      key={index}
+                      className={`grid grid-cols-1 ${isGstInvoice ? "md:grid-cols-12" : "md:grid-cols-9"} gap-2 border rounded-md p-2 bg-muted/20`}
+                    >
                       <Input
-                        className="md:col-span-4"
+                        className={isGstInvoice ? "md:col-span-4" : "md:col-span-4"}
                         placeholder="Description *"
                         value={row.description}
                         onChange={(e) => updateLineItem(index, { description: e.target.value })}
                       />
                       <Input
-                        className="md:col-span-1"
+                        className={isGstInvoice ? "md:col-span-1" : "md:col-span-1"}
                         type="number"
                         min="0"
                         step="1"
@@ -319,7 +373,7 @@ export default function SalesInvoiceCreate() {
                         onChange={(e) => updateLineItem(index, { quantity: e.target.value })}
                       />
                       <Input
-                        className="md:col-span-2"
+                        className={isGstInvoice ? "md:col-span-2" : "md:col-span-2"}
                         type="number"
                         min="0"
                         step="0.01"
@@ -328,28 +382,30 @@ export default function SalesInvoiceCreate() {
                         onChange={(e) => updateLineItem(index, { rate: e.target.value })}
                       />
 
-                      <Select
-                        value={row.taxId}
-                        onValueChange={(v) => {
-                          const selectedTax = taxOptions.find((t) => t.id === v);
-                          updateLineItem(index, {
-                            taxId: v,
-                            taxPercentage: Number(selectedTax?.percentage || 0),
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="md:col-span-3">
-                          <SelectValue placeholder="Select Tax *" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {taxOptions.map((tax) => (
-                            <SelectItem key={tax.id} value={tax.id}>{tax.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {isGstInvoice && (
+                        <Select
+                          value={row.taxId}
+                          onValueChange={(v) => {
+                            const selectedTax = taxOptions.find((t) => t.id === v);
+                            updateLineItem(index, {
+                              taxId: v,
+                              taxPercentage: Number(selectedTax?.percentage || 0),
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="md:col-span-3">
+                            <SelectValue placeholder="Select Tax *" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {taxOptions.map((tax) => (
+                              <SelectItem key={tax.id} value={tax.id}>{tax.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
 
                       <Input
-                        className="md:col-span-1"
+                        className={isGstInvoice ? "md:col-span-1" : "md:col-span-1"}
                         type="number"
                         min="0"
                         max="100"
@@ -359,7 +415,7 @@ export default function SalesInvoiceCreate() {
                         onChange={(e) => updateLineItem(index, { discount: e.target.value })}
                       />
 
-                      <div className="md:col-span-1 flex items-center justify-between gap-2">
+                      <div className={isGstInvoice ? "md:col-span-1 flex items-center justify-between gap-2" : "md:col-span-1 flex items-center justify-between gap-2"}>
                         <span className="text-sm font-medium">₹ {amount.toFixed(2)}</span>
                         <Button type="button" variant="ghost" size="icon" onClick={() => removeLine(index)}>
                           <Trash2 className="h-4 w-4" />
@@ -374,10 +430,15 @@ export default function SalesInvoiceCreate() {
             <div className="text-right font-semibold">Subtotal: ₹ {totals.subtotal.toFixed(2)}</div>
 
             <p className="text-xs text-muted-foreground">
-              Tax selection is mandatory for each item. Includes Non-Taxable, Out of Scope, Non-GST Supply and Zoho Tax Groups.
+              {isGstInvoice
+                ? "Tax selection is mandatory for each item. Includes Non-Taxable, Out of Scope, Non-GST Supply and Zoho Tax Groups."
+                : "Non-GST invoice selected: place of supply and line-item tax selection are skipped."}
             </p>
 
-            <Button onClick={handleCreateInvoice} disabled={isBusy || !selectedCustomerId || !placeOfSupply}>
+            <Button
+              onClick={handleCreateInvoice}
+              disabled={isBusy || !invoiceType || !selectedCustomerId || (isGstInvoice && !placeOfSupply)}
+            >
               {creatingInvoice ? "Creating..." : "Create Invoice in Zoho"}
             </Button>
           </CardContent>
