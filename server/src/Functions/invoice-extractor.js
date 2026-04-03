@@ -85,6 +85,8 @@ Critical extraction quality rules:
 - Read both key-value labels and table totals carefully before deciding fields.
 - If GST (CGST/SGST/IGST) is listed per line item and there is a final "Total" row, treat that final total as total_with_gst.
 - In line-item GST tables, aggregate CGST/SGST/IGST from totals (or summed item taxes) and compute taxable_amount as total_with_gst - (cgst + sgst + igst).
+- Handle intra-state (CGST+SGST), inter-state (IGST), or mixed tax rows safely; missing tax components must be 0.
+- Validate arithmetic consistency: taxable_amount + total_gst should match total_with_gst within small rounding tolerance, and avoid double-counting GST.
 - vendor_name must be the precise seller (the issuer/from party), extracting the exact legal business name without modification. Do not guess it.
 - invoice_number must be copied exactly as printed, including full suffix/prefix after separators like "-", "/", "_". Never truncate (example: keep "15439A58-0015", not "15439A58").
 - Do not strip punctuation inside legal entity names (for example "Anthropic, PBC").
@@ -174,6 +176,65 @@ const extractNumericTokens = (line = "") => {
   return matches.map((token) => Number(token)).filter((n) => Number.isFinite(n));
 };
 
+const almostEqual = (a, b, tolerance = 1.5) => {
+  const x = Number(a);
+  const y = Number(b);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  return Math.abs(x - y) <= tolerance;
+};
+
+const aggregateItemLevelGstFromRows = (lines = [], { hasCgst = false, hasSgst = false, hasIgst = false } = {}) => {
+  let cgst = 0;
+  let sgst = 0;
+  let igst = 0;
+  let rowCount = 0;
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "").trim();
+    if (!/^\d+\b/.test(line)) continue;
+
+    const nums = extractNumericTokens(line);
+    if (nums.length < 6) continue;
+
+    const rowTotal = Number(nums[nums.length - 1] || 0);
+    if (!(rowTotal > 0)) continue;
+
+    let rowCgst = 0;
+    let rowSgst = 0;
+    let rowIgst = 0;
+
+    // Common GST table row tail with both taxes:
+    // [... taxable, cgst%, cgst_amount, sgst%, sgst_amount, cess%, addl_cess, total]
+    if (hasCgst && hasSgst && nums.length >= 8) {
+      rowCgst = Number(nums[nums.length - 6] || 0);
+      rowSgst = Number(nums[nums.length - 4] || 0);
+    }
+
+    // Common IGST table row tail:
+    // [... taxable, igst%, igst_amount, (optional cess), total]
+    if (hasIgst) {
+      const candidate1 = Number(nums[nums.length - 4] || 0);
+      const candidate2 = Number(nums[nums.length - 3] || 0);
+      rowIgst = candidate1 > 0 ? candidate1 : candidate2 > 0 ? candidate2 : 0;
+    }
+
+    const rowGst = rowCgst + rowSgst + rowIgst;
+    if (!(rowGst > 0) || rowGst >= rowTotal) continue;
+
+    cgst += rowCgst;
+    sgst += rowSgst;
+    igst += rowIgst;
+    rowCount += 1;
+  }
+
+  return {
+    cgst: Number(cgst.toFixed(2)),
+    sgst: Number(sgst.toFixed(2)),
+    igst: Number(igst.toFixed(2)),
+    rowCount,
+  };
+};
+
 const deriveLineItemTaxTotals = (source = "", lines = []) => {
   const text = String(source || "");
   const hasItemTable = /\b(?:sr\.?\s*no|item\s*description|qty|taxable\s*value)\b/i.test(text);
@@ -183,11 +244,19 @@ const deriveLineItemTaxTotals = (source = "", lines = []) => {
 
   if (!hasItemTable || !(hasCgst || hasSgst || hasIgst)) return null;
 
-  const totalLine = lines.find((line) => /^\s*total\b/i.test(line));
-  if (!totalLine) return null;
+  const totalLineCandidates = lines.filter((line) =>
+    /\b(?:grand\s*total|total\s*amount|total)\b/i.test(String(line || "")) && /\d/.test(String(line || ""))
+  );
+  const totalLine = totalLineCandidates[totalLineCandidates.length - 1] || "";
 
-  const nums = extractNumericTokens(totalLine);
-  if (nums.length < 2) return null;
+  let nums = extractNumericTokens(totalLine);
+  if (nums.length < 2) {
+    const compact = text.replace(/[ \t]+/g, " ");
+    const inlineTotal = compact.match(/(?:grand\s*total|total\s*amount|\btotal\b)\s*[:\-]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)?.[1];
+    const parsedInlineTotal = parseAmount(inlineTotal);
+    if (!(parsedInlineTotal > 0)) return null;
+    nums = [parsedInlineTotal];
+  }
 
   const totalWithGst = Number(nums[nums.length - 1] || 0);
   if (!(totalWithGst > 0)) return null;
@@ -196,7 +265,12 @@ const deriveLineItemTaxTotals = (source = "", lines = []) => {
   let sgst = 0;
   let igst = 0;
 
-  if (hasCgst && hasSgst && nums.length >= 4) {
+  if (hasCgst && hasSgst && hasIgst && nums.length >= 5) {
+    // Rare case: [... cgst_total, sgst_total, igst_total, final_total]
+    cgst = Number(nums[nums.length - 4] || 0);
+    sgst = Number(nums[nums.length - 3] || 0);
+    igst = Number(nums[nums.length - 2] || 0);
+  } else if (hasCgst && hasSgst && nums.length >= 4) {
     // Expected tail for many GST tables: [..., cgst_total, sgst_total, final_total]
     cgst = Number(nums[nums.length - 3] || 0);
     sgst = Number(nums[nums.length - 2] || 0);
@@ -205,10 +279,20 @@ const deriveLineItemTaxTotals = (source = "", lines = []) => {
     igst = Number(nums[nums.length - 2] || 0);
   }
 
+  // Fallback: if totals row does not contain GST totals clearly, sum from item rows.
+  if (!(cgst + sgst + igst > 0)) {
+    const fromRows = aggregateItemLevelGstFromRows(lines, { hasCgst, hasSgst, hasIgst });
+    cgst = fromRows.cgst;
+    sgst = fromRows.sgst;
+    igst = fromRows.igst;
+  }
+
   const totalGst = Number((cgst + sgst + igst).toFixed(2));
   if (!(totalGst > 0)) return null;
+  if (totalGst >= totalWithGst) return null;
 
   const taxableAmount = Math.max(0, Number((totalWithGst - totalGst).toFixed(2)));
+  if (!almostEqual(taxableAmount + totalGst, totalWithGst, 2)) return null;
 
   return {
     line_item_tax_mode: true,
