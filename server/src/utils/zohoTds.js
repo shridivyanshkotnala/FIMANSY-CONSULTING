@@ -152,7 +152,7 @@ const TDS_PROFILES = [
     singleBillThreshold: 10000,
     annualThreshold: 10000,
     thresholdLabel: "Rs 10,000 in a financial year for non-bank payers",
-    zohoPreferredNames: ["Interest Other than Interest on Securities", "Other Interest than securities", "Other Interest than Securities"],
+    zohoPreferredNames: ["Interest Other than Interest on Securities", "Other Interest than securities", "Other Interest than Securities", "194a"],
     matchKeywords: [
       "interest",
       "interest on loan",
@@ -420,6 +420,10 @@ export function resolveSuggestedBillTds({
 }
 
 export const isTdsLikeZohoTax = (tax = {}) => {
+  if (String(tax?.tax_type).toLowerCase() === 'tds' || String(tax?.type).toLowerCase() === 'tds') {
+    return true;
+  }
+
   const haystack = normalizeTdsText([
     tax?.tax_name,
     tax?.tax_group_name,
@@ -438,6 +442,7 @@ export const isTdsLikeZohoTax = (tax = {}) => {
     "contractor",
     "interest",
     "tds",
+    "194"
   ].some((token) => haystack.includes(token));
 };
 
@@ -455,13 +460,19 @@ export const pickMatchingZohoTds = (entries = [], resolvedTds = {}) => {
   if (exact) return exact;
 
   const preferredNames = (resolvedTds.candidateZohoNames || []).map(normalizeTdsText);
-  const preferred = candidates.find((entry) => {
+  const preferredWithRate = candidates.find((entry) => {
     const entryName = normalizeTdsText(entry.tax_name || entry.tax_group_name || entry.name || entry.label);
     const entryRate = Number(entry.tax_percentage || entry.percentage || 0);
     if (Math.abs(entryRate - requestedRate) > 0.05) return false;
     return preferredNames.some((name) => entryName.includes(name)) && !entryName.includes("reduced");
   });
-  if (preferred) return preferred;
+  if (preferredWithRate) return preferredWithRate;
+
+  const preferredWithoutRate = candidates.find((entry) => {
+    const entryName = normalizeTdsText(entry.tax_name || entry.tax_group_name || entry.name || entry.label);
+    return preferredNames.some((name) => entryName.includes(name)) && !entryName.includes("reduced");
+  });
+  if (preferredWithoutRate) return preferredWithoutRate;
 
   return candidates.find((entry) => {
     const entryName = normalizeTdsText(entry.tax_name || entry.tax_group_name || entry.name || entry.label);
