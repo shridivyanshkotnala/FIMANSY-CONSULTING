@@ -429,6 +429,10 @@ export const isTdsLikeZohoTax = (tax = {}) => {
     tax?.tax_group_name,
     tax?.label,
     tax?.name,
+    tax?.tax_type,
+    tax?.tax_type_name,
+    tax?.tax_specific_type,
+    tax?.description,
   ].filter(Boolean).join(" "));
 
   if (!haystack) return false;

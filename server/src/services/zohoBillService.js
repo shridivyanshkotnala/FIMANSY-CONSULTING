@@ -414,22 +414,52 @@ async function resolveBillTdsSelection(zohoClient, billData, options = {}) {
       const fallbackPayload = {
         tax_name: generatedName.slice(0, 50),
         tax_percentage: Number(resolvedTds.tdsRate || 10),
-        tax_type: "tds",
-        type: "tds",
+        tax_type: "tax",
       };
 
       const creationRes = await zohoClient.post("/settings/taxes", fallbackPayload);
-      if (creationRes && creationRes.tax) {
-        matchedTds = creationRes.tax;
-      } else {
-        throw new Error("Tax creation returned no details");
+      const createdTax =
+        (Array.isArray(creationRes?.tax) ? creationRes.tax[0] : null) ||
+        creationRes?.tax ||
+        null;
+
+      if (createdTax) {
+        matchedTds = createdTax;
       }
     } catch (creationError) {
-      console.warn("[ZOHO_BILL][TDS_CREATION_FAILED]", creationError?.message);
-      throw new Error(
-        `Failed to create missing TDS Tax in Zoho: ${creationError?.message || "Unknown error"}. Please configure ${resolvedTds.tdsTaxName || resolvedTds.tdsNature} in Zoho Manage TDS.`
-      );
+      console.warn("[ZOHO_BILL][TDS_CREATION_FAILED]", {
+        message: creationError?.message,
+        requested: resolvedTds.tdsTaxName || resolvedTds.tdsNature,
+      });
     }
+  }
+
+  if (!matchedTds) {
+    const requestedRate = Number(resolvedTds.tdsRate || 0);
+    const bestByRate = catalog.find((entry) => {
+      const entryRate = Number(entry.tax_percentage || entry.percentage || 0);
+      return Math.abs(entryRate - requestedRate) <= 0.05;
+    }) || null;
+
+    if (bestByRate) {
+      matchedTds = bestByRate;
+    }
+  }
+
+  if (!matchedTds) {
+    console.warn("[ZOHO_BILL][TDS_SKIPPED_NO_MATCH]", {
+      invoice_number: billData.invoice_number || billData.bill_number,
+      requested_tds_name: resolvedTds.tdsTaxName,
+      requested_tds_rate: resolvedTds.tdsRate,
+    });
+
+    return {
+      ...resolvedTds,
+      isTdsApplicable: false,
+      tdsTaxId: null,
+      tdsTaxName: null,
+      tdsReasoning: `${resolvedTds.tdsReasoning || ""} Zoho TDS mapping was not found, so TDS was skipped to avoid sync failure.`.trim(),
+    };
   }
 
   return {
