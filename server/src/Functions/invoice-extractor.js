@@ -195,6 +195,7 @@ const parseDateToISO = (value) => {
 const sanitizeInvoiceNumber = (value) => {
   const token = String(value || "")
     .trim()
+    .replace(/^(?:invoice\s*number|invoice\s*no\.?|receipt\s*number|receipt\s*no\.?|bill\s*number|bill\s*no\.?|invoice|invoic|receipt|bill|number|no\.?|id)\s*[:\-#]?\s*/i, "")
     .replace(/[–—]/g, "-")
     .replace(/\s*([\-_/])\s*/g, "$1")
     .replace(/^[#:\-\s]+/, "")
