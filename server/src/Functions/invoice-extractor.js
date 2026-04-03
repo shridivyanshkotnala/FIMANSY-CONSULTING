@@ -140,6 +140,9 @@ async function extractTextFromPdf(buffer) {
   }
 }
 
+const FX_CACHE = new Map();
+const FX_CACHE_TTL_MS = 30 * 60 * 1000;
+
 const INDIAN_GSTIN_REGEX = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/i;
 
 const looksMissing = (value) => {
@@ -193,13 +196,43 @@ function deriveInvoiceHintsFromText(text) {
   const lines = source.split("\n").map((l) => l.trim()).filter(Boolean);
   const compact = source.replace(/[ \t]+/g, " ");
 
+  const looksLikeInvoiceNumber = (value) => {
+    const token = String(value || "").trim();
+    if (!token) return false;
+    if (token.length < 5 || token.length > 40) return false;
+    if (!/[a-zA-Z]/.test(token) || !/\d/.test(token)) return false;
+    if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(token)) return false;
+    if (/^\d+(?:\.\d{1,2})?$/.test(token)) return false;
+    if (INDIAN_GSTIN_REGEX.test(token)) return false;
+    return /^[A-Z0-9][A-Z0-9\-_/]*$/i.test(token);
+  };
+
+  const extractInvoiceNumber = () => {
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (!/^(invoice|receipt|bill)\s*(number|no\.?)/i.test(line)) continue;
+
+      const inline = line.match(/(?:invoice|receipt|bill)\s*(?:number|no\.?)\s*[:#-]?\s*([A-Z0-9\-_/]+)/i)?.[1];
+      if (looksLikeInvoiceNumber(inline)) return inline;
+
+      const afterColon = line.split(":").slice(1).join(":").trim();
+      if (looksLikeInvoiceNumber(afterColon)) return afterColon;
+
+      const next = lines[i + 1];
+      if (looksLikeInvoiceNumber(next)) return next;
+    }
+
+    const compactMatch = compact.match(/(?:invoice\s*number|invoice\s*no\.?|receipt\s*number|receipt\s*no\.?|bill\s*number|bill\s*no\.?)\s*[:#-]?\s*([A-Z0-9\-/]+)/i)?.[1];
+    if (looksLikeInvoiceNumber(compactMatch)) return compactMatch;
+
+    return null;
+  };
+
   const companyLine = lines.find((line) =>
     /\b(limited|ltd|llp|private|pvt|inc|corp|technologies|solutions)\b/i.test(line)
   );
 
-  const invoiceNo =
-    compact.match(/(?:invoice\s*number|invoice\s*no\.?|receipt\s*number|bill\s*number)\s*[:#-]?\s*([A-Z0-9\-/]+)/i)?.[1] ||
-    null;
+  const invoiceNo = extractInvoiceNumber();
 
   const dateRaw =
     compact.match(/(?:date\s*paid|date\s*of\s*issue|invoice\s*date|date)\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s*\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2})/i)?.[1] ||
@@ -261,6 +294,84 @@ function deriveInvoiceHintsFromText(text) {
     total_with_gst: total ?? subtotal ?? null,
     payment_mode: paymentMode,
   };
+}
+
+function detectDocumentCurrency(text = "", extracted = {}) {
+  const source = `${String(text || "")}\n${JSON.stringify(extracted || {})}`.toLowerCase();
+
+  if (/\b(?:usd|us\s*dollar|dollars)\b/.test(source) || /\$\s*\d/.test(source)) {
+    return "USD";
+  }
+
+  if (/\b(?:inr|rs\.?|rupees?)\b/.test(source) || /₹\s*\d/.test(source)) {
+    return "INR";
+  }
+
+  return null;
+}
+
+async function getFxRate(baseCurrency, quoteCurrency) {
+  const base = String(baseCurrency || "").toUpperCase();
+  const quote = String(quoteCurrency || "").toUpperCase();
+  if (!base || !quote) return null;
+  if (base === quote) return 1;
+
+  const key = `${base}_${quote}`;
+  const cached = FX_CACHE.get(key);
+  if (cached && Date.now() - cached.fetchedAt < FX_CACHE_TTL_MS) {
+    return cached.rate;
+  }
+
+  const urls = [
+    `https://open.er-api.com/v6/latest/${base}`,
+    `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const { data } = await axios.get(url, { timeout: 5000 });
+      const rate = Number(data?.rates?.[quote]);
+      if (Number.isFinite(rate) && rate > 0) {
+        FX_CACHE.set(key, { rate, fetchedAt: Date.now() });
+        return rate;
+      }
+    } catch {
+      // try next endpoint
+    }
+  }
+
+  return null;
+}
+
+function convertToInr(extracted = {}, fxRate = null, sourceCurrency = "") {
+  const rate = Number(fxRate);
+  if (!Number.isFinite(rate) || rate <= 0) return extracted;
+
+  const monetaryFields = [
+    "taxable_amount",
+    "cgst",
+    "sgst",
+    "igst",
+    "total_gst",
+    "total_with_gst",
+    "tds_amount",
+  ];
+
+  const rounded = (n) => Number((Number(n) * rate).toFixed(2));
+  const next = { ...extracted };
+
+  monetaryFields.forEach((field) => {
+    const value = Number(next[field]);
+    if (Number.isFinite(value) && value > 0) {
+      next[field] = rounded(value);
+    }
+  });
+
+  next.original_currency = String(sourceCurrency || "").toUpperCase();
+  next.currency = "INR";
+  next.exchange_rate = rate;
+
+  return next;
 }
 
 function mergeWithTextHints(extracted = {}, hints = {}) {
@@ -545,6 +656,14 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
   const textHints = deriveInvoiceHintsFromText(rawDocText);
   extractedData = mergeWithTextHints(extractedData, textHints);
 
+  const detectedCurrency = detectDocumentCurrency(rawDocText, extractedData);
+  if (detectedCurrency && detectedCurrency !== "INR") {
+    const fxRate = await getFxRate(detectedCurrency, "INR");
+    if (fxRate) {
+      extractedData = convertToInr(extractedData, fxRate, detectedCurrency);
+    }
+  }
+
   const validCategories = ['expense', 'revenue', 'asset', 'liability'];
   const documentCategory = validCategories.includes((extractedData.document_category || '').toLowerCase())
     ? extractedData.document_category.toLowerCase()
@@ -600,7 +719,10 @@ export default async function extractInvoice({ fileUrl, orgId, userId }) {
     tds_reasoning: normalizedTds.tdsReasoning,
     gst_reasoning: extractedData.gst_reasoning || null,
     confidence: Number(extractedData.confidence) || 50,
-    source_file: fileUrl
+    source_file: fileUrl,
+    currency: extractedData.currency || "INR",
+    original_currency: extractedData.original_currency || null,
+    exchange_rate: Number(extractedData.exchange_rate) || null,
   };
 
   return invoice;
