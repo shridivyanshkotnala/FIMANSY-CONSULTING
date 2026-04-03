@@ -184,73 +184,90 @@ This is how real SaaS integrations behave.
 const getZohoStatus = asynchandler(async (req, res) => {
   const connection = await ZohoConnection
     .findOne({ organizationId: req.organizationId })
+    .lean();
 
-
-
-  const getZohoOauthOrganizations = asynchandler(async (req, res) => {
-    const { sessionId } = req.params;
-    if (!sessionId) throw new ApiError(400, "sessionId is required");
-
-    const session = await ZohoOauthSession.findById(sessionId).lean();
-    if (!session || session.consumed) {
-      throw new ApiError(404, "OAuth session not found or already used");
-    }
-
-    if (String(session.userId) !== String(req.user?._id)) {
-      throw new ApiError(403, "Not allowed to access this OAuth session");
-    }
-
-    if (new Date(session.expiresAt).getTime() <= Date.now()) {
-      throw new ApiError(410, "OAuth session expired. Please reconnect Zoho");
-    }
-
-    return res.status(200).json(
-      new ApiResponse(200, {
-        sessionId: String(session._id),
-        organizations: session.organizations,
-      }, "Zoho organizations fetched")
-    );
-  });
-
-
-  const selectZohoOrganization = asynchandler(async (req, res) => {
-    const { sessionId, zohoOrgId } = req.body || {};
-
-    if (!sessionId || !zohoOrgId) {
-      throw new ApiError(400, "sessionId and zohoOrgId are required");
-    }
-
-    const session = await ZohoOauthSession.findById(sessionId);
-    if (!session || session.consumed) {
-      throw new ApiError(404, "OAuth session not found or already used");
-    }
-
-    if (String(session.userId) !== String(req.user?._id)) {
-      throw new ApiError(403, "Not allowed to use this OAuth session");
-    }
-
-    if (new Date(session.expiresAt).getTime() <= Date.now()) {
-      throw new ApiError(410, "OAuth session expired. Please reconnect Zoho");
-    }
-
-    const match = session.organizations.find((org) => String(org.organization_id) === String(zohoOrgId));
-    if (!match) {
-      throw new ApiError(400, "Selected Zoho organization is invalid");
-    }
-
-    await connectZohoOrganization({
-      organizationId: session.organizationId,
-      zohoOrgId: match.organization_id,
-      accessToken: session.accessToken,
-      refreshToken: session.refreshToken,
-      expiresIn: Math.max(1, Math.floor((new Date(session.tokenExpiry).getTime() - Date.now()) / 1000)),
+  if (!connection) {
+    return res.json({
+      connected: false,
+      organizationId: null,
+      expiresAt: null,
+      provider: "zoho",
     });
+  }
 
-    session.consumed = true;
-    await session.save();
-
-    return res.status(200).json(new ApiResponse(200, { connected: true }, "Zoho connected"));
+  return res.json({
+    connected: true,
+    organizationId: connection.zohoOrgId,
+    expiresAt: connection.tokenExpiry,
+    provider: "zoho",
   });
+});
+
+
+const getZohoOauthOrganizations = asynchandler(async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) throw new ApiError(400, "sessionId is required");
+
+  const session = await ZohoOauthSession.findById(sessionId).lean();
+  if (!session || session.consumed) {
+    throw new ApiError(404, "OAuth session not found or already used");
+  }
+
+  if (String(session.userId) !== String(req.user?._id)) {
+    throw new ApiError(403, "Not allowed to access this OAuth session");
+  }
+
+  if (new Date(session.expiresAt).getTime() <= Date.now()) {
+    throw new ApiError(410, "OAuth session expired. Please reconnect Zoho");
+  }
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      sessionId: String(session._id),
+      organizations: session.organizations,
+    }, "Zoho organizations fetched")
+  );
+});
+
+
+const selectZohoOrganization = asynchandler(async (req, res) => {
+  const { sessionId, zohoOrgId } = req.body || {};
+
+  if (!sessionId || !zohoOrgId) {
+    throw new ApiError(400, "sessionId and zohoOrgId are required");
+  }
+
+  const session = await ZohoOauthSession.findById(sessionId);
+  if (!session || session.consumed) {
+    throw new ApiError(404, "OAuth session not found or already used");
+  }
+
+  if (String(session.userId) !== String(req.user?._id)) {
+    throw new ApiError(403, "Not allowed to use this OAuth session");
+  }
+
+  if (new Date(session.expiresAt).getTime() <= Date.now()) {
+    throw new ApiError(410, "OAuth session expired. Please reconnect Zoho");
+  }
+
+  const match = session.organizations.find((org) => String(org.organization_id) === String(zohoOrgId));
+  if (!match) {
+    throw new ApiError(400, "Selected Zoho organization is invalid");
+  }
+
+  await connectZohoOrganization({
+    organizationId: session.organizationId,
+    zohoOrgId: match.organization_id,
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+    expiresIn: Math.max(1, Math.floor((new Date(session.tokenExpiry).getTime() - Date.now()) / 1000)),
+  });
+
+  session.consumed = true;
+  await session.save();
+
+  return res.status(200).json(new ApiResponse(200, { connected: true }, "Zoho connected"));
+});
 
 
 export { connectZoho, zohoCallback, getZohoStatus, getZohoOauthOrganizations, selectZohoOrganization };
