@@ -1,6 +1,13 @@
-import { normalizeIndianGstin, resolveVendorTaxProfile } from "../utils/zohoGstState.js";
+import {
+  normalizeIndianGstin,
+  resolveOrganizationGstStateCode,
+  resolveVendorTaxProfile,
+} from "../utils/zohoGstState.js";
 
 export const getOrCreateZohoCustomer = async (zohoClient, customer) => {
+  const orgGstStateCode = await resolveOrganizationGstStateCode(zohoClient);
+  const organizationHasGst = Boolean(orgGstStateCode);
+
   const search = await zohoClient.get("/contacts", {
     contact_name: customer.name,
   });
@@ -10,12 +17,15 @@ export const getOrCreateZohoCustomer = async (zohoClient, customer) => {
   }
 
   const gstNo = normalizeIndianGstin(customer.gstin);
+  const gstPayload = organizationHasGst && gstNo
+    ? { gst_no: gstNo, gst_treatment: "business_gst" }
+    : {};
 
   const created = await zohoClient.post("/contacts", {
     contact_name: customer.name,
     company_name: customer.name,
     contact_type: "customer",
-    ...(gstNo ? { gst_no: gstNo, gst_treatment: "business_gst" } : {}),
+    ...gstPayload,
     billing_address: {
       state_code: customer.state_code || "DL",
       country: "India",
@@ -32,6 +42,9 @@ const normalize = (value = "") =>
     .trim();
 
 export const getOrCreateZohoVendor = async (zohoClient, vendorInput) => {
+  const orgGstStateCode = await resolveOrganizationGstStateCode(zohoClient);
+  const organizationHasGst = Boolean(orgGstStateCode);
+
   const vendor =
     typeof vendorInput === "string"
       ? { name: vendorInput }
@@ -79,8 +92,8 @@ export const getOrCreateZohoVendor = async (zohoClient, vendorInput) => {
     contact_name: vendorName,
     company_name: vendorName,
     contact_type: "vendor",
-    gst_treatment: taxProfile.gstTreatment,
-    ...(taxProfile.gstNo ? { gst_no: taxProfile.gstNo } : {}),
+    ...(organizationHasGst && taxProfile.gstTreatment ? { gst_treatment: taxProfile.gstTreatment } : {}),
+    ...(organizationHasGst && taxProfile.gstNo ? { gst_no: taxProfile.gstNo } : {}),
     ...(Object.keys(billingAddress).length ? { billing_address: billingAddress } : {}),
   };
 

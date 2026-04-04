@@ -434,6 +434,7 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
   const gstNo = vendorTaxProfile.gstNo;
 
   const orgGstState = await zohoGst.resolveOrganizationGstStateCode(zohoClient);
+  const organizationHasGst = Boolean(orgGstState);
   const vendorGstState = zohoGst.extractGstStateCode(gstNo);
   const sourceNumericState =
     explicitSourceOfSupply.numeric ||
@@ -473,9 +474,11 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
   });
   const accountId = resolvedAccount.accountId;
   const paidThroughAccountId = await resolvePaidThroughAccountId(zohoClient, expenseData.payment_mode);
-  const taxId = await resolveExpenseTaxId(zohoClient, expenseData, {
-    mode: taxMode,
-  });
+  const taxId = organizationHasGst
+    ? await resolveExpenseTaxId(zohoClient, expenseData, {
+        mode: taxMode,
+      })
+    : null;
 
   const amount = Number(expenseData.total_with_gst || expenseData.taxable_amount || 0);
   if (!(amount > 0)) {
@@ -493,15 +496,17 @@ export async function pushExpenseToZoho(zohoClient, expenseData) {
     is_inclusive_tax: true,
     ...(taxId ? { tax_id: taxId } : {}),
     ...(paidThroughAccountId ? { paid_through_account_id: paidThroughAccountId } : {}),
-    ...(vendorTaxProfile.gstTreatment ? { gst_treatment: vendorTaxProfile.gstTreatment } : {}),
-    ...(gstNo ? { gst_no: gstNo } : {}),
-    ...(gstNo
+    ...(organizationHasGst && vendorTaxProfile.gstTreatment ? { gst_treatment: vendorTaxProfile.gstTreatment } : {}),
+    ...(organizationHasGst && gstNo ? { gst_no: gstNo } : {}),
+    ...(organizationHasGst && gstNo
       ? {
           ...(sourceOfSupply ? { source_of_supply: sourceOfSupply } : {}),
           ...(destinationOfSupply ? { destination_of_supply: destinationOfSupply } : {}),
         }
       : {}),
-    ...(!gstNo && !vendorTaxProfile.isOverseas && placeOfSupply?.alpha ? { place_of_supply: placeOfSupply.alpha } : {}),
+    ...(organizationHasGst && !gstNo && !vendorTaxProfile.isOverseas && placeOfSupply?.alpha
+      ? { place_of_supply: placeOfSupply.alpha }
+      : {}),
   };
 
   const idempotencyBaseKey = `expense-${expenseData.invoice_number || Date.now()}`;

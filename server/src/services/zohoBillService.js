@@ -524,6 +524,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
   const gstNo = vendorTaxProfile.gstNo;
 
   const orgGstState = await zohoGst.resolveOrganizationGstStateCode(zohoClient);
+  const organizationHasGst = Boolean(orgGstState);
   const vendorGstState = zohoGst.extractGstStateCode(gstNo);
   const sourceNumericState =
     explicitSourceOfSupply.numeric ||
@@ -564,7 +565,9 @@ export async function buildZohoBillPayload(zohoClient, billData) {
   const accountId = resolvedAccount.accountId;
   const accountName = resolvedAccount.accountName;
   const taxData = await getZohoTaxesData(zohoClient);
-  const taxId = await resolveBillTaxId(zohoClient, billData, { mode: taxMode, taxData });
+  const taxId = organizationHasGst
+    ? await resolveBillTaxId(zohoClient, billData, { mode: taxMode, taxData })
+    : null;
   const tdsSelection = await resolveBillTdsSelection(zohoClient, billData, { taxData });
 
   const taxableAmount = Number(billData.taxable_amount || 0);
@@ -586,7 +589,7 @@ export async function buildZohoBillPayload(zohoClient, billData) {
             `${billData.vendor_name || "Vendor"} - ${billData.invoice_number || "Bill"}`,
           quantity: 1,
           rate: isInclusiveTax ? grossAmount : (taxableAmount > 0 ? taxableAmount : grossAmount),
-          ...(taxId ? { tax_id: taxId } : {}),
+          ...(organizationHasGst && taxId ? { tax_id: taxId } : {}),
         },
       ];
 
@@ -617,12 +620,12 @@ export async function buildZohoBillPayload(zohoClient, billData) {
     purchaseorder_ids: billData.purchaseorder_ids,
     bill_number: billData.bill_number || billData.invoice_number,
     documents: billData.documents,
-    source_of_supply: sourceOfSupply,
-    destination_of_supply: destinationOfSupply,
+    source_of_supply: organizationHasGst ? sourceOfSupply : undefined,
+    destination_of_supply: organizationHasGst ? destinationOfSupply : undefined,
     permit_number: billData.permit_number,
-    gst_treatment: vendorTaxProfile.gstTreatment,
+    gst_treatment: organizationHasGst ? vendorTaxProfile.gstTreatment : undefined,
     tax_treatment: billData.tax_treatment,
-    gst_no: gstNo || undefined,
+    gst_no: organizationHasGst ? (gstNo || undefined) : undefined,
     is_tds_applied: tdsSelection.isTdsApplicable || undefined,
     pricebook_id: billData.pricebook_id,
     reference_number: billData.reference_number || billData.invoice_number,
