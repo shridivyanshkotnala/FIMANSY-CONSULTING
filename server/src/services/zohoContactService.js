@@ -71,6 +71,7 @@ export const getOrCreateZohoVendor = async (zohoClient, vendorInput) => {
 
   const billingAddress = {
     ...(city ? { city } : {}),
+    ...(taxProfile.gstStateCode ? { state_code: taxProfile.gstStateCode } : {}),
     ...(taxProfile.country ? { country: taxProfile.country } : {}),
   };
 
@@ -80,7 +81,6 @@ export const getOrCreateZohoVendor = async (zohoClient, vendorInput) => {
     contact_type: "vendor",
     gst_treatment: taxProfile.gstTreatment,
     ...(taxProfile.gstNo ? { gst_no: taxProfile.gstNo } : {}),
-    ...(taxProfile.placeOfContact ? { place_of_contact: taxProfile.placeOfContact } : {}),
     ...(Object.keys(billingAddress).length ? { billing_address: billingAddress } : {}),
   };
 
