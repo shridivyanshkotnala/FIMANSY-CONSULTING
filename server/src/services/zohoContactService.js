@@ -1,12 +1,11 @@
 import {
   normalizeIndianGstin,
-  resolveOrganizationGstStateCode,
+  resolveOrganizationHasGstRegistration,
   resolveVendorTaxProfile,
 } from "../utils/zohoGstState.js";
 
 export const getOrCreateZohoCustomer = async (zohoClient, customer) => {
-  const orgGstStateCode = await resolveOrganizationGstStateCode(zohoClient);
-  const organizationHasGst = Boolean(orgGstStateCode);
+  const organizationHasGst = await resolveOrganizationHasGstRegistration(zohoClient);
 
   const search = await zohoClient.get("/contacts", {
     contact_name: customer.name,
@@ -42,8 +41,7 @@ const normalize = (value = "") =>
     .trim();
 
 export const getOrCreateZohoVendor = async (zohoClient, vendorInput) => {
-  const orgGstStateCode = await resolveOrganizationGstStateCode(zohoClient);
-  const organizationHasGst = Boolean(orgGstStateCode);
+  const organizationHasGst = await resolveOrganizationHasGstRegistration(zohoClient);
 
   const vendor =
     typeof vendorInput === "string"

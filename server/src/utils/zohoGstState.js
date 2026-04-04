@@ -280,3 +280,28 @@ export async function resolveOrganizationGstStateCode(zohoClient) {
     return undefined;
   }
 }
+
+export async function resolveOrganizationHasGstRegistration(zohoClient) {
+  try {
+    const data = await zohoClient.get("/organizations", { page: 1, per_page: 200 });
+    const organizations = data?.organizations || [];
+    const orgId = String(zohoClient?.organizationId || "");
+
+    const matched =
+      organizations.find((org) => String(org?.organization_id || "") === orgId) ||
+      organizations.find((org) => org?.is_default_org) ||
+      organizations[0];
+
+    const listGst = normalizeIndianGstin(matched?.gst_no || matched?.gstin || "");
+    if (listGst) return true;
+
+    const targetOrgId = String(matched?.organization_id || orgId || "").trim();
+    if (!targetOrgId) return false;
+
+    const detail = await zohoClient.get(`/organizations/${targetOrgId}`);
+    const org = detail?.organization || detail || {};
+    return Boolean(normalizeIndianGstin(org?.gst_no || org?.gstin || ""));
+  } catch {
+    return false;
+  }
+}

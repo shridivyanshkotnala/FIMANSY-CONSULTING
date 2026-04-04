@@ -523,8 +523,10 @@ export async function buildZohoBillPayload(zohoClient, billData) {
   });
   const gstNo = vendorTaxProfile.gstNo;
 
-  const orgGstState = await zohoGst.resolveOrganizationGstStateCode(zohoClient);
-  const organizationHasGst = Boolean(orgGstState);
+  const organizationHasGst = await zohoGst.resolveOrganizationHasGstRegistration(zohoClient);
+  const orgGstState = organizationHasGst
+    ? await zohoGst.resolveOrganizationGstStateCode(zohoClient)
+    : undefined;
   const vendorGstState = zohoGst.extractGstStateCode(gstNo);
   const sourceNumericState =
     explicitSourceOfSupply.numeric ||
